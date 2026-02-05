@@ -1551,13 +1551,20 @@ function DiagramTab({
                       <div className="text-xs font-medium text-gray-500 mb-1">
                         Роль
                       </div>
-                      <p className="text-sm text-gray-900">{selectedBlock.role}</p>
+                      <p className="text-sm text-gray-900">
+                        {data.roles.find((r) => r.id === selectedBlock.role)?.name ||
+                          data.roles.find((r) => r.name === selectedBlock.role)?.name ||
+                          selectedBlock.role}
+                      </p>
                     </div>
                     <div>
                       <div className="text-xs font-medium text-gray-500 mb-1">
                         Этап
                       </div>
-                      <p className="text-sm text-gray-900">{selectedBlock.stage}</p>
+                      <p className="text-sm text-gray-900">
+                        {data.stages.find((s) => s.id === selectedBlock.stage)?.name ||
+                          selectedBlock.stage}
+                      </p>
                     </div>
                   </div>
 
@@ -1675,6 +1682,20 @@ function DiagramTab({
 // ============================================
 
 function StagesTab({ data }: { data: ProcessData }) {
+  const roleMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of data.roles) {
+      m.set(r.id, r.name);
+      m.set(r.name, r.name);
+    }
+    return m;
+  }, [data.roles]);
+
+  const roleName = useCallback(
+    (roleIdOrName: string) => roleMap.get(roleIdOrName) || roleIdOrName,
+    [roleMap],
+  );
+
   const sortedStages = useMemo(
     () => [...data.stages].sort((a, b) => a.order - b.order),
     [data.stages]
@@ -1751,7 +1772,7 @@ function StagesTab({ data }: { data: ProcessData }) {
                           <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
                             <span className="flex items-center gap-1">
                               <Users className="w-3 h-3" />
-                              {block.role}
+                              {roleName(block.role)}
                             </span>
                             {block.timeEstimate && (
                               <span className="flex items-center gap-1">
