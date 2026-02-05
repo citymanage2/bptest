@@ -5,12 +5,10 @@ import { BLOCK_CONFIG, SWIMLANE_COLORS } from "@shared/types";
 // ============================================================
 // Constants
 // ============================================================
-const STAGE_HEADER_WIDTH = 140;
-const ROLE_HEADER_HEIGHT = 60;
-const LANE_WIDTH = 350;
-const BLOCK_WIDTH = 280;
-const BLOCK_PADDING = 40;
-const MIN_STAGE_HEIGHT = 240;
+const STAGE_HEADER_WIDTH = 120;
+const ROLE_HEADER_HEIGHT = 56;
+const BLOCK_PADDING = 36;
+const MIN_STAGE_HEIGHT = 220;
 const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 3;
 const ZOOM_SENSITIVITY = 0.002;
@@ -37,6 +35,8 @@ interface LayoutInfo {
   stageHeights: number[];
   roleOrder: string[];
   stageOrder: string[];
+  laneWidth: number;
+  blockWidth: number;
 }
 
 interface Point {
@@ -153,6 +153,11 @@ function computeLayout(data: ProcessData): LayoutInfo {
   const roleOrder = data.roles.map((r) => r.id);
   const stageOrder = sortedStages.map((s) => s.id);
 
+  // Dynamic lane/block width based on role count
+  const roleCount = roleOrder.length;
+  const LANE_WIDTH = Math.max(180, Math.min(350, 2400 / Math.max(roleCount, 1)));
+  const BLOCK_WIDTH = LANE_WIDTH - 60;
+
   const roleIndexMap: Record<string, number> = {};
   roleOrder.forEach((id, i) => {
     roleIndexMap[id] = i;
@@ -239,6 +244,8 @@ function computeLayout(data: ProcessData): LayoutInfo {
     stageHeights,
     roleOrder,
     stageOrder,
+    laneWidth: LANE_WIDTH,
+    blockWidth: BLOCK_WIDTH,
   };
 }
 
@@ -824,6 +831,7 @@ function renderDiagram(
     stageHeights,
     roleOrder,
     stageOrder,
+    laneWidth: LANE_WIDTH,
   } = layout;
 
   // ---- Background ----
