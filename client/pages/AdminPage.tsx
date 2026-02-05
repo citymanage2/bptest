@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,14 @@ import {
   ChevronLeft,
   Search,
   X,
+  FileText,
+  Building2,
+  Eye,
+  ExternalLink,
+  Filter,
+  Layers,
+  GitBranch,
+  UserCheck,
 } from "lucide-react";
 import type { User, SupportChat, SupportMessage, FaqArticle } from "@shared/types";
 
@@ -762,6 +770,414 @@ function FaqTab() {
   );
 }
 
+// ==================== Processes Tab ====================
+const STATUS_LABELS: Record<string, string> = {
+  draft: "Черновик",
+  active: "Активный",
+  archived: "В архиве",
+};
+const STATUS_COLORS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+  draft: "secondary",
+  active: "default",
+  archived: "outline",
+};
+
+function ProcessesTab() {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [viewingProcessId, setViewingProcessId] = useState<number | null>(null);
+
+  const processesQuery = trpc.admin.listProcesses.useQuery({
+    search: searchQuery || undefined,
+    status: statusFilter !== "all" ? (statusFilter as "draft" | "active" | "archived") : undefined,
+  });
+
+  const processDetailQuery = trpc.admin.getProcessById.useQuery(
+    { id: viewingProcessId! },
+    { enabled: !!viewingProcessId }
+  );
+
+  const processList = processesQuery.data ?? [];
+
+  const stats = useMemo(() => {
+    const all = processesQuery.data ?? [];
+    return {
+      total: all.length,
+      draft: all.filter((p) => p.status === "draft").length,
+      active: all.filter((p) => p.status === "active").length,
+      archived: all.filter((p) => p.status === "archived").length,
+    };
+  }, [processesQuery.data]);
+
+  const detail = processDetailQuery.data;
+
+  return (
+    <div className="space-y-4">
+      {/* Stats cards */}
+      <div className="grid grid-cols-4 gap-3">
+        <Card className="bg-white">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
+                <FileText className="w-4 h-4 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Всего</p>
+                <p className="text-lg font-bold text-gray-900">{stats.total}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-white">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center">
+                <Edit2 className="w-4 h-4 text-gray-500" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Черновики</p>
+                <p className="text-lg font-bold text-gray-900">{stats.draft}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-white">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                <GitBranch className="w-4 h-4 text-green-600" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Активные</p>
+                <p className="text-lg font-bold text-gray-900">{stats.active}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-white">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
+                <Layers className="w-4 h-4 text-orange-600" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">В архиве</p>
+                <p className="text-lg font-bold text-gray-900">{stats.archived}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Search + filter */}
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Поиск по названию процесса, компании, пользователю..."
+            className="pl-10"
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Filter className="w-4 h-4 text-gray-400" />
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="flex h-9 rounded-md border border-gray-300 bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400"
+          >
+            <option value="all">Все статусы</option>
+            <option value="draft">Черновики</option>
+            <option value="active">Активные</option>
+            <option value="archived">В архиве</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Process table */}
+      {processesQuery.isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+        </div>
+      ) : processList.length === 0 ? (
+        <div className="text-center py-12">
+          <FileText className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-500">Процессы не найдены</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                    ID
+                  </th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                    Название процесса
+                  </th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                    Компания
+                  </th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                    Пользователь
+                  </th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                    Статус
+                  </th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                    Структура
+                  </th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                    Создан
+                  </th>
+                  <th className="text-right text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                    Действия
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {processList.map((proc) => (
+                  <tr key={proc.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 text-sm text-gray-500">{proc.id}</td>
+                    <td className="px-4 py-3">
+                      <span className="text-sm font-medium text-gray-900">
+                        {proc.processName}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <Building2 className="w-3.5 h-3.5 text-gray-400" />
+                        <span className="text-sm text-gray-700">{proc.companyName}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div>
+                        <p className="text-sm text-gray-700">{proc.userName}</p>
+                        <p className="text-[10px] text-gray-400">{proc.userEmail}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge variant={STATUS_COLORS[proc.status] ?? "secondary"}>
+                        {STATUS_LABELS[proc.status] ?? proc.status}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span title="Этапы">{proc.stagesCount} эт.</span>
+                        <span>&middot;</span>
+                        <span title="Блоки">{proc.blocksCount} бл.</span>
+                        <span>&middot;</span>
+                        <span title="Роли">{proc.rolesCount} рол.</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      {formatDateTime(proc.createdAt)}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setViewingProcessId(proc.id)}
+                          title="Просмотр деталей"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => window.open(`/process/${proc.id}`, "_blank")}
+                          title="Открыть процесс"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Process detail dialog */}
+      <Dialog
+        open={!!viewingProcessId}
+        onOpenChange={(open) => {
+          if (!open) setViewingProcessId(null);
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {processDetailQuery.isLoading
+                ? "Загрузка..."
+                : detail?.data?.name ?? "Процесс"}
+            </DialogTitle>
+            <DialogDescription>
+              Процесс #{viewingProcessId}
+              {detail && (
+                <>
+                  {" "}&middot; {detail.companyName} &middot; {detail.userName} ({detail.userEmail})
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+
+          {processDetailQuery.isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+            </div>
+          ) : detail ? (
+            <div className="space-y-5">
+              {/* General info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-gray-500 uppercase">Статус</p>
+                  <Badge variant={STATUS_COLORS[detail.status] ?? "secondary"}>
+                    {STATUS_LABELS[detail.status] ?? detail.status}
+                  </Badge>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-gray-500 uppercase">Создан</p>
+                  <p className="text-sm text-gray-900">{formatDateTime(detail.createdAt)}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-gray-500 uppercase">Обновлён</p>
+                  <p className="text-sm text-gray-900">{formatDateTime(detail.updatedAt)}</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-gray-500 uppercase">Компания</p>
+                  <div className="flex items-center gap-1.5">
+                    <Building2 className="w-3.5 h-3.5 text-gray-400" />
+                    <span className="text-sm text-gray-900">{detail.companyName}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Process passport */}
+              {detail.data && (
+                <>
+                  <div className="border-t border-gray-200 pt-4">
+                    <h4 className="text-sm font-semibold text-gray-900 mb-3">Паспорт процесса</h4>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-500">Цель</p>
+                        <p className="text-sm text-gray-900">{detail.data.goal || "—"}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-500">Владелец</p>
+                        <p className="text-sm text-gray-900">{detail.data.owner || "—"}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-500">Стартовое событие</p>
+                        <p className="text-sm text-gray-900">{detail.data.startEvent || "—"}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-500">Конечное событие</p>
+                        <p className="text-sm text-gray-900">{detail.data.endEvent || "—"}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Roles */}
+                  {detail.data.roles?.length > 0 && (
+                    <div className="border-t border-gray-200 pt-4">
+                      <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                        Роли ({detail.data.roles.length})
+                      </h4>
+                      <div className="flex flex-wrap gap-1.5">
+                        {detail.data.roles.map((role) => (
+                          <Badge key={role.id} variant="outline" className="text-xs">
+                            <UserCheck className="w-3 h-3 mr-1" />
+                            {role.name}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Stages */}
+                  {detail.data.stages?.length > 0 && (
+                    <div className="border-t border-gray-200 pt-4">
+                      <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                        Этапы ({detail.data.stages.length})
+                      </h4>
+                      <div className="space-y-1">
+                        {detail.data.stages.map((stage, idx) => (
+                          <div
+                            key={stage.id}
+                            className="flex items-center gap-2 text-sm text-gray-700 bg-gray-50 rounded px-3 py-1.5"
+                          >
+                            <span className="text-xs font-medium text-gray-400 w-5">
+                              {idx + 1}.
+                            </span>
+                            {stage.name}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Blocks summary */}
+                  {detail.data.blocks?.length > 0 && (
+                    <div className="border-t border-gray-200 pt-4">
+                      <h4 className="text-sm font-semibold text-gray-900 mb-2">
+                        Блоки ({detail.data.blocks.length})
+                      </h4>
+                      <div className="max-h-[200px] overflow-y-auto space-y-1">
+                        {detail.data.blocks.map((block) => (
+                          <div
+                            key={block.id}
+                            className="flex items-center justify-between gap-2 text-sm bg-gray-50 rounded px-3 py-1.5"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <Badge
+                                variant="outline"
+                                className="text-[10px] flex-shrink-0"
+                              >
+                                {block.type}
+                              </Badge>
+                              <span className="text-gray-700 truncate">{block.name}</span>
+                            </div>
+                            {block.role && (
+                              <span className="text-xs text-gray-400 flex-shrink-0">
+                                {detail.data.roles?.find((r) => r.id === block.role)?.name ?? block.role}
+                              </span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* Actions */}
+              <div className="border-t border-gray-200 pt-4 flex justify-end">
+                <Button
+                  onClick={() => window.open(`/process/${viewingProcessId}`, "_blank")}
+                  size="sm"
+                >
+                  <ExternalLink className="w-4 h-4 mr-1.5" />
+                  Открыть процесс
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-sm text-gray-500">
+              Процесс не найден
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 // ==================== Main Admin Page ====================
 export function AdminPage() {
   const { user } = useAuth();
@@ -771,7 +1187,7 @@ export function AdminPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900">Панель администратора</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Управление пользователями, чатами поддержки и базой знаний
+          Управление пользователями, процессами, чатами поддержки и базой знаний
         </p>
       </div>
 
@@ -780,6 +1196,10 @@ export function AdminPage() {
           <TabsTrigger value="users" className="gap-1.5">
             <Users className="w-4 h-4" />
             Пользователи
+          </TabsTrigger>
+          <TabsTrigger value="processes" className="gap-1.5">
+            <FileText className="w-4 h-4" />
+            Процессы
           </TabsTrigger>
           <TabsTrigger value="chats" className="gap-1.5">
             <MessageSquare className="w-4 h-4" />
@@ -793,6 +1213,10 @@ export function AdminPage() {
 
         <TabsContent value="users">
           <UsersTab />
+        </TabsContent>
+
+        <TabsContent value="processes">
+          <ProcessesTab />
         </TabsContent>
 
         <TabsContent value="chats">

@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, like, or, sql } from "drizzle-orm";
 import { router, adminProcedure } from "../trpc";
 import { db } from "../db";
-import { users, supportChats, supportMessages, faqArticles, tokenOperations } from "../db/schema";
+import { users, supportChats, supportMessages, faqArticles, tokenOperations, processes, companies } from "../db/schema";
+import type { ProcessData } from "@shared/types";
 
 export const adminRouter = router({
   listUsers: adminProcedure.query(async () => {
@@ -185,5 +186,101 @@ export const adminRouter = router({
     .mutation(async ({ input }) => {
       await db.delete(faqArticles).where(eq(faqArticles.id, input.id));
       return { success: true };
+    }),
+
+  // Processes (admin view — all users)
+  listProcesses: adminProcedure
+    .input(
+      z
+        .object({
+          search: z.string().optional(),
+          status: z.enum(["draft", "active", "archived"]).optional(),
+        })
+        .optional()
+    )
+    .query(async ({ input }) => {
+      const allProcesses = await db.query.processes.findMany({
+        orderBy: desc(processes.createdAt),
+        with: {
+          company: {
+            with: {
+              user: true,
+            },
+          },
+        },
+      });
+
+      let filtered = allProcesses;
+
+      // Filter by status
+      if (input?.status) {
+        filtered = filtered.filter((p) => p.status === input.status);
+      }
+
+      // Filter by search query (company name, user name/email, process name)
+      if (input?.search) {
+        const q = input.search.toLowerCase();
+        filtered = filtered.filter((p) => {
+          const data = p.data as ProcessData | null;
+          const processName = data?.name?.toLowerCase() ?? "";
+          const companyName = p.company.name.toLowerCase();
+          const userName = p.company.user.name.toLowerCase();
+          const userEmail = p.company.user.email.toLowerCase();
+          return (
+            processName.includes(q) ||
+            companyName.includes(q) ||
+            userName.includes(q) ||
+            userEmail.includes(q)
+          );
+        });
+      }
+
+      return filtered.map((p) => {
+        const data = p.data as ProcessData | null;
+        return {
+          id: p.id,
+          status: p.status,
+          processName: data?.name ?? "Без названия",
+          companyId: p.companyId,
+          companyName: p.company.name,
+          userId: p.company.userId,
+          userName: p.company.user.name,
+          userEmail: p.company.user.email,
+          stagesCount: data?.stages?.length ?? 0,
+          blocksCount: data?.blocks?.length ?? 0,
+          rolesCount: data?.roles?.length ?? 0,
+          createdAt: p.createdAt.toISOString(),
+          updatedAt: p.updatedAt.toISOString(),
+        };
+      });
+    }),
+
+  getProcessById: adminProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.id),
+        with: {
+          company: {
+            with: {
+              user: true,
+            },
+          },
+        },
+      });
+      if (!process) throw new Error("Процесс не найден");
+
+      return {
+        id: process.id,
+        interviewId: process.interviewId,
+        companyId: process.companyId,
+        status: process.status,
+        data: process.data as ProcessData,
+        companyName: process.company.name,
+        userName: process.company.user.name,
+        userEmail: process.company.user.email,
+        createdAt: process.createdAt.toISOString(),
+        updatedAt: process.updatedAt.toISOString(),
+      };
     }),
 });
