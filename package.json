@@ -50,10 +50,17 @@
     "superjson": "^2.2.2",
     "tailwind-merge": "^2.6.0",
     "uuid": "^11.0.5",
-    "zod": "^3.24.1"
+    "zod": "^3.24.1",
+    "@tailwindcss/vite": "^4.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "drizzle-kit": "^0.30.0",
+    "tailwindcss": "^4.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.0.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.8",
     "@types/cors": "^2.8.17",
@@ -64,13 +71,6 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/uuid": "^10.0.0",
-    "@vitejs/plugin-react": "^4.3.4",
-    "autoprefixer": "^10.4.20",
-    "concurrently": "^9.1.0",
-    "drizzle-kit": "^0.30.0",
-    "tailwindcss": "^4.0.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "concurrently": "^9.1.0"
   }
 }
