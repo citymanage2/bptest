@@ -35,9 +35,10 @@ export type InterviewMode = "full" | "express";
 
 export interface InterviewQuestion {
   id: string;
-  block: "A" | "B" | "C" | "D" | "E" | "F" | "G";
+  block: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J";
   blockName: string;
   question: string;
+  hint?: string;
   required: boolean;
   expressMode: boolean;
   order: number;
@@ -155,6 +156,88 @@ export interface CrmFunnelStage {
   relatedBlockIds: string[];
   automations: string[];
   conversionTarget?: number;
+}
+
+// --- Process Passport ---
+export interface ProcessPassport {
+  name: string;
+  owner: string;
+  customer: string;
+  goal: string;
+  boundaries: { start: string; end: string; scope: string };
+  triggers: string[];
+  inputs: string[];
+  outputs: string[];
+  roles: ProcessPassportRole[];
+  systems: string[];
+  mainFlow: ProcessPassportStep[];
+  exceptions: string[];
+  documents: ProcessPassportDocument[];
+  sla: ProcessPassportSLA[];
+  risks: ProcessPassportRisk[];
+  integrations: string[];
+  version: string;
+  lastUpdated: string;
+}
+
+export interface ProcessPassportRole {
+  name: string;
+  raci: "R" | "A" | "C" | "I"; // Responsible, Accountable, Consulted, Informed
+  department: string;
+}
+
+export interface ProcessPassportStep {
+  order: number;
+  name: string;
+  role: string;
+  description: string;
+}
+
+export interface ProcessPassportDocument {
+  name: string;
+  type: "input" | "output" | "intermediate";
+  stage: string;
+}
+
+export interface ProcessPassportSLA {
+  metric: string;
+  target: string;
+  measurement: string;
+}
+
+export interface ProcessPassportRisk {
+  description: string;
+  impact: "high" | "medium" | "low";
+  control: string;
+}
+
+// --- Quality Checklist ---
+export interface QualityCheckItem {
+  id: string;
+  category: string;
+  rule: string;
+  passed: boolean;
+  details: string;
+  severity: "error" | "warning" | "info";
+}
+
+export interface QualityCheckResult {
+  score: number; // 0-100
+  items: QualityCheckItem[];
+  summary: string;
+}
+
+// --- BMC/VPC Mapping ---
+export interface BmcMapping {
+  customerSegments: string[];
+  valueProposition: string[];
+  channels: string[];
+  customerRelationships: string[];
+  revenueStreams: string[];
+  keyActivities: string[];
+  keyResources: string[];
+  keyPartners: string[];
+  costStructure: string[];
 }
 
 // --- Process Metrics ---

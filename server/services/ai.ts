@@ -1,25 +1,129 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ProcessData, ProcessBlock, ProcessRole, ProcessStage } from "../../shared/types";
+import type { ProcessData, ProcessBlock, ProcessRole, ProcessStage, ProcessPassport } from "../../shared/types";
 import { SWIMLANE_COLORS } from "../../shared/types";
 
 const anthropic = new Anthropic({
   apiKey: process.env.CLAUDE_API_KEY || "dummy-key",
 });
 
-const PROCESS_GENERATION_PROMPT = `Ты — эксперт по бизнес-процессам и нотации BPMN 2.0 Swimlane.
-На основе ответов анкеты сгенерируй ДЕТАЛЬНОЕ описание бизнес-процесса в формате JSON.
+// ═══════════════════════════════════════════════════════════════════
+// BMC/VPC → BPMN MAPPING TABLE (embedded in prompt)
+// ═══════════════════════════════════════════════════════════════════
+// | BMC Element          | BPMN Artifact                                    |
+// |----------------------|--------------------------------------------------|
+// | Customer Segments    | Start Events (triggers), Exclusive Gateway       |
+// |                      | branches by segment, Pool labels                 |
+// | Value Proposition    | Process goal annotation, End Event names,        |
+// |                      | SLA annotations, Success criteria                |
+// | Channels             | Start Events (entry points), Message Flows,      |
+// |                      | Intermediate Message Events, Send/Receive Tasks  |
+// | Customer Relations   | User Tasks (interaction points), Notifications,  |
+// |                      | Approval patterns, "Moment of Truth" annotations |
+// | Revenue Streams      | Service/User Tasks for invoicing, Intermediate   |
+// |                      | Events for payment, Data Objects (documents)     |
+// | Key Activities       | Core Sequence Flow (happy path), User/Service    |
+// |                      | Tasks, Sub-processes                             |
+// | Key Resources        | Lanes (roles), Systems annotations, Data         |
+// |                      | Stores, Resource annotations                     |
+// | Key Partners         | Separate Pools/Lanes for external partners,      |
+// |                      | Message Flows for inter-org communication        |
+// | Cost Structure       | Timer Events (SLA), Annotations for budget       |
+// |                      | limits, Control gateway for cost approval        |
+// ═══════════════════════════════════════════════════════════════════
 
-ВАЖНО: Ответ — ТОЛЬКО валидный JSON, без markdown-разметки, без пояснений.
+const PROCESS_GENERATION_PROMPT = `Ты — эксперт-аналитик по бизнес-процессам, нотации BPMN 2.0 Swimlane и методологии Business Model Canvas (BMC).
 
-Формат ответа:
+ЗАДАЧА: На основе ответов анкеты (структурированных по BMC/VPC) построить ДЕТАЛЬНЫЙ бизнес-процесс в формате Swimlane BPMN.
+
+═══════════════════════════════════
+ТЕХНОЛОГИЯ ПОСТРОЕНИЯ (10 ШАГОВ)
+═══════════════════════════════════
+
+Шаг 0 — SIPOC / Границы процесса:
+  Определи Supplier → Input → Process → Output → Customer.
+  Зафиксируй, что ВХОДИТ в процесс и что НЕ ВХОДИТ.
+
+Шаг 1 — Цель / Ценность (из Value Proposition):
+  Процесс должен создавать конкретную ценность. Зафиксируй цель и критерии "готово".
+
+Шаг 2 — События-триггеры (Start Events):
+  Определи ВСЕ варианты запуска: заявка клиента, таймер, сигнал из системы.
+  Если разные сегменты клиентов → разные стартовые ветки.
+
+Шаг 3 — Участники и дорожки (Lanes):
+  Роли из Key Resources + Key Partners → Lanes.
+  Критерии разбиения: по должности/отделу (внутренние), по организации (внешние).
+  Внешние партнёры = отдельные дорожки с пометкой (внешний).
+
+Шаг 4 — Happy Path (основной поток):
+  Построй ОСНОВНОЙ сценарий сверху вниз (по этапам/стадиям).
+  Каждое действие = "Глагол + Объект" (Проверить заявку, Сформировать КП).
+  Процесс ПЕРЕТЕКАЕТ между ролями (handoffs).
+
+Шаг 5 — Исключения, возвраты, альтернативы (Gateways):
+  Exclusive Gateway → одна ветвь из нескольких (условие на каждом выходе).
+  Parallel Gateway → все ветви одновременно.
+  Каждый gateway: ПОДПИСАН вопросом ("Одобрено?"), каждая ветвь — условием.
+
+Шаг 6 — Данные и документы:
+  Каждый action-блок: inputDocuments, outputDocuments, infoSystems.
+  Типы product-блоков: промежуточные результаты (КП, протокол, расчёт).
+
+Шаг 7 — Интеграции и сообщения:
+  Message Flow между разными пулами/партнёрами.
+  Intermediate Events для ожидания ответа.
+
+Шаг 8 — Контроль, риск и SLA:
+  Контрольные точки (4-eyes), таймеры SLA, точки эскалации.
+  Бюджетные лимиты → decision gateway.
+
+Шаг 9 — Декомпозиция:
+  Подпроцессы для сложных блоков (если > 5 действий внутри).
+
+Шаг 10 — Верификация:
+  Проверь: нет висячих потоков, все gateways закрыты, все блоки связаны.
+
+═══════════════════════════════
+ПРАВИЛА SWIMLANE BPMN
+═══════════════════════════════
+
+1. ДОРОЖКИ: роль/подразделение/система. Внешние партнёры — отдельная дорожка.
+2. ЗАДАЧИ: "Глагол + Объект" (Проверить заявку, Согласовать КП, Выставить счёт).
+3. НАПРАВЛЕНИЕ: сверху вниз по стадиям, процесс перетекает между дорожками.
+4. ГЕЙТВЕИ: Exclusive — подписан вопросом, ветви — условиями. Одна ветвь isDefault=true.
+5. HANDOFF: при переходе между ролями — обязательно product или явная передача.
+6. СОГЛАСОВАНИЕ: паттерн "Подготовить → Проверить → Решение (gateway) → Утвердить/Вернуть".
+7. ДОКУМЕНТЫ: каждый action имеет inputDocuments и outputDocuments.
+8. СИСТЕМЫ: каждый action указывает infoSystems.
+9. ВРЕМЯ: каждый action имеет timeEstimate.
+10. НАЧАЛО: 1 блок start. КОНЕЦ: 1-2 блока end (успех + отказ если есть).
+
+═══════════════════════════════
+ПАТТЕРНЫ B2B ПРОЦЕССОВ
+═══════════════════════════════
+
+Используй подходящие паттерны:
+- "Заявка → квалификация → предложение → договор" (sales)
+- "Согласование с 4-eyes" (подготовить → проверить → утвердить/вернуть)
+- "Переторжка" (расчёт → КП → торг → пересчёт если нужно)
+- "Параллельные работы" (split → параллельные задачи → join)
+- "Подрядчик как внешний участник" (отдельная дорожка)
+- "Ожидание по таймеру" (ожидание оплаты/документов)
+- "Эскалация при просрочке SLA" (таймер → эскалация руководителю)
+- "Инцидент → устранение → закрытие"
+
+═══════════════════════════════
+ФОРМАТ ОТВЕТА (ТОЛЬКО JSON!)
+═══════════════════════════════
+
 {
   "name": "Название процесса",
-  "goal": "Цель процесса",
+  "goal": "Цель процесса (из Value Proposition)",
   "owner": "Владелец процесса",
-  "startEvent": "Что запускает процесс",
-  "endEvent": "Чем завершается процесс",
+  "startEvent": "Триггер запуска",
+  "endEvent": "Результат/выход",
   "roles": [
-    { "id": "role_1", "name": "Название роли", "description": "Зона ответственности", "department": "Отдел" }
+    { "id": "role_1", "name": "Роль", "description": "Зона ответственности", "department": "Отдел" }
   ],
   "stages": [
     { "id": "stage_1", "name": "Название этапа", "order": 1 }
@@ -27,14 +131,14 @@ const PROCESS_GENERATION_PROMPT = `Ты — эксперт по бизнес-п�
   "blocks": [
     {
       "id": "block_1",
-      "name": "Краткое название (глагол)",
+      "name": "Глагол + Объект",
       "description": "Детальное описание (1-2 предложения)",
       "type": "start|action|product|decision|split|end",
       "role": "role_1",
       "stage": "stage_1",
       "timeEstimate": "15 мин",
-      "inputDocuments": ["Документ 1"],
-      "outputDocuments": ["Документ 2"],
+      "inputDocuments": ["Заявка"],
+      "outputDocuments": ["Зарегистрированная заявка"],
       "infoSystems": ["CRM"],
       "connections": ["block_2"],
       "conditionLabel": "",
@@ -43,21 +147,17 @@ const PROCESS_GENERATION_PROMPT = `Ты — эксперт по бизнес-п�
   ]
 }
 
-КРИТИЧЕСКИЕ ПРАВИЛА:
-1. Генерируй МНОГО ролей: минимум 5-8 ролей (разных должностей/отделов). Распределяй блоки по разным ролям, чтобы диаграмма использовала все дорожки.
-2. Генерируй МНОГО блоков: минимум 20-35 блоков для насыщенной диаграммы.
-3. Генерируй 5-8 этапов (стадий).
-4. В каждой дорожке (роли) должно быть несколько блоков — не оставляй дорожки пустыми.
-5. Блоки должны быть РАСПРЕДЕЛЕНЫ по разным дорожкам — не концентрируй всё в одной роли.
-6. Связи (connections) должны идти между блоками в РАЗНЫХ дорожках — процесс должен перетекать между ролями.
-7. Используй 2-4 блока decision (ветвления) с двумя+ исходящими ветвями.
-8. Используй 2-3 блока product (промежуточные результаты) между основными действиями.
-9. Начало: 1 блок start. Конец: 1-2 блока end.
-10. Для decision-ветвей: у каждого потомка в поле conditionLabel укажи условие (например "Одобрено", "Отклонено"), одна ветвь isDefault=true.
-11. Каждый action-блок ОБЯЗАТЕЛЬНО имеет timeEstimate, inputDocuments и infoSystems.
-12. Тип "action" — для действий, тип "product" — для результатов/артефактов.
-13. Этапы распределяй равномерно — в каждом этапе 3-6 блоков.
-14. Процесс должен переходить между ролями (handoffs) минимум 8-10 раз.`;
+КРИТИЧЕСКИЕ ТРЕБОВАНИЯ:
+1. Минимум 5-8 ролей (включая внешних партнёров если есть)
+2. Минимум 20-35 блоков для насыщенной диаграммы
+3. 5-8 этапов (стадий)
+4. В каждой дорожке — несколько блоков (нет пустых дорожек!)
+5. 3-5 decision gateways с подписанными условиями
+6. 3-5 product-блоков (промежуточные результаты)
+7. Минимум 8-10 handoffs между ролями
+8. Паттерн согласования: Подготовить → Проверить → Gateway → Утвердить/Вернуть
+9. Каждый action: timeEstimate + inputDocuments + infoSystems
+10. Ответ — ТОЛЬКО валидный JSON, без markdown, без пояснений`;
 
 export async function generateProcess(
   answers: Record<string, string>,
@@ -81,10 +181,10 @@ export async function generateProcess(
 Компания: ${companyName}
 Отрасль: ${industry}
 
-Ответы на анкету:
+Ответы на анкету (структурированы по BMC/VPC):
 ${answersText}
 
-Сгенерируй МАКСИМАЛЬНО ДЕТАЛЬНЫЙ бизнес-процесс с 5-8 ролями, 5-8 этапами и 20-35 блоками. Ответ — ТОЛЬКО JSON.`,
+Построй бизнес-процесс по 10-шаговой методологии. Ответ — ТОЛЬКО JSON.`,
         },
       ],
     });
@@ -104,7 +204,6 @@ ${answersText}
     return data;
   } catch (error) {
     console.error("AI generation error:", error);
-    // Return a fallback process if AI fails
     return generateFallbackProcess(answers, companyName);
   }
 }
@@ -116,13 +215,21 @@ export async function applyChanges(
   try {
     const response = await anthropic.messages.create({
       model: "claude-3-5-sonnet-20241022",
-      max_tokens: 8000,
+      max_tokens: 16000,
       messages: [
         {
           role: "user",
-          content: `Ты — эксперт по бизнес-процессам. Тебе дан текущий бизнес-процесс в формате JSON и описание требуемых изменений. Верни обновлённый процесс в том же формате JSON.
+          content: `Ты — эксперт по бизнес-процессам и BPMN 2.0 Swimlane.
 
-ВАЖНО: Ответ должен быть ТОЛЬКО валидным JSON без дополнительных пояснений.
+Тебе дан текущий бизнес-процесс в формате JSON и описание требуемых изменений.
+Верни обновлённый процесс в том же формате JSON.
+
+ПРАВИЛА:
+- Сохрани структуру: roles, stages, blocks с connections
+- Сохрани все BPMN-правила: handoffs между ролями, подписанные gateways, documents
+- При добавлении блоков — убедись в корректности connections
+- При удалении — перестрой connections чтобы не было висячих потоков
+- Ответ — ТОЛЬКО валидный JSON
 
 Текущий процесс:
 ${JSON.stringify(currentData, null, 2)}
@@ -130,7 +237,7 @@ ${JSON.stringify(currentData, null, 2)}
 Требуемые изменения:
 ${changeDescription}
 
-Верни полный обновлённый JSON процесса с применёнными изменениями.`,
+Верни полный обновлённый JSON процесса.`,
         },
       ],
     });
@@ -222,27 +329,153 @@ ${JSON.stringify(processData, null, 2)}
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════
+// Process Passport Generation
+// ═══════════════════════════════════════════════════════════════════
+
+export function generatePassport(data: ProcessData): ProcessPassport {
+  // Extract unique documents
+  const inputDocs = new Set<string>();
+  const outputDocs = new Set<string>();
+  const allSystems = new Set<string>();
+  const triggers: string[] = [data.startEvent];
+
+  const actionBlocks = data.blocks.filter(b => b.type === "action");
+  const productBlocks = data.blocks.filter(b => b.type === "product");
+
+  for (const block of data.blocks) {
+    block.inputDocuments?.forEach(d => inputDocs.add(d));
+    block.outputDocuments?.forEach(d => outputDocs.add(d));
+    block.infoSystems?.forEach(s => allSystems.add(s));
+  }
+
+  // Build main flow from connected action blocks (happy path approximation)
+  const mainFlow = actionBlocks.map((block, i) => {
+    const role = data.roles.find(r => r.id === block.role);
+    return {
+      order: i + 1,
+      name: block.name,
+      role: role?.name || block.role,
+      description: block.description,
+    };
+  });
+
+  // Extract exceptions from decision branches
+  const exceptions: string[] = [];
+  for (const block of data.blocks) {
+    if (block.type === "decision") {
+      const nonDefaultBranches = data.blocks.filter(
+        b => block.connections.includes(b.id) && !b.isDefault && b.conditionLabel
+      );
+      for (const branch of nonDefaultBranches) {
+        exceptions.push(`${block.name}: ${branch.conditionLabel} → ${branch.name}`);
+      }
+    }
+  }
+
+  // Build documents list
+  const documents: ProcessPassport["documents"] = [];
+  for (const doc of inputDocs) {
+    documents.push({ name: doc, type: "input", stage: "Вход" });
+  }
+  for (const block of productBlocks) {
+    documents.push({ name: block.name, type: "intermediate", stage: block.stage });
+  }
+  for (const doc of outputDocs) {
+    documents.push({ name: doc, type: "output", stage: "Выход" });
+  }
+
+  // Build roles with RACI approximation
+  const passportRoles = data.roles.map((role, i) => ({
+    name: role.name,
+    raci: (i === 0 ? "A" : "R") as "R" | "A" | "C" | "I",
+    department: role.department || "",
+  }));
+
+  // SLA from time estimates
+  const sla: ProcessPassport["sla"] = [];
+  for (const block of actionBlocks) {
+    if (block.timeEstimate) {
+      sla.push({
+        metric: `Время: ${block.name}`,
+        target: block.timeEstimate,
+        measurement: "Автоматический таймер",
+      });
+    }
+  }
+
+  // Risks from decision points and exceptions
+  const risks: ProcessPassport["risks"] = [];
+  const decisionBlocks = data.blocks.filter(b => b.type === "decision");
+  for (const d of decisionBlocks) {
+    risks.push({
+      description: `Точка принятия решения: ${d.name}`,
+      impact: "medium",
+      control: `Gateway с условиями: ${d.connections.length} ветвей`,
+    });
+  }
+
+  return {
+    name: data.name,
+    owner: data.owner,
+    customer: "Клиент процесса",
+    goal: data.goal,
+    boundaries: {
+      start: data.startEvent,
+      end: data.endEvent,
+      scope: `${data.blocks.length} блоков, ${data.roles.length} ролей, ${data.stages.length} этапов`,
+    },
+    triggers,
+    inputs: Array.from(inputDocs),
+    outputs: Array.from(outputDocs),
+    roles: passportRoles,
+    systems: Array.from(allSystems),
+    mainFlow,
+    exceptions,
+    documents,
+    sla,
+    risks,
+    integrations: Array.from(allSystems).map(s => `Интеграция с ${s}`),
+    version: "1.0",
+    lastUpdated: new Date().toISOString(),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Fallback Process Generator (BMC/VPC-aligned)
+// ═══════════════════════════════════════════════════════════════════
+
 function generateFallbackProcess(
   answers: Record<string, string>,
   companyName: string
 ): ProcessData {
-  const processName = answers.b1 || "Бизнес-процесс";
-  const goal = answers.b2 || "Оптимизация деятельности";
-  const owner = answers.b3 || "Руководитель";
-  const rolesStr = answers.b4 || "Руководитель, Менеджер по продажам, Аналитик, Бухгалтер, Специалист, Юрист";
-  const trigger = answers.b5 || "Поступление заявки от клиента";
-  const result = answers.b6 || "Выполненная задача";
-  const stepsStr = answers.c1 || "Инициация, Квалификация, Подготовка предложения, Согласование, Исполнение, Контроль качества, Закрытие";
+  const processName = answers.a1 || answers.b1 || "Бизнес-процесс";
+  const goal = answers.b2 || answers.a4 || "Создание ценности для клиента";
+  const owner = answers.a5 || "Руководитель";
+  const trigger = answers.a3 || "Поступление заявки от клиента";
+  const result = answers.a4 || "Выполненная задача";
+  const rolesStr = answers.e1 || "Руководитель, Менеджер по продажам, Аналитик, Бухгалтер, Специалист, Юрист";
+  const stepsStr = answers.d1 || "Инициация, Квалификация, Подготовка предложения, Согласование, Исполнение, Контроль качества, Закрытие";
+  const channels = answers.c1 || "Сайт, Телефон, Email";
+  const partners = answers.e3 || "";
 
   const roleNames = rolesStr.split(/[,;]/).map((r) => r.trim()).filter(Boolean);
   const stageNames = stepsStr.split(/[,;.]/).map((s) => s.trim()).filter(Boolean);
 
-  // Ensure at least 5 roles
+  // Ensure at least 6 roles
   const defaultRoles = ["Руководитель", "Менеджер", "Аналитик", "Специалист", "Бухгалтер", "Юрист"];
-  while (roleNames.length < 5) {
+  while (roleNames.length < 6) {
     const next = defaultRoles[roleNames.length];
     if (next && !roleNames.includes(next)) roleNames.push(next);
     else break;
+  }
+
+  // Add external partner if mentioned
+  if (partners && partners.trim()) {
+    const partnerName = partners.split(/[,;]/)[0].trim();
+    if (partnerName && !roleNames.includes(partnerName)) {
+      roleNames.push(partnerName + " (внешний)");
+    }
   }
 
   const roles: ProcessRole[] = roleNames.map((name, i) => ({
@@ -253,12 +486,12 @@ function generateFallbackProcess(
     color: SWIMLANE_COLORS[i % SWIMLANE_COLORS.length],
   }));
 
-  // Ensure at least 5 stages
-  const defaultStages = ["Инициация", "Анализ", "Подготовка", "Согласование", "Исполнение", "Контроль", "Закрытие"];
+  // Ensure at least 7 stages
+  const defaultStages = ["Инициация", "Квалификация", "Подготовка", "Согласование", "Исполнение", "Контроль", "Закрытие"];
   const stages: ProcessStage[] = [];
-  const usedNames = stageNames.length >= 5 ? stageNames : defaultStages;
-  for (let i = 0; i < usedNames.length; i++) {
-    stages.push({ id: `stage_${i + 1}`, name: usedNames[i], order: i + 1 });
+  const usedStageNames = stageNames.length >= 5 ? stageNames : defaultStages;
+  for (let i = 0; i < usedStageNames.length; i++) {
+    stages.push({ id: `stage_${i + 1}`, name: usedStageNames[i], order: i + 1 });
   }
 
   const blocks: ProcessBlock[] = [];
@@ -269,71 +502,81 @@ function generateFallbackProcess(
   const B = {
     start: "b_start",
     recv: "b_recv",
-    reg: "b_reg",
+    regProduct: "b_reg_product",
+    // Квалификация
     anal: "b_anal",
-    check: "b_check",
+    checkFeasible: "b_check_feasible",
     qualOk: "b_qual_ok",
     qualFail: "b_qual_fail",
     endReject: "b_end_reject",
-    prep: "b_prep",
-    calc: "b_calc",
+    // Подготовка (паттерн: переторжка)
+    prepKP: "b_prep_kp",
+    calcCost: "b_calc_cost",
     buhCheck: "b_buh_check",
-    offerProd: "b_offer_prod",
-    legal: "b_legal",
+    kpProduct: "b_kp_product",
+    // Согласование (паттерн: 4-eyes)
+    legalCheck: "b_legal_check",
     approveDec: "b_approve_dec",
-    approved: "b_approved",
+    approvedProduct: "b_approved_product",
     rework: "b_rework",
-    send: "b_send",
-    contract: "b_contract",
-    exec: "b_exec",
-    qa: "b_qa",
+    // Исполнение
+    sendClient: "b_send_client",
+    clientDec: "b_client_dec",
+    signContract: "b_sign_contract",
+    execWork: "b_exec_work",
+    returnCalc: "b_return_calc",
+    // Контроль (паттерн: приёмка)
+    qaCheck: "b_qa_check",
     qaDec: "b_qa_dec",
-    qaOk: "b_qa_ok",
+    qaOkProduct: "b_qa_ok_product",
     qaFail: "b_qa_fail",
+    // Закрытие
     invoice: "b_invoice",
-    close: "b_close",
-    end: "b_end",
+    closeCRM: "b_close_crm",
+    endSuccess: "b_end_success",
   };
 
-  // --- Stage 1: Инициация ---
-  blocks.push({ id: B.start, name: trigger, description: "Начало процесса", type: "start", role: r(0), stage: s(0), connections: [B.recv] });
-  blocks.push({ id: B.recv, name: "Приём заявки", description: "Регистрация входящей заявки в системе", type: "action", role: r(1), stage: s(0), timeEstimate: "10 мин", inputDocuments: ["Заявка клиента"], infoSystems: ["CRM"], connections: [B.reg] });
-  blocks.push({ id: B.reg, name: "Зарегистрированная заявка", description: "Заявка внесена в CRM", type: "product", role: r(1), stage: s(0), connections: [B.anal] });
+  // ═══ Stage 1: Инициация (Customer Segments → triggers) ═══
+  blocks.push({ id: B.start, name: trigger, description: `Триггер процесса: ${trigger}. Канал: ${channels}`, type: "start", role: r(0), stage: s(0), connections: [B.recv] });
+  blocks.push({ id: B.recv, name: "Принять заявку", description: "Регистрация входящей заявки в системе и назначение ответственного", type: "action", role: r(1), stage: s(0), timeEstimate: "10 мин", inputDocuments: ["Заявка клиента"], outputDocuments: ["Зарегистрированная заявка"], infoSystems: ["CRM"], connections: [B.regProduct] });
+  blocks.push({ id: B.regProduct, name: "Зарегистрированная заявка", description: "Заявка зафиксирована в CRM с присвоенным номером", type: "product", role: r(1), stage: s(0), connections: [B.anal] });
 
-  // --- Stage 2: Анализ ---
-  blocks.push({ id: B.anal, name: "Анализ требований", description: "Изучение требований клиента и проверка возможности исполнения", type: "action", role: r(2), stage: s(1), timeEstimate: "1 ч", inputDocuments: ["Заявка"], infoSystems: ["CRM", "BI-система"], connections: [B.check] });
-  blocks.push({ id: B.check, name: "Возможно выполнить?", description: "Оценка выполнимости", type: "decision", role: r(2), stage: s(1), connections: [B.qualOk, B.qualFail] });
-  blocks.push({ id: B.qualOk, name: "Требования подтверждены", description: "Заявка прошла квалификацию", type: "product", role: r(2), stage: s(1), conditionLabel: "Да", isDefault: true, connections: [B.prep] });
-  blocks.push({ id: B.qualFail, name: "Уведомить клиента об отказе", description: "Отправка письма об отклонении", type: "action", role: r(1), stage: s(1), conditionLabel: "Нет", timeEstimate: "15 мин", infoSystems: ["Email"], connections: [B.endReject] });
-  blocks.push({ id: B.endReject, name: "Заявка отклонена", description: "Процесс завершён — отказ", type: "end", role: r(1), stage: s(1), connections: [] });
+  // ═══ Stage 2: Квалификация (Key Activities → анализ) ═══
+  blocks.push({ id: B.anal, name: "Проанализировать требования", description: "Изучение требований клиента, проверка выполнимости и приоритизация", type: "action", role: r(2), stage: s(1), timeEstimate: "1 ч", inputDocuments: ["Заявка", "Каталог услуг"], infoSystems: ["CRM", "BI-система"], connections: [B.checkFeasible] });
+  blocks.push({ id: B.checkFeasible, name: "Выполнимо?", description: "Оценка технической и коммерческой выполнимости", type: "decision", role: r(2), stage: s(1), connections: [B.qualOk, B.qualFail] });
+  blocks.push({ id: B.qualOk, name: "Требования подтверждены", description: "Заявка прошла квалификацию и готова к проработке", type: "product", role: r(2), stage: s(1), conditionLabel: "Да", isDefault: true, connections: [B.prepKP] });
+  blocks.push({ id: B.qualFail, name: "Уведомить клиента об отказе", description: "Отправка обоснованного отказа с рекомендациями", type: "action", role: r(1), stage: s(1), conditionLabel: "Нет", timeEstimate: "15 мин", inputDocuments: ["Результат анализа"], infoSystems: ["Email", "CRM"], connections: [B.endReject] });
+  blocks.push({ id: B.endReject, name: "Заявка отклонена", description: "Процесс завершён — отказ. Причина зафиксирована в CRM", type: "end", role: r(1), stage: s(1), connections: [] });
 
-  // --- Stage 3: Подготовка ---
-  blocks.push({ id: B.prep, name: "Подготовка коммерческого предложения", description: "Формирование КП на основе требований клиента", type: "action", role: r(1), stage: s(2), timeEstimate: "2 ч", inputDocuments: ["Требования"], outputDocuments: ["КП"], infoSystems: ["CRM"], connections: [B.calc] });
-  blocks.push({ id: B.calc, name: "Расчёт стоимости", description: "Детальный расчёт себестоимости и маржи", type: "action", role: r(4), stage: s(2), timeEstimate: "1 ч", inputDocuments: ["КП"], infoSystems: ["1С"], connections: [B.buhCheck] });
-  blocks.push({ id: B.buhCheck, name: "Проверка бухгалтерией", description: "Верификация финансовых параметров", type: "action", role: r(3), stage: s(2), timeEstimate: "30 мин", infoSystems: ["1С"], connections: [B.offerProd] });
-  blocks.push({ id: B.offerProd, name: "Готовое КП", description: "Коммерческое предложение сформировано", type: "product", role: r(1), stage: s(2), connections: [B.legal] });
+  // ═══ Stage 3: Подготовка (паттерн: переторжка с пересчётом) ═══
+  blocks.push({ id: B.prepKP, name: "Подготовить коммерческое предложение", description: "Формирование КП на основе квалифицированных требований", type: "action", role: r(1), stage: s(2), timeEstimate: "2 ч", inputDocuments: ["Квалифицированные требования"], outputDocuments: ["Черновик КП"], infoSystems: ["CRM", "Шаблоны"], connections: [B.calcCost] });
+  blocks.push({ id: B.calcCost, name: "Рассчитать стоимость", description: "Детальный расчёт себестоимости, маржи и итоговой цены", type: "action", role: r(4), stage: s(2), timeEstimate: "1 ч", inputDocuments: ["Черновик КП", "Прайс-лист"], outputDocuments: ["Калькуляция"], infoSystems: ["1С"], connections: [B.buhCheck] });
+  blocks.push({ id: B.buhCheck, name: "Проверить финансовые параметры", description: "Верификация калькуляции, проверка лимитов и маржинальности", type: "action", role: r(3), stage: s(2), timeEstimate: "30 мин", inputDocuments: ["Калькуляция"], infoSystems: ["1С"], connections: [B.kpProduct] });
+  blocks.push({ id: B.kpProduct, name: "Готовое КП", description: "КП сформировано, рассчитано и проверено бухгалтерией", type: "product", role: r(1), stage: s(2), connections: [B.legalCheck] });
 
-  // --- Stage 4: Согласование ---
-  blocks.push({ id: B.legal, name: "Юридическая проверка", description: "Проверка правовых аспектов сделки", type: "action", role: r(5), stage: s(3), timeEstimate: "1 ч", inputDocuments: ["КП", "Договор"], infoSystems: ["СЭД"], connections: [B.approveDec] });
-  blocks.push({ id: B.approveDec, name: "Согласовано?", description: "Решение руководства", type: "decision", role: r(0), stage: s(3), connections: [B.approved, B.rework] });
-  blocks.push({ id: B.approved, name: "КП утверждено", description: "Предложение согласовано руководством", type: "product", role: r(0), stage: s(3), conditionLabel: "Утверждено", isDefault: true, connections: [B.send] });
-  blocks.push({ id: B.rework, name: "Доработка КП", description: "Возврат на доработку по замечаниям", type: "action", role: r(1), stage: s(3), conditionLabel: "На доработку", timeEstimate: "1 ч", infoSystems: ["CRM"], connections: [B.calc] });
+  // ═══ Stage 4: Согласование (паттерн: 4-eyes approval) ═══
+  blocks.push({ id: B.legalCheck, name: "Проверить юридические аспекты", description: "Юридическая экспертиза условий сделки и договора", type: "action", role: r(5), stage: s(3), timeEstimate: "1 ч", inputDocuments: ["КП", "Шаблон договора"], outputDocuments: ["Юридическое заключение"], infoSystems: ["СЭД"], connections: [B.approveDec] });
+  blocks.push({ id: B.approveDec, name: "Согласовано руководством?", description: "Решение руководителя по итогам юридической проверки", type: "decision", role: r(0), stage: s(3), connections: [B.approvedProduct, B.rework] });
+  blocks.push({ id: B.approvedProduct, name: "КП утверждено", description: "Предложение согласовано всеми сторонами и готово к отправке", type: "product", role: r(0), stage: s(3), conditionLabel: "Утверждено", isDefault: true, connections: [B.sendClient] });
+  blocks.push({ id: B.rework, name: "Доработать КП", description: "Возврат на доработку по замечаниям руководства или юриста", type: "action", role: r(1), stage: s(3), conditionLabel: "На доработку", timeEstimate: "1 ч", inputDocuments: ["Замечания"], infoSystems: ["CRM"], connections: [B.calcCost] });
 
-  // --- Stage 5: Исполнение ---
-  blocks.push({ id: B.send, name: "Отправка КП клиенту", description: "Презентация предложения", type: "action", role: r(1), stage: s(4), timeEstimate: "30 мин", infoSystems: ["Email", "CRM"], connections: [B.contract] });
-  blocks.push({ id: B.contract, name: "Подписание договора", description: "Оформление и подписание", type: "action", role: r(5), stage: s(4), timeEstimate: "2 ч", inputDocuments: ["Договор"], infoSystems: ["СЭД"], connections: [B.exec] });
-  blocks.push({ id: B.exec, name: "Выполнение работ", description: "Реализация обязательств по договору", type: "action", role: r(4), stage: s(4), timeEstimate: "5 дн", infoSystems: ["Jira", "1С"], connections: [B.qa] });
+  // ═══ Stage 5: Исполнение (Revenue Streams → фиксация сделки) ═══
+  blocks.push({ id: B.sendClient, name: "Отправить КП клиенту", description: "Презентация и отправка коммерческого предложения", type: "action", role: r(1), stage: s(4), timeEstimate: "30 мин", inputDocuments: ["Утверждённое КП"], infoSystems: ["Email", "CRM"], connections: [B.clientDec] });
+  blocks.push({ id: B.clientDec, name: "Клиент принял КП?", description: "Ожидание решения клиента по коммерческому предложению", type: "decision", role: r(1), stage: s(4), connections: [B.signContract, B.returnCalc] });
+  blocks.push({ id: B.signContract, name: "Подписать договор", description: "Оформление и подписание договора обеими сторонами", type: "action", role: r(5), stage: s(4), conditionLabel: "Принято", isDefault: true, timeEstimate: "2 ч", inputDocuments: ["КП", "Договор"], outputDocuments: ["Подписанный договор"], infoSystems: ["СЭД"], connections: [B.execWork] });
+  blocks.push({ id: B.returnCalc, name: "Скорректировать условия", description: "Переторжка: пересчёт условий по запросу клиента", type: "action", role: r(1), stage: s(4), conditionLabel: "Нужна корректировка", timeEstimate: "1 ч", infoSystems: ["CRM"], connections: [B.calcCost] });
+  blocks.push({ id: B.execWork, name: "Выполнить работы", description: "Реализация обязательств по подписанному договору", type: "action", role: r(3), stage: s(4), timeEstimate: "5 дн", inputDocuments: ["Договор", "ТЗ"], outputDocuments: ["Результат работ"], infoSystems: ["Jira", "1С"], connections: [B.qaCheck] });
 
-  // --- Stage 6: Контроль ---
-  blocks.push({ id: B.qa, name: "Контроль качества", description: "Проверка результатов выполнения", type: "action", role: r(2), stage: s(5), timeEstimate: "2 ч", infoSystems: ["Jira"], connections: [B.qaDec] });
-  blocks.push({ id: B.qaDec, name: "Качество ОК?", description: "Оценка соответствия", type: "decision", role: r(0), stage: s(5), connections: [B.qaOk, B.qaFail] });
-  blocks.push({ id: B.qaOk, name: "Работа принята", description: "Результат соответствует требованиям", type: "product", role: r(0), stage: s(5), conditionLabel: "Принято", isDefault: true, connections: [B.invoice] });
-  blocks.push({ id: B.qaFail, name: "Возврат на исправление", description: "Устранение замечаний", type: "action", role: r(4), stage: s(5), conditionLabel: "Замечания", timeEstimate: "1 дн", infoSystems: ["Jira"], connections: [B.exec] });
+  // ═══ Stage 6: Контроль (Quality + SLA) ═══
+  blocks.push({ id: B.qaCheck, name: "Проверить качество", description: "Контроль качества результатов выполнения по чек-листу", type: "action", role: r(2), stage: s(5), timeEstimate: "2 ч", inputDocuments: ["Результат работ", "Чек-лист качества"], infoSystems: ["Jira"], connections: [B.qaDec] });
+  blocks.push({ id: B.qaDec, name: "Качество соответствует?", description: "Оценка соответствия результата требованиям и SLA", type: "decision", role: r(0), stage: s(5), connections: [B.qaOkProduct, B.qaFail] });
+  blocks.push({ id: B.qaOkProduct, name: "Работа принята", description: "Результат соответствует требованиям и готов к передаче", type: "product", role: r(0), stage: s(5), conditionLabel: "Принято", isDefault: true, connections: [B.invoice] });
+  blocks.push({ id: B.qaFail, name: "Вернуть на исправление", description: "Устранение выявленных замечаний и дефектов", type: "action", role: r(3), stage: s(5), conditionLabel: "Замечания", timeEstimate: "1 дн", inputDocuments: ["Список замечаний"], infoSystems: ["Jira"], connections: [B.execWork] });
 
-  // --- Stage 7: Закрытие ---
-  blocks.push({ id: B.invoice, name: "Выставление счёта", description: "Формирование финального счёта", type: "action", role: r(3), stage: s(6), timeEstimate: "30 мин", outputDocuments: ["Счёт", "Акт"], infoSystems: ["1С"], connections: [B.close] });
-  blocks.push({ id: B.close, name: "Закрытие сделки в CRM", description: "Обновление статуса в CRM, архивирование", type: "action", role: r(1), stage: s(6), timeEstimate: "15 мин", infoSystems: ["CRM"], connections: [B.end] });
-  blocks.push({ id: B.end, name: result, description: "Процесс завершён успешно", type: "end", role: r(0), stage: s(6), connections: [] });
+  // ═══ Stage 7: Закрытие (Revenue Streams → фиксация выручки) ═══
+  blocks.push({ id: B.invoice, name: "Выставить счёт", description: "Формирование финального счёта и закрывающих документов", type: "action", role: r(4), stage: s(6), timeEstimate: "30 мин", inputDocuments: ["Договор", "Акт приёмки"], outputDocuments: ["Счёт", "Акт выполненных работ"], infoSystems: ["1С"], connections: [B.closeCRM] });
+  blocks.push({ id: B.closeCRM, name: "Закрыть сделку в CRM", description: "Обновление статуса сделки, архивирование и фиксация результата", type: "action", role: r(1), stage: s(6), timeEstimate: "15 мин", infoSystems: ["CRM"], connections: [B.endSuccess] });
+  blocks.push({ id: B.endSuccess, name: result, description: "Процесс завершён успешно. Ценность доставлена клиенту", type: "end", role: r(0), stage: s(6), connections: [] });
 
   return {
     name: processName,

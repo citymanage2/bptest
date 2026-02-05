@@ -52,6 +52,9 @@ import type {
   CrmFunnel,
   CrmFunnelStage,
   ProcessMetrics,
+  ProcessPassport,
+  QualityCheckResult,
+  QualityCheckItem,
 } from "@shared/types";
 import { BLOCK_CONFIG, TOKEN_COSTS } from "@shared/types";
 
@@ -90,6 +93,11 @@ import {
   ArrowRightLeft,
   TrendingUp,
   Filter,
+  ClipboardCheck,
+  ScrollText,
+  Shield,
+  Target,
+  FileCheck,
 } from "lucide-react";
 
 // ============================================
@@ -899,6 +907,8 @@ export function ProcessPage() {
           <TabsTrigger value="stages">Этапы</TabsTrigger>
           <TabsTrigger value="metrics">Метрики</TabsTrigger>
           <TabsTrigger value="crm">CRM-воронки</TabsTrigger>
+          <TabsTrigger value="passport">Паспорт</TabsTrigger>
+          <TabsTrigger value="quality">Качество</TabsTrigger>
           <TabsTrigger value="recommendations">Рекомендации</TabsTrigger>
           <TabsTrigger value="history">История</TabsTrigger>
         </TabsList>
@@ -947,6 +957,16 @@ export function ProcessPage() {
         {/* ======== Tab: CRM Funnels ======== */}
         <TabsContent value="crm">
           <CrmFunnelsTab funnels={crmFunnels} data={data} />
+        </TabsContent>
+
+        {/* ======== Tab: Passport ======== */}
+        <TabsContent value="passport">
+          <PassportTab processId={processId} />
+        </TabsContent>
+
+        {/* ======== Tab: Quality ======== */}
+        <TabsContent value="quality">
+          <QualityTab processId={processId} />
         </TabsContent>
 
         {/* ======== Tab: Recommendations ======== */}
@@ -2333,6 +2353,384 @@ function ChangeRequestsList({
                   ))}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================
+// Tab: Passport (Process Passport)
+// ============================================
+
+function PassportTab({ processId }: { processId: number }) {
+  const passportQuery = trpc.process.getPassport.useQuery({ processId });
+
+  if (passportQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-6 h-6 animate-spin mr-2" />
+        <span className="text-gray-500">Формирование паспорта...</span>
+      </div>
+    );
+  }
+
+  if (passportQuery.error) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-red-500">
+          Ошибка загрузки паспорта: {passportQuery.error.message}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const p = passportQuery.data!;
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <ScrollText className="w-5 h-5 text-blue-600" />
+            <CardTitle>Паспорт процесса</CardTitle>
+          </div>
+          <CardDescription>
+            Полное описание процесса в формате текстового паспорта BPMN
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Название</p>
+              <p className="font-medium">{p.name}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Владелец</p>
+              <p className="font-medium">{p.owner}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Цель</p>
+              <p className="text-sm">{p.goal}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Версия</p>
+              <p className="text-sm">{p.version} | {new Date(p.lastUpdated).toLocaleDateString("ru")}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Boundaries */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Target className="w-4 h-4" /> Границы процесса
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="p-3 bg-green-50 rounded-lg">
+              <p className="text-xs text-green-700 font-semibold mb-1">Вход / Триггер</p>
+              <p className="text-sm">{p.boundaries.start}</p>
+            </div>
+            <div className="p-3 bg-blue-50 rounded-lg">
+              <p className="text-xs text-blue-700 font-semibold mb-1">Масштаб</p>
+              <p className="text-sm">{p.boundaries.scope}</p>
+            </div>
+            <div className="p-3 bg-red-50 rounded-lg">
+              <p className="text-xs text-red-700 font-semibold mb-1">Выход / Результат</p>
+              <p className="text-sm">{p.boundaries.end}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Roles (RACI) */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="w-4 h-4" /> Роли (RACI)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 px-3 font-medium text-gray-600">Роль</th>
+                  <th className="text-left py-2 px-3 font-medium text-gray-600">Отдел</th>
+                  <th className="text-center py-2 px-3 font-medium text-gray-600">RACI</th>
+                </tr>
+              </thead>
+              <tbody>
+                {p.roles.map((role, i) => (
+                  <tr key={i} className="border-b last:border-0">
+                    <td className="py-2 px-3">{role.name}</td>
+                    <td className="py-2 px-3 text-gray-500">{role.department || "—"}</td>
+                    <td className="py-2 px-3 text-center">
+                      <Badge variant={role.raci === "A" ? "default" : "secondary"}>
+                        {role.raci}
+                      </Badge>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Main Flow */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <ChevronRight className="w-4 h-4" /> Основной поток
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {p.mainFlow.map((step) => (
+              <div key={step.order} className="flex items-start gap-3 py-2 border-b last:border-0">
+                <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold shrink-0">
+                  {step.order}
+                </div>
+                <div className="flex-1">
+                  <p className="font-medium text-sm">{step.name}</p>
+                  <p className="text-xs text-gray-500">
+                    <span className="font-medium">{step.role}</span> — {step.description}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Documents & Systems */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileText className="w-4 h-4" /> Документы
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1">
+              {p.documents.map((doc, i) => (
+                <div key={i} className="flex items-center gap-2 py-1 text-sm">
+                  <Badge variant="outline" className="text-xs">
+                    {doc.type === "input" ? "Вход" : doc.type === "output" ? "Выход" : "Промеж."}
+                  </Badge>
+                  <span>{doc.name}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Database className="w-4 h-4" /> Информационные системы
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {p.systems.map((sys, i) => (
+                <Badge key={i} variant="secondary">{sys}</Badge>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* SLA & Risks */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Clock className="w-4 h-4" /> SLA / Метрики
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {p.sla.slice(0, 10).map((item, i) => (
+                <div key={i} className="flex items-center justify-between text-sm py-1 border-b last:border-0">
+                  <span className="text-gray-700 truncate mr-2">{item.metric}</span>
+                  <Badge variant="outline">{item.target}</Badge>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Shield className="w-4 h-4" /> Риски и контроли
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {p.risks.map((risk, i) => (
+                <div key={i} className="text-sm py-1 border-b last:border-0">
+                  <div className="flex items-center gap-2">
+                    <Badge variant={risk.impact === "high" ? "destructive" : "secondary"} className="text-xs">
+                      {risk.impact}
+                    </Badge>
+                    <span>{risk.description}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5 ml-14">{risk.control}</p>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Exceptions */}
+      {p.exceptions.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" /> Исключения / Альтернативы
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1">
+              {p.exceptions.map((exc, i) => (
+                <li key={i} className="text-sm flex items-start gap-2">
+                  <span className="text-orange-500 mt-0.5">&#9679;</span>
+                  {exc}
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// Tab: Quality (Checklist)
+// ============================================
+
+function QualityTab({ processId }: { processId: number }) {
+  const qualityQuery = trpc.process.validateQuality.useQuery({ processId });
+
+  if (qualityQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-6 h-6 animate-spin mr-2" />
+        <span className="text-gray-500">Проверка качества...</span>
+      </div>
+    );
+  }
+
+  if (qualityQuery.error) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-red-500">
+          Ошибка проверки: {qualityQuery.error.message}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const result = qualityQuery.data!;
+  const categories = [...new Set(result.items.map(i => i.category))];
+  const scoreColor = result.score >= 80 ? "text-green-600" : result.score >= 60 ? "text-yellow-600" : "text-red-600";
+  const scoreBg = result.score >= 80 ? "bg-green-50" : result.score >= 60 ? "bg-yellow-50" : "bg-red-50";
+
+  return (
+    <div className="space-y-4">
+      {/* Score Card */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <ClipboardCheck className="w-5 h-5 text-blue-600" />
+            <CardTitle>Контроль качества модели</CardTitle>
+          </div>
+          <CardDescription>
+            Автоматическая проверка диаграммы по стандартам BPMN 2.0
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center gap-6">
+            <div className={cn("w-24 h-24 rounded-full flex items-center justify-center", scoreBg)}>
+              <span className={cn("text-3xl font-bold", scoreColor)}>{result.score}</span>
+            </div>
+            <div className="flex-1">
+              <p className="text-lg font-medium mb-1">{result.summary}</p>
+              <div className="flex gap-4 text-sm">
+                <span className="flex items-center gap-1 text-green-600">
+                  <CheckCircle2 className="w-4 h-4" />
+                  {result.items.filter(i => i.passed).length} пройдено
+                </span>
+                <span className="flex items-center gap-1 text-red-600">
+                  <XCircle className="w-4 h-4" />
+                  {result.items.filter(i => !i.passed && i.severity === "error").length} ошибок
+                </span>
+                <span className="flex items-center gap-1 text-yellow-600">
+                  <AlertCircle className="w-4 h-4" />
+                  {result.items.filter(i => !i.passed && i.severity === "warning").length} предупреждений
+                </span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Check Items by Category */}
+      {categories.map((category) => {
+        const catItems = result.items.filter(i => i.category === category);
+        const catPassed = catItems.filter(i => i.passed).length;
+        return (
+          <Card key={category}>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <FileCheck className="w-4 h-4" />
+                  {category}
+                </CardTitle>
+                <Badge variant={catPassed === catItems.length ? "default" : "secondary"}>
+                  {catPassed}/{catItems.length}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {catItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className={cn(
+                      "flex items-start gap-3 py-2 px-3 rounded-lg text-sm",
+                      item.passed ? "bg-green-50" : item.severity === "error" ? "bg-red-50" : item.severity === "warning" ? "bg-yellow-50" : "bg-gray-50"
+                    )}
+                  >
+                    <div className="mt-0.5">
+                      {item.passed ? (
+                        <CheckCircle2 className="w-4 h-4 text-green-600" />
+                      ) : item.severity === "error" ? (
+                        <XCircle className="w-4 h-4 text-red-600" />
+                      ) : item.severity === "warning" ? (
+                        <AlertCircle className="w-4 h-4 text-yellow-600" />
+                      ) : (
+                        <AlertCircle className="w-4 h-4 text-gray-400" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <p className={cn("font-medium", item.passed ? "text-green-800" : item.severity === "error" ? "text-red-800" : "text-gray-800")}>
+                        {item.rule}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">{item.details}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </CardContent>
           </Card>
         );

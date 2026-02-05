@@ -12,7 +12,8 @@ import {
   users,
   tokenOperations,
 } from "../db/schema";
-import { generateProcess, applyChanges, generateRecommendations } from "../services/ai";
+import { generateProcess, applyChanges, generateRecommendations, generatePassport } from "../services/ai";
+import { validateProcess } from "../services/validation";
 import type { ProcessData } from "../../shared/types";
 import { TOKEN_COSTS } from "../../shared/types";
 
@@ -414,6 +415,34 @@ export const processRouter = router({
         relatedSteps: r.relatedSteps as string[],
         createdAt: r.createdAt.toISOString(),
       }));
+    }),
+
+  getPassport: protectedProcedure
+    .input(z.object({ processId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      const processData = process.data as ProcessData;
+      return generatePassport(processData);
+    }),
+
+  validateQuality: protectedProcedure
+    .input(z.object({ processId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      const processData = process.data as ProcessData;
+      return validateProcess(processData);
     }),
 
   delete: protectedProcedure

@@ -390,6 +390,9 @@ export function InterviewPage() {
                         <p className="text-sm font-medium text-gray-900">
                           {question.question}
                         </p>
+                        {question.hint && (
+                          <p className="text-xs text-gray-400 mt-0.5 italic">{question.hint}</p>
+                        )}
                         <div className="flex items-center gap-2 mt-1">
                           {question.required && (
                             <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
