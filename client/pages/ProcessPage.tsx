@@ -38,7 +38,10 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { SwimlaneCanvas } from "@/components/SwimlaneCanvas";
+import {
+  SwimlaneCanvas,
+  type SwimlaneCanvasHandle,
+} from "@/components/SwimlaneCanvas";
 
 import type {
   ProcessData,
@@ -99,6 +102,7 @@ import {
   Shield,
   Target,
   FileCheck,
+  Fullscreen,
   UserCircle,
   Timer,
   ListChecks,
@@ -809,11 +813,12 @@ export function ProcessPage() {
   // ---- State ----
   const [activeTab, setActiveTab] = useState("diagram");
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
-  const [zoom, setZoom] = useState(1);
+  const [canvasScale, setCanvasScale] = useState(1);
   const [changeDialogOpen, setChangeDialogOpen] = useState(false);
   const [changeDescription, setChangeDescription] = useState("");
   const [pendingChangeRequest, setPendingChangeRequest] = useState<ChangeRequest | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const canvasHandleRef = useRef<SwimlaneCanvasHandle>(null);
 
   // Block editing state
   const [editingBlock, setEditingBlock] = useState<ProcessBlock | null>(null);
@@ -1220,8 +1225,9 @@ export function ProcessPage() {
             editDescription={editDescription}
             editType={editType}
             editRole={editRole}
-            zoom={zoom}
+            canvasScale={canvasScale}
             canvasContainerRef={canvasContainerRef}
+            canvasHandleRef={canvasHandleRef}
             updateDataMutation={updateDataMutation}
             onBlockClick={handleBlockClick}
             onStartEdit={handleStartEdit}
@@ -1232,7 +1238,7 @@ export function ProcessPage() {
             onSetEditDescription={setEditDescription}
             onSetEditType={setEditType}
             onSetEditRole={setEditRole}
-            onSetZoom={setZoom}
+            onScaleChange={setCanvasScale}
             onExportPNG={handleExportPNG}
             onExportBPMN={handleExportBPMN}
             onExportPDF={handleExportPDF}
@@ -1292,8 +1298,9 @@ interface DiagramTabProps {
   editDescription: string;
   editType: BlockType;
   editRole: string;
-  zoom: number;
+  canvasScale: number;
   canvasContainerRef: React.RefObject<HTMLDivElement | null>;
+  canvasHandleRef: React.RefObject<SwimlaneCanvasHandle | null>;
   updateDataMutation: { isPending: boolean };
   onBlockClick: (blockId: string) => void;
   onStartEdit: (block: ProcessBlock) => void;
@@ -1304,7 +1311,7 @@ interface DiagramTabProps {
   onSetEditDescription: (v: string) => void;
   onSetEditType: (v: BlockType) => void;
   onSetEditRole: (v: string) => void;
-  onSetZoom: (v: number | ((prev: number) => number)) => void;
+  onScaleChange: (scale: number) => void;
   onExportPNG: () => void;
   onExportBPMN: () => void;
   onExportPDF: () => void;
@@ -1319,8 +1326,9 @@ function DiagramTab({
   editDescription,
   editType,
   editRole,
-  zoom,
+  canvasScale,
   canvasContainerRef,
+  canvasHandleRef,
   updateDataMutation,
   onBlockClick,
   onStartEdit,
@@ -1331,7 +1339,7 @@ function DiagramTab({
   onSetEditDescription,
   onSetEditType,
   onSetEditRole,
-  onSetZoom,
+  onScaleChange,
   onExportPNG,
   onExportBPMN,
   onExportPDF,
@@ -1340,35 +1348,43 @@ function DiagramTab({
     <div className="flex gap-4">
       {/* Main Canvas Area */}
       <div className="flex-1 min-w-0">
-        {/* Toolbar */}
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        {/* Compact Toolbar */}
+        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
           <div className="flex items-center gap-1">
             <Button
               variant="outline"
               size="icon"
-              onClick={() => onSetZoom((z: number) => Math.max(0.25, z - 0.1))}
-              title="Уменьшить"
+              onClick={() => canvasHandleRef.current?.zoomOut()}
+              title="Отдалить (Ctrl -)"
             >
               <ZoomOut className="w-4 h-4" />
             </Button>
-            <span className="text-sm text-gray-500 w-14 text-center">
-              {Math.round(zoom * 100)}%
+            <span className="text-sm text-gray-500 w-14 text-center tabular-nums">
+              {Math.round(canvasScale * 100)}%
             </span>
             <Button
               variant="outline"
               size="icon"
-              onClick={() => onSetZoom((z: number) => Math.min(3, z + 0.1))}
-              title="Увеличить"
+              onClick={() => canvasHandleRef.current?.zoomIn()}
+              title="Приблизить (Ctrl +)"
             >
               <ZoomIn className="w-4 h-4" />
             </Button>
             <Button
               variant="outline"
               size="icon"
-              onClick={() => onSetZoom(1)}
-              title="Сбросить масштаб"
+              onClick={() => canvasHandleRef.current?.fitToScreen()}
+              title="Вписать в экран (Ctrl 0)"
             >
               <Maximize2 className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => canvasHandleRef.current?.toggleFullscreen()}
+              title="На весь экран"
+            >
+              <Fullscreen className="w-4 h-4" />
             </Button>
           </div>
 
@@ -1388,25 +1404,21 @@ function DiagramTab({
           </div>
         </div>
 
-        {/* Canvas Container */}
+        {/* Canvas Container — fills available viewport */}
         <div
           ref={canvasContainerRef}
-          className="border border-gray-200 rounded-xl bg-white overflow-auto"
-          style={{ minHeight: "500px", maxHeight: "calc(100vh - 320px)" }}
+          className="rounded-xl bg-white overflow-hidden border border-gray-200"
+          style={{ height: "calc(100vh - 240px)", minHeight: "400px" }}
         >
-          <div
-            style={{
-              transform: `scale(${zoom})`,
-              transformOrigin: "top left",
-              transition: "transform 0.15s ease",
-            }}
-          >
-            <SwimlaneCanvas
-              data={data}
-              onBlockClick={onBlockClick}
-              selectedBlockId={selectedBlockId}
-            />
-          </div>
+          <SwimlaneCanvas
+            ref={canvasHandleRef}
+            data={data}
+            onBlockClick={onBlockClick}
+            selectedBlockId={selectedBlockId}
+            externalToolbar
+            onScaleChange={onScaleChange}
+            autoFit
+          />
         </div>
       </div>
 

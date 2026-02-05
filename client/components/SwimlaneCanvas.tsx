@@ -1,4 +1,12 @@
-import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
+import React, {
+  useRef,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useImperativeHandle,
+  forwardRef,
+} from "react";
 import type { ProcessData, ProcessBlock, BlockType } from "@shared/types";
 import { BLOCK_CONFIG, SWIMLANE_COLORS } from "@shared/types";
 
@@ -44,11 +52,26 @@ interface Point {
   y: number;
 }
 
+export interface SwimlaneCanvasHandle {
+  fitToScreen: () => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
+  zoomReset: () => void;
+  getScale: () => number;
+  toggleFullscreen: () => void;
+}
+
 export interface SwimlaneCanvasProps {
   data: ProcessData;
   onBlockClick?: (blockId: string) => void;
   selectedBlockId?: string | null;
   className?: string;
+  /** If true, hide internal zoom overlay (parent provides its own toolbar) */
+  externalToolbar?: boolean;
+  /** Called when scale changes so parent can display zoom % */
+  onScaleChange?: (scale: number) => void;
+  /** If true, auto fit-to-viewport on first render */
+  autoFit?: boolean;
 }
 
 // ============================================================
@@ -1043,314 +1066,580 @@ function hitTestBlocks(
 // ============================================================
 // Main Component
 // ============================================================
-export function SwimlaneCanvas({
-  data,
-  onBlockClick,
-  selectedBlockId,
-  className,
-}: SwimlaneCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+export const SwimlaneCanvas = forwardRef<SwimlaneCanvasHandle, SwimlaneCanvasProps>(
+  function SwimlaneCanvas(
+    {
+      data,
+      onBlockClick,
+      selectedBlockId,
+      className,
+      externalToolbar = false,
+      onScaleChange,
+      autoFit = false,
+    },
+    ref,
+  ) {
+    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
 
-  const [scale, setScale] = useState(1);
-  const [offset, setOffset] = useState<Point>({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
+    // Use refs for scale/offset to avoid re-render on every zoom/pan frame
+    const scaleRef = useRef(1);
+    const offsetRef = useRef<Point>({ x: 0, y: 0 });
+    const [, forceRender] = useState(0);
+    const scheduleRender = useCallback(() => forceRender((n) => n + 1), []);
 
-  // Refs for drag/click discrimination
-  const dragStartRef = useRef<Point>({ x: 0, y: 0 });
-  const mouseDownPosRef = useRef<Point>({ x: 0, y: 0 });
-  const didDragRef = useRef(false);
+    // Dragging state — ref-based to avoid re-renders
+    const isDraggingRef = useRef(false);
+    const dragStartRef = useRef<Point>({ x: 0, y: 0 });
+    const mouseDownPosRef = useRef<Point>({ x: 0, y: 0 });
+    const didDragRef = useRef(false);
 
-  // Refs to access latest state from native event listeners
-  const scaleRef = useRef(scale);
-  const offsetRef = useRef(offset);
-  scaleRef.current = scale;
-  offsetRef.current = offset;
+    // Space-held state for space+drag panning
+    const spaceHeldRef = useRef(false);
 
-  const layout = useMemo(() => computeLayout(data), [data]);
+    // Hover state — ref with debounced render
+    const hoveredBlockIdRef = useRef<string | null>(null);
+    const hoverRafRef = useRef<number>(0);
 
-  // ---- Canvas Render ----
-  const render = useCallback(() => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
+    // Fullscreen state
+    const [isFullscreen, setIsFullscreen] = useState(false);
 
-    const dpr = window.devicePixelRatio || 1;
-    const rect = container.getBoundingClientRect();
-    const w = rect.width;
-    const h = rect.height;
+    // Track whether initial fit was done
+    const initialFitDoneRef = useRef(false);
 
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
+    // Dev diagnostics
+    const renderCountRef = useRef(0);
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const layout = useMemo(() => {
+      const t0 = performance.now();
+      const result = computeLayout(data);
+      if (import.meta.env.DEV) {
+        console.debug(`[SwimlaneCanvas] computeLayout: ${(performance.now() - t0).toFixed(1)}ms`);
+      }
+      return result;
+    }, [data]);
 
-    // Clear and set transform: DPR scaling + user zoom/pan
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.setTransform(
-      dpr * scale,
-      0,
-      0,
-      dpr * scale,
-      dpr * offset.x,
-      dpr * offset.y,
+    // ---- setScale/setOffset helpers that update refs + trigger render ----
+    const applyZoom = useCallback(
+      (newScale: number, newOffset: Point) => {
+        scaleRef.current = newScale;
+        offsetRef.current = newOffset;
+        onScaleChange?.(newScale);
+        scheduleRender();
+      },
+      [onScaleChange, scheduleRender],
     );
 
-    renderDiagram(ctx, data, layout, hoveredBlockId, selectedBlockId);
-  }, [data, layout, scale, offset, hoveredBlockId, selectedBlockId]);
-
-  useEffect(() => {
-    render();
-  }, [render]);
-
-  // ---- Resize Observer ----
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const obs = new ResizeObserver(() => render());
-    obs.observe(container);
-    return () => obs.disconnect();
-  }, [render]);
-
-  // ---- Screen to Canvas coordinate conversion ----
-  const screenToCanvas = useCallback(
-    (sx: number, sy: number): Point => {
+    // ---- Canvas Render (uses refs, not state) ----
+    const renderCanvas = useCallback(() => {
       const canvas = canvasRef.current;
-      if (!canvas) return { x: 0, y: 0 };
-      const rect = canvas.getBoundingClientRect();
-      return {
-        x: (sx - rect.left - offsetRef.current.x) / scaleRef.current,
-        y: (sy - rect.top - offsetRef.current.y) / scaleRef.current,
-      };
-    },
-    [],
-  );
+      const container = containerRef.current;
+      if (!canvas || !container) return;
 
-  // ---- Mouse Down ----
-  const handleMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.button !== 0) return;
-      mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
-      dragStartRef.current = {
-        x: e.clientX - offset.x,
-        y: e.clientY - offset.y,
-      };
-      didDragRef.current = false;
-      setIsDragging(true);
-    },
-    [offset],
-  );
+      const t0 = import.meta.env.DEV ? performance.now() : 0;
 
-  // ---- Mouse Move ----
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
-      if (isDragging) {
-        const dx = e.clientX - mouseDownPosRef.current.x;
-        const dy = e.clientY - mouseDownPosRef.current.y;
-        if (Math.abs(dx) > CLICK_THRESHOLD || Math.abs(dy) > CLICK_THRESHOLD) {
-          didDragRef.current = true;
-        }
-        setOffset({
-          x: e.clientX - dragStartRef.current.x,
-          y: e.clientY - dragStartRef.current.y,
-        });
+      const dpr = window.devicePixelRatio || 1;
+      const rect = container.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+
+      // Only resize canvas buffer when container size actually changed
+      const needsResize =
+        canvas.width !== Math.round(w * dpr) ||
+        canvas.height !== Math.round(h * dpr);
+      if (needsResize) {
+        canvas.width = Math.round(w * dpr);
+        canvas.height = Math.round(h * dpr);
+        canvas.style.width = w + "px";
+        canvas.style.height = h + "px";
       }
 
-      // Hover hit-test
-      const cp = screenToCanvas(e.clientX, e.clientY);
-      const bid = hitTestBlocks(cp.x, cp.y, layout);
-      setHoveredBlockId(bid);
-    },
-    [isDragging, screenToCanvas, layout],
-  );
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-  // ---- Mouse Up (click detection) ----
-  const handleMouseUp = useCallback(
-    (e: React.MouseEvent) => {
-      setIsDragging(false);
-      if (!didDragRef.current) {
-        const cp = screenToCanvas(e.clientX, e.clientY);
-        const bid = hitTestBlocks(cp.x, cp.y, layout);
-        if (bid && onBlockClick) {
-          onBlockClick(bid);
-        }
-      }
-    },
-    [screenToCanvas, layout, onBlockClick],
-  );
+      const scale = scaleRef.current;
+      const offset = offsetRef.current;
 
-  // ---- Mouse Leave ----
-  const handleMouseLeave = useCallback(() => {
-    setIsDragging(false);
-    setHoveredBlockId(null);
-  }, []);
-
-  // ---- Wheel Zoom (native listener for passive: false) ----
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const handler = (e: WheelEvent) => {
-      e.preventDefault();
-      const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-
-      const delta = -e.deltaY * ZOOM_SENSITIVITY;
-      const oldScale = scaleRef.current;
-      const newScale = Math.min(
-        MAX_ZOOM,
-        Math.max(MIN_ZOOM, oldScale * (1 + delta)),
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.setTransform(
+        dpr * scale,
+        0,
+        0,
+        dpr * scale,
+        dpr * offset.x,
+        dpr * offset.y,
       );
 
-      // Zoom towards mouse position
-      const ratio = newScale / oldScale;
-      const newOx = mx - ratio * (mx - offsetRef.current.x);
-      const newOy = my - ratio * (my - offsetRef.current.y);
+      renderDiagram(
+        ctx,
+        data,
+        layout,
+        hoveredBlockIdRef.current,
+        selectedBlockId,
+      );
 
-      setScale(newScale);
-      setOffset({ x: newOx, y: newOy });
+      if (import.meta.env.DEV) {
+        renderCountRef.current++;
+        if (renderCountRef.current % 50 === 0) {
+          console.debug(
+            `[SwimlaneCanvas] render #${renderCountRef.current}: ${(performance.now() - t0).toFixed(1)}ms`,
+          );
+        }
+      }
+    }, [data, layout, selectedBlockId]);
+
+    // Re-render whenever dependencies change
+    useEffect(() => {
+      renderCanvas();
+    }, [renderCanvas]);
+
+    // Also re-render when forceRender triggers
+    useEffect(() => {
+      renderCanvas();
+    });
+
+    // ---- Resize Observer with debounce ----
+    useEffect(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+      const obs = new ResizeObserver(() => {
+        if (resizeTimer) clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          renderCanvas();
+        }, 60);
+      });
+      obs.observe(container);
+      return () => {
+        obs.disconnect();
+        if (resizeTimer) clearTimeout(resizeTimer);
+      };
+    }, [renderCanvas]);
+
+    // ---- Fit to Screen ----
+    const fitToScreen = useCallback(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      if (rect.width < 10 || rect.height < 10) return;
+      const sx = rect.width / layout.totalWidth;
+      const sy = rect.height / layout.totalHeight;
+      const s = Math.min(sx, sy) * 0.92;
+      const clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, s));
+      applyZoom(clamped, {
+        x: (rect.width - layout.totalWidth * clamped) / 2,
+        y: (rect.height - layout.totalHeight * clamped) / 2,
+      });
+    }, [layout, applyZoom]);
+
+    // ---- Auto fit on first render ----
+    useEffect(() => {
+      if (!autoFit || initialFitDoneRef.current) return;
+      if (!containerRef.current || data.blocks.length === 0) return;
+      // Delay slightly to ensure container has its final size
+      const timer = setTimeout(() => {
+        fitToScreen();
+        initialFitDoneRef.current = true;
+      }, 50);
+      return () => clearTimeout(timer);
+    }, [autoFit, fitToScreen, data.blocks.length]);
+
+    // Reset initial fit flag when data changes significantly
+    useEffect(() => {
+      initialFitDoneRef.current = false;
+    }, [data.blocks.length, data.roles.length, data.stages.length]);
+
+    // ---- Debounced resize re-fit ----
+    useEffect(() => {
+      let resizeFitTimer: ReturnType<typeof setTimeout> | null = null;
+      const handleResize = () => {
+        if (resizeFitTimer) clearTimeout(resizeFitTimer);
+        resizeFitTimer = setTimeout(() => {
+          // Only auto re-fit if autoFit is enabled and we've done initial fit
+          if (autoFit && initialFitDoneRef.current) {
+            fitToScreen();
+          }
+        }, 200);
+      };
+      window.addEventListener("resize", handleResize);
+      window.addEventListener("orientationchange", handleResize);
+      return () => {
+        window.removeEventListener("resize", handleResize);
+        window.removeEventListener("orientationchange", handleResize);
+        if (resizeFitTimer) clearTimeout(resizeFitTimer);
+      };
+    }, [autoFit, fitToScreen]);
+
+    // ---- Screen to Canvas coordinate conversion ----
+    const screenToCanvas = useCallback(
+      (sx: number, sy: number): Point => {
+        const canvas = canvasRef.current;
+        if (!canvas) return { x: 0, y: 0 };
+        const rect = canvas.getBoundingClientRect();
+        return {
+          x: (sx - rect.left - offsetRef.current.x) / scaleRef.current,
+          y: (sy - rect.top - offsetRef.current.y) / scaleRef.current,
+        };
+      },
+      [],
+    );
+
+    // ---- Mouse Down ----
+    const handleMouseDown = useCallback(
+      (e: React.MouseEvent) => {
+        if (e.button !== 0) return;
+        mouseDownPosRef.current = { x: e.clientX, y: e.clientY };
+        dragStartRef.current = {
+          x: e.clientX - offsetRef.current.x,
+          y: e.clientY - offsetRef.current.y,
+        };
+        didDragRef.current = false;
+        isDraggingRef.current = true;
+      },
+      [],
+    );
+
+    // ---- Mouse Move (pan + hover) ----
+    const handleMouseMove = useCallback(
+      (e: React.MouseEvent) => {
+        if (isDraggingRef.current) {
+          const dx = e.clientX - mouseDownPosRef.current.x;
+          const dy = e.clientY - mouseDownPosRef.current.y;
+          if (
+            Math.abs(dx) > CLICK_THRESHOLD ||
+            Math.abs(dy) > CLICK_THRESHOLD
+          ) {
+            didDragRef.current = true;
+          }
+          offsetRef.current = {
+            x: e.clientX - dragStartRef.current.x,
+            y: e.clientY - dragStartRef.current.y,
+          };
+          scheduleRender();
+          return; // Skip hover during drag for performance
+        }
+
+        // Debounced hover hit-test via rAF
+        const clientX = e.clientX;
+        const clientY = e.clientY;
+        if (hoverRafRef.current) cancelAnimationFrame(hoverRafRef.current);
+        hoverRafRef.current = requestAnimationFrame(() => {
+          const cp = screenToCanvas(clientX, clientY);
+          const bid = hitTestBlocks(cp.x, cp.y, layout);
+          if (bid !== hoveredBlockIdRef.current) {
+            hoveredBlockIdRef.current = bid;
+            scheduleRender();
+          }
+        });
+      },
+      [screenToCanvas, layout, scheduleRender],
+    );
+
+    // ---- Mouse Up (click detection) ----
+    const handleMouseUp = useCallback(
+      (e: React.MouseEvent) => {
+        isDraggingRef.current = false;
+        if (!didDragRef.current) {
+          const cp = screenToCanvas(e.clientX, e.clientY);
+          const bid = hitTestBlocks(cp.x, cp.y, layout);
+          if (bid && onBlockClick) {
+            onBlockClick(bid);
+          }
+        }
+      },
+      [screenToCanvas, layout, onBlockClick],
+    );
+
+    // ---- Mouse Leave ----
+    const handleMouseLeave = useCallback(() => {
+      isDraggingRef.current = false;
+      if (hoveredBlockIdRef.current !== null) {
+        hoveredBlockIdRef.current = null;
+        scheduleRender();
+      }
+    }, [scheduleRender]);
+
+    // ---- Wheel Zoom (native listener for passive: false) ----
+    useEffect(() => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+
+      const handler = (e: WheelEvent) => {
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+
+        const delta = -e.deltaY * ZOOM_SENSITIVITY;
+        const oldScale = scaleRef.current;
+        const newScale = Math.min(
+          MAX_ZOOM,
+          Math.max(MIN_ZOOM, oldScale * (1 + delta)),
+        );
+
+        const ratio = newScale / oldScale;
+        const newOx = mx - ratio * (mx - offsetRef.current.x);
+        const newOy = my - ratio * (my - offsetRef.current.y);
+
+        applyZoom(newScale, { x: newOx, y: newOy });
+      };
+
+      canvas.addEventListener("wheel", handler, { passive: false });
+      return () => canvas.removeEventListener("wheel", handler);
+    }, [applyZoom]);
+
+    // ---- Zoom Control Callbacks ----
+    const zoomIn = useCallback(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      const oldScale = scaleRef.current;
+      const newScale = Math.min(MAX_ZOOM, oldScale * 1.25);
+      const ratio = newScale / oldScale;
+      const prev = offsetRef.current;
+      applyZoom(newScale, {
+        x: centerX - ratio * (centerX - prev.x),
+        y: centerY - ratio * (centerY - prev.y),
+      });
+    }, [applyZoom]);
+
+    const zoomOut = useCallback(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      const centerX = rect.width / 2;
+      const centerY = rect.height / 2;
+      const oldScale = scaleRef.current;
+      const newScale = Math.max(MIN_ZOOM, oldScale / 1.25);
+      const ratio = newScale / oldScale;
+      const prev = offsetRef.current;
+      applyZoom(newScale, {
+        x: centerX - ratio * (centerX - prev.x),
+        y: centerY - ratio * (centerY - prev.y),
+      });
+    }, [applyZoom]);
+
+    const zoomReset = useCallback(() => {
+      applyZoom(1, { x: 0, y: 0 });
+    }, [applyZoom]);
+
+    // ---- Fullscreen ----
+    const toggleFullscreen = useCallback(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      if (!document.fullscreenElement) {
+        container.requestFullscreen?.().catch(() => {});
+      } else {
+        document.exitFullscreen?.().catch(() => {});
+      }
+    }, []);
+
+    useEffect(() => {
+      const onFullscreenChange = () => {
+        const isFull = !!document.fullscreenElement;
+        setIsFullscreen(isFull);
+        // Re-fit after fullscreen transition
+        if (isFull) {
+          setTimeout(() => fitToScreen(), 100);
+        }
+      };
+      document.addEventListener("fullscreenchange", onFullscreenChange);
+      return () =>
+        document.removeEventListener("fullscreenchange", onFullscreenChange);
+    }, [fitToScreen]);
+
+    // ---- Keyboard Shortcuts ----
+    useEffect(() => {
+      const handler = (e: KeyboardEvent) => {
+        const isModifier = e.ctrlKey || e.metaKey;
+
+        // Ctrl/Cmd + 0 = fit to viewport
+        if (isModifier && (e.key === "0" || e.code === "Digit0")) {
+          e.preventDefault();
+          fitToScreen();
+          return;
+        }
+
+        // Ctrl/Cmd + = / + = zoom in
+        if (isModifier && (e.key === "=" || e.key === "+")) {
+          e.preventDefault();
+          zoomIn();
+          return;
+        }
+
+        // Ctrl/Cmd + - = zoom out
+        if (isModifier && e.key === "-") {
+          e.preventDefault();
+          zoomOut();
+          return;
+        }
+
+        // Space key tracking for space+drag pan
+        if (e.code === "Space" && !e.repeat) {
+          // Don't capture space if typing in an input
+          const tag = (e.target as HTMLElement)?.tagName;
+          if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+          e.preventDefault();
+          spaceHeldRef.current = true;
+        }
+
+        // Escape to exit fullscreen
+        if (e.key === "Escape" && isFullscreen) {
+          document.exitFullscreen?.().catch(() => {});
+        }
+      };
+
+      const keyUpHandler = (e: KeyboardEvent) => {
+        if (e.code === "Space") {
+          spaceHeldRef.current = false;
+        }
+      };
+
+      window.addEventListener("keydown", handler);
+      window.addEventListener("keyup", keyUpHandler);
+      return () => {
+        window.removeEventListener("keydown", handler);
+        window.removeEventListener("keyup", keyUpHandler);
+      };
+    }, [fitToScreen, zoomIn, zoomOut, isFullscreen]);
+
+    // ---- Imperative Handle for parent ----
+    useImperativeHandle(
+      ref,
+      () => ({
+        fitToScreen,
+        zoomIn,
+        zoomOut,
+        zoomReset,
+        getScale: () => scaleRef.current,
+        toggleFullscreen,
+      }),
+      [fitToScreen, zoomIn, zoomOut, zoomReset, toggleFullscreen],
+    );
+
+    // ---- Cursor Style ----
+    const getCursorClass = () => {
+      if (spaceHeldRef.current || isDraggingRef.current) return "cursor-grabbing";
+      if (hoveredBlockIdRef.current) return "cursor-pointer";
+      return "cursor-grab";
     };
 
-    canvas.addEventListener("wheel", handler, { passive: false });
-    return () => canvas.removeEventListener("wheel", handler);
-  }, []);
+    return (
+      <div
+        ref={containerRef}
+        className={
+          "relative w-full h-full overflow-hidden bg-slate-50 " +
+          (isFullscreen ? "!fixed !inset-0 !z-50 " : "") +
+          (className || "")
+        }
+        tabIndex={0}
+      >
+        <canvas
+          ref={canvasRef}
+          className={"block w-full h-full " + getCursorClass()}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseLeave}
+        />
 
-  // ---- Zoom Control Callbacks ----
-  const zoomIn = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
-    const oldScale = scaleRef.current;
-    const newScale = Math.min(MAX_ZOOM, oldScale * 1.25);
-    const ratio = newScale / oldScale;
-    setScale(newScale);
-    setOffset((prev) => ({
-      x: centerX - ratio * (centerX - prev.x),
-      y: centerY - ratio * (centerY - prev.y),
-    }));
-  }, []);
+        {/* Zoom Controls Overlay — shown when no external toolbar */}
+        {!externalToolbar && (
+          <div className="absolute bottom-4 right-4 flex flex-col gap-0 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
+            <button
+              onClick={zoomIn}
+              className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors text-gray-600 font-semibold text-lg"
+              title="Приблизить (Ctrl +)"
+            >
+              +
+            </button>
+            <div className="mx-2 h-px bg-gray-200" />
+            <button
+              onClick={zoomReset}
+              className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors text-gray-500 text-xs font-medium"
+              title="Сбросить масштаб"
+            >
+              {Math.round(scaleRef.current * 100)}%
+            </button>
+            <div className="mx-2 h-px bg-gray-200" />
+            <button
+              onClick={zoomOut}
+              className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors text-gray-600 font-semibold text-lg"
+              title="Отдалить (Ctrl -)"
+            >
+              &minus;
+            </button>
+            <div className="mx-2 h-px bg-gray-200" />
+            <button
+              onClick={fitToScreen}
+              className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors text-gray-500"
+              title="Вписать в экран (Ctrl 0)"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              >
+                <rect x="1" y="1" width="14" height="14" rx="2" />
+                <path d="M5 1v14M1 5h14" />
+              </svg>
+            </button>
+            <div className="mx-2 h-px bg-gray-200" />
+            <button
+              onClick={toggleFullscreen}
+              className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors text-gray-500"
+              title={isFullscreen ? "Выйти из полноэкранного (Esc)" : "На весь экран"}
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              >
+                {isFullscreen ? (
+                  <>
+                    <polyline points="5,1 1,1 1,5" />
+                    <polyline points="11,15 15,15 15,11" />
+                    <polyline points="15,5 15,1 11,1" />
+                    <polyline points="1,11 1,15 5,15" />
+                  </>
+                ) : (
+                  <>
+                    <polyline points="1,5 1,1 5,1" />
+                    <polyline points="15,11 15,15 11,15" />
+                    <polyline points="11,1 15,1 15,5" />
+                    <polyline points="5,15 1,15 1,11" />
+                  </>
+                )}
+              </svg>
+            </button>
+          </div>
+        )}
 
-  const zoomOut = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const centerX = rect.width / 2;
-    const centerY = rect.height / 2;
-    const oldScale = scaleRef.current;
-    const newScale = Math.max(MIN_ZOOM, oldScale / 1.25);
-    const ratio = newScale / oldScale;
-    setScale(newScale);
-    setOffset((prev) => ({
-      x: centerX - ratio * (centerX - prev.x),
-      y: centerY - ratio * (centerY - prev.y),
-    }));
-  }, []);
+        {/* Mini-map style info in top-left */}
+        {data.blocks.length > 0 && (
+          <div className="absolute top-3 left-3 px-3 py-1.5 bg-white/80 backdrop-blur-sm rounded-lg border border-gray-200 text-xs text-gray-500 pointer-events-none select-none">
+            {data.blocks.length} {"\u0431\u043B\u043E\u043A\u043E\u0432"} &middot;{" "}
+            {data.roles.length} {"\u0440\u043E\u043B\u0435\u0439"} &middot;{" "}
+            {data.stages.length} {"\u044D\u0442\u0430\u043F\u043E\u0432"}
+          </div>
+        )}
 
-  const zoomReset = useCallback(() => {
-    setScale(1);
-    setOffset({ x: 0, y: 0 });
-  }, []);
-
-  const fitToScreen = useCallback(() => {
-    const container = containerRef.current;
-    if (!container) return;
-    const rect = container.getBoundingClientRect();
-    const sx = rect.width / layout.totalWidth;
-    const sy = rect.height / layout.totalHeight;
-    const s = Math.min(sx, sy) * 0.92;
-    const clamped = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, s));
-    setScale(clamped);
-    setOffset({
-      x: (rect.width - layout.totalWidth * clamped) / 2,
-      y: (rect.height - layout.totalHeight * clamped) / 2,
-    });
-  }, [layout]);
-
-  // ---- Cursor Style ----
-  const cursorClass = hoveredBlockId
-    ? "cursor-pointer"
-    : isDragging
-      ? "cursor-grabbing"
-      : "cursor-grab";
-
-  return (
-    <div
-      ref={containerRef}
-      className={
-        "relative w-full h-full overflow-hidden bg-slate-50 " +
-        (className || "")
-      }
-    >
-      <canvas
-        ref={canvasRef}
-        className={"block w-full h-full " + cursorClass}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseLeave}
-      />
-
-      {/* Zoom Controls Overlay */}
-      <div className="absolute bottom-4 right-4 flex flex-col gap-0 bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-        <button
-          onClick={zoomIn}
-          className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors text-gray-600 font-semibold text-lg"
-          title="\u041F\u0440\u0438\u0431\u043B\u0438\u0437\u0438\u0442\u044C"
-        >
-          +
-        </button>
-        <div className="mx-2 h-px bg-gray-200" />
-        <button
-          onClick={zoomReset}
-          className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors text-gray-500 text-xs font-medium"
-          title="\u0421\u0431\u0440\u043E\u0441\u0438\u0442\u044C \u043C\u0430\u0441\u0448\u0442\u0430\u0431"
-        >
-          {Math.round(scale * 100)}%
-        </button>
-        <div className="mx-2 h-px bg-gray-200" />
-        <button
-          onClick={zoomOut}
-          className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors text-gray-600 font-semibold text-lg"
-          title="\u041E\u0442\u0434\u0430\u043B\u0438\u0442\u044C"
-        >
-          &minus;
-        </button>
-        <div className="mx-2 h-px bg-gray-200" />
-        <button
-          onClick={fitToScreen}
-          className="w-10 h-10 flex items-center justify-center hover:bg-gray-100 active:bg-gray-200 transition-colors text-gray-500"
-          title="\u0412\u043F\u0438\u0441\u0430\u0442\u044C \u0432 \u044D\u043A\u0440\u0430\u043D"
-        >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-          >
-            <rect x="1" y="1" width="14" height="14" rx="2" />
-            <path d="M5 1v14M1 5h14" />
-          </svg>
-        </button>
+        {/* Fullscreen hint */}
+        {isFullscreen && (
+          <div className="absolute top-3 right-3 px-3 py-1.5 bg-black/60 rounded-lg text-xs text-white pointer-events-none select-none">
+            Esc — выход из полноэкранного режима
+          </div>
+        )}
       </div>
-
-      {/* Mini-map style info in top-left */}
-      {data.blocks.length > 0 && (
-        <div className="absolute top-3 left-3 px-3 py-1.5 bg-white/80 backdrop-blur-sm rounded-lg border border-gray-200 text-xs text-gray-500 pointer-events-none select-none">
-          {data.blocks.length} {"\u0431\u043B\u043E\u043A\u043E\u0432"} &middot;{" "}
-          {data.roles.length} {"\u0440\u043E\u043B\u0435\u0439"} &middot;{" "}
-          {data.stages.length} {"\u044D\u0442\u0430\u043F\u043E\u0432"}
-        </div>
-      )}
-    </div>
-  );
-}
+    );
+  },
+);
