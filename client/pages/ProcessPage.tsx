@@ -51,6 +51,7 @@ import type {
   ProcessVersion,
   CrmFunnel,
   CrmFunnelStage,
+  CrmFunnelStatus,
   ProcessMetrics,
   ProcessPassport,
   QualityCheckResult,
@@ -98,6 +99,13 @@ import {
   Shield,
   Target,
   FileCheck,
+  UserCircle,
+  Timer,
+  ListChecks,
+  LogOut,
+  PauseCircle,
+  XOctagon,
+  Trophy,
 } from "lucide-react";
 
 // ============================================
@@ -228,127 +236,414 @@ function computeCriticalPath(data: ProcessData): number {
   return maxPath;
 }
 
+// ============================================
+// CRM Funnel Generation — Two-pass gate extraction
+// ============================================
+
 /**
- * Generate CRM funnel variants from ProcessData.
+ * PASS 1: Extract "gates" — decision blocks and product/end blocks that represent
+ * natural transition points between funnel stages.
  */
-function generateCrmFunnels(data: ProcessData): CrmFunnel[] {
-  const sortedStages = [...data.stages].sort((a, b) => a.order - b.order);
+function extractGates(data: ProcessData): ProcessBlock[] {
+  const blockMap = new Map(data.blocks.map((b) => [b.id, b]));
+  const gates: ProcessBlock[] = [];
 
-  // Variant 1: Simple funnel (3-5 stages based on major stages)
-  const simpleFunnel = buildSimpleFunnel(data, sortedStages);
-
-  // Variant 2: Detailed funnel (one CRM stage per process stage)
-  const detailedFunnel = buildDetailedFunnel(data, sortedStages);
-
-  // Variant 3: Extended funnel (stages + sub-stages from blocks)
-  const extendedFunnel = buildExtendedFunnel(data, sortedStages);
-
-  return [simpleFunnel, detailedFunnel, extendedFunnel];
-}
-
-function buildSimpleFunnel(data: ProcessData, sortedStages: ProcessStage[]): CrmFunnel {
-  // Pick evenly spaced stages to form 3-5 stages
-  const targetCount = Math.min(5, Math.max(3, sortedStages.length));
-  const step = Math.max(1, Math.floor(sortedStages.length / targetCount));
-  const selectedStages: ProcessStage[] = [];
-  for (let i = 0; i < sortedStages.length && selectedStages.length < targetCount; i += step) {
-    selectedStages.push(sortedStages[i]);
-  }
-  // Always include the last stage
-  if (selectedStages.length > 0 && selectedStages[selectedStages.length - 1].id !== sortedStages[sortedStages.length - 1].id) {
-    if (selectedStages.length >= targetCount) {
-      selectedStages[selectedStages.length - 1] = sortedStages[sortedStages.length - 1];
-    } else {
-      selectedStages.push(sortedStages[sortedStages.length - 1]);
+  // Decision blocks are natural gates (go/no-go points)
+  for (const block of data.blocks) {
+    if (block.type === "decision") {
+      gates.push(block);
     }
   }
 
-  const stages: CrmFunnelStage[] = selectedStages.map((stage, idx) => {
-    const relatedBlocks = data.blocks.filter((b) => b.stage === stage.name || b.stage === stage.id);
-    return {
-      id: `simple-${stage.id}`,
-      name: stage.name,
-      order: idx + 1,
-      relatedBlockIds: relatedBlocks.map((b) => b.id),
-      automations: relatedBlocks
-        .filter((b) => b.infoSystems && b.infoSystems.length > 0)
-        .flatMap((b) => b.infoSystems || [])
-        .filter((v, i, a) => a.indexOf(v) === i),
-      conversionTarget: Math.round(100 - (idx / (selectedStages.length - 1)) * 70),
-    };
+  // Product blocks are intermediate results — also serve as gates
+  for (const block of data.blocks) {
+    if (block.type === "product") {
+      gates.push(block);
+    }
+  }
+
+  // End blocks mark final gates
+  for (const block of data.blocks) {
+    if (block.type === "end") {
+      gates.push(block);
+    }
+  }
+
+  // Sort gates by stage order, then by topological position within stage
+  const stageOrder = new Map(data.stages.map((s, i) => [s.id, i]));
+  const stageNameOrder = new Map(data.stages.map((s, i) => [s.name, i]));
+  const blockOrder = new Map(data.blocks.map((b, i) => [b.id, i]));
+
+  gates.sort((a, b) => {
+    const sA = stageOrder.get(a.stage) ?? stageNameOrder.get(a.stage) ?? 999;
+    const sB = stageOrder.get(b.stage) ?? stageNameOrder.get(b.stage) ?? 999;
+    if (sA !== sB) return sA - sB;
+    return (blockOrder.get(a.id) ?? 0) - (blockOrder.get(b.id) ?? 0);
   });
 
-  return {
-    id: "funnel-simple",
-    name: "Простая воронка",
-    variant: 1,
-    stages,
-  };
+  // Deduplicate
+  const seen = new Set<string>();
+  return gates.filter((g) => {
+    if (seen.has(g.id)) return false;
+    seen.add(g.id);
+    return true;
+  });
 }
 
-function buildDetailedFunnel(data: ProcessData, sortedStages: ProcessStage[]): CrmFunnel {
-  const stages: CrmFunnelStage[] = sortedStages.map((stage, idx) => {
-    const relatedBlocks = data.blocks.filter((b) => b.stage === stage.name || b.stage === stage.id);
-    return {
-      id: `detailed-${stage.id}`,
-      name: stage.name,
-      order: idx + 1,
-      relatedBlockIds: relatedBlocks.map((b) => b.id),
-      automations: relatedBlocks
-        .filter((b) => b.infoSystems && b.infoSystems.length > 0)
-        .flatMap((b) => b.infoSystems || [])
-        .filter((v, i, a) => a.indexOf(v) === i),
-      conversionTarget: Math.round(100 - (idx / Math.max(sortedStages.length - 1, 1)) * 60),
-    };
+/**
+ * PASS 2: Aggregate gates into 5-12 L0 stages, assign blocks between gates,
+ * derive exit criteria, owner roles, SLA, checklists.
+ */
+function aggregateToFunnelStages(data: ProcessData, gates: ProcessBlock[]): CrmFunnelStage[] {
+  const sortedStages = [...data.stages].sort((a, b) => a.order - b.order);
+  const stageOrder = new Map(sortedStages.map((s, i) => [s.id, i]));
+  const stageNameOrder = new Map(sortedStages.map((s, i) => [s.name, i]));
+  const blockOrder = new Map(data.blocks.map((b, i) => [b.id, i]));
+
+  // Sort all blocks by stage then position
+  const sortedBlocks = [...data.blocks].sort((a, b) => {
+    const sA = stageOrder.get(a.stage) ?? stageNameOrder.get(a.stage) ?? 999;
+    const sB = stageOrder.get(b.stage) ?? stageNameOrder.get(b.stage) ?? 999;
+    if (sA !== sB) return sA - sB;
+    return (blockOrder.get(a.id) ?? 0) - (blockOrder.get(b.id) ?? 0);
   });
 
-  return {
-    id: "funnel-detailed",
-    name: "Детальная воронка",
-    variant: 2,
-    stages,
-  };
-}
+  // Gate positions in the sorted block list
+  const gateIds = new Set(gates.map((g) => g.id));
+  const gatePositions: number[] = [];
+  for (let i = 0; i < sortedBlocks.length; i++) {
+    if (gateIds.has(sortedBlocks[i].id)) {
+      gatePositions.push(i);
+    }
+  }
 
-function buildExtendedFunnel(data: ProcessData, sortedStages: ProcessStage[]): CrmFunnel {
-  const stages: CrmFunnelStage[] = [];
-  let order = 1;
+  // If too few gates, add synthetic boundaries at stage transitions
+  if (gatePositions.length < 4) {
+    let prevStage = "";
+    for (let i = 0; i < sortedBlocks.length; i++) {
+      const blk = sortedBlocks[i];
+      const st = blk.stage;
+      if (st !== prevStage && prevStage !== "" && !gateIds.has(blk.id)) {
+        gatePositions.push(i);
+        gateIds.add(blk.id);
+      }
+      prevStage = st;
+    }
+    gatePositions.sort((a, b) => a - b);
+  }
 
-  for (const stage of sortedStages) {
-    const relatedBlocks = data.blocks.filter((b) => b.stage === stage.name || b.stage === stage.id);
-    const actionBlocks = relatedBlocks.filter(
+  // Build segments: blocks between consecutive gates
+  type Segment = { blocks: ProcessBlock[]; gate: ProcessBlock | null };
+  const segments: Segment[] = [];
+  let lastIdx = 0;
+
+  for (const gPos of gatePositions) {
+    const segBlocks = sortedBlocks.slice(lastIdx, gPos + 1);
+    if (segBlocks.length > 0) {
+      segments.push({ blocks: segBlocks, gate: sortedBlocks[gPos] });
+    }
+    lastIdx = gPos + 1;
+  }
+  // Remaining blocks after last gate
+  if (lastIdx < sortedBlocks.length) {
+    const remaining = sortedBlocks.slice(lastIdx);
+    if (remaining.length > 0) {
+      segments.push({ blocks: remaining, gate: null });
+    }
+  }
+
+  // Merge small segments to stay within 5-12 stages
+  const merged: Segment[] = [];
+  for (const seg of segments) {
+    if (merged.length > 0 && merged.length >= 12) {
+      // Too many — merge into last
+      const last = merged[merged.length - 1];
+      last.blocks.push(...seg.blocks);
+      if (seg.gate) last.gate = seg.gate;
+    } else if (seg.blocks.length <= 1 && merged.length > 0) {
+      // Very small segment — merge with previous
+      const last = merged[merged.length - 1];
+      last.blocks.push(...seg.blocks);
+      if (seg.gate) last.gate = seg.gate;
+    } else {
+      merged.push({ ...seg });
+    }
+  }
+
+  // If still fewer than 5, split larger segments
+  while (merged.length < 5 && merged.length > 0) {
+    // Find the largest segment to split
+    let maxIdx = 0;
+    let maxLen = 0;
+    for (let i = 0; i < merged.length; i++) {
+      if (merged[i].blocks.length > maxLen) {
+        maxLen = merged[i].blocks.length;
+        maxIdx = i;
+      }
+    }
+    if (maxLen <= 2) break; // Can't split further
+    const seg = merged[maxIdx];
+    const mid = Math.floor(seg.blocks.length / 2);
+    const first: Segment = { blocks: seg.blocks.slice(0, mid), gate: seg.blocks[mid - 1] };
+    const second: Segment = { blocks: seg.blocks.slice(mid), gate: seg.gate };
+    merged.splice(maxIdx, 1, first, second);
+  }
+
+  // Role lookup
+  const roleMap = new Map(data.roles.map((r) => [r.id, r.name]));
+
+  // Build L0 stages
+  const l0Stages: CrmFunnelStage[] = merged.map((seg, idx) => {
+    const actionBlocks = seg.blocks.filter(
       (b) => b.type === "action" || b.type === "product" || b.type === "decision"
     );
 
-    // Add main stage
-    stages.push({
-      id: `ext-stage-${stage.id}`,
-      name: stage.name,
-      order: order++,
-      relatedBlockIds: relatedBlocks.map((b) => b.id),
-      automations: [],
-      conversionTarget: Math.round(100 - ((order - 2) / Math.max(sortedStages.length * 2, 1)) * 70),
-    });
+    // Exit criteria from gate block
+    const exitCriteria = seg.gate
+      ? seg.gate.type === "decision"
+        ? `Решение: ${seg.gate.name}`
+        : seg.gate.type === "product"
+          ? `Результат: ${seg.gate.name}`
+          : seg.gate.type === "end"
+            ? `Завершение: ${seg.gate.name}`
+            : seg.gate.name
+      : "Переход к следующему этапу";
 
-    // Add sub-stages from action/product blocks
-    for (const block of actionBlocks) {
-      stages.push({
-        id: `ext-sub-${block.id}`,
-        name: `  ${block.name}`,
-        order: order++,
-        relatedBlockIds: [block.id],
-        automations: block.infoSystems || [],
-        conversionTarget: Math.round(100 - ((order - 2) / Math.max(sortedStages.length * 3, 1)) * 70),
+    // Owner role — most frequent role in segment
+    const roleCounts = new Map<string, number>();
+    for (const b of seg.blocks) {
+      roleCounts.set(b.role, (roleCounts.get(b.role) || 0) + 1);
+    }
+    let maxRole = "";
+    let maxCount = 0;
+    for (const [role, count] of roleCounts) {
+      if (count > maxCount) {
+        maxCount = count;
+        maxRole = role;
+      }
+    }
+    const ownerRole = roleMap.get(maxRole) || maxRole || "Не определено";
+
+    // SLA days — estimate from time estimates on blocks
+    let totalHours = 0;
+    for (const b of actionBlocks) {
+      if (b.timeEstimate) {
+        const match = b.timeEstimate.match(/(\d+)/);
+        if (match) {
+          const val = parseInt(match[1], 10);
+          if (b.timeEstimate.includes("дн") || b.timeEstimate.includes("day")) {
+            totalHours += val * 8;
+          } else if (b.timeEstimate.includes("час") || b.timeEstimate.includes("hour") || b.timeEstimate.includes("ч")) {
+            totalHours += val;
+          } else if (b.timeEstimate.includes("мин") || b.timeEstimate.includes("min")) {
+            totalHours += val / 60;
+          } else {
+            totalHours += val; // Default to hours
+          }
+        }
+      }
+    }
+    const slaDays = Math.max(1, Math.ceil(totalHours / 8));
+
+    // Checklist from action block names
+    const checklist = actionBlocks.map((b) => b.name);
+
+    // Automations from info systems
+    const automations = actionBlocks
+      .flatMap((b) => b.infoSystems || [])
+      .filter((v, i, a) => a.indexOf(v) === i);
+
+    // Derive a stage name
+    const stageIds = new Set(seg.blocks.map((b) => b.stage));
+    const stageNames = sortedStages
+      .filter((s) => stageIds.has(s.id) || stageIds.has(s.name))
+      .map((s) => s.name);
+    const stageName =
+      stageNames.length > 0
+        ? stageNames.length === 1
+          ? stageNames[0]
+          : `${stageNames[0]} — ${stageNames[stageNames.length - 1]}`
+        : `Этап ${idx + 1}`;
+
+    return {
+      id: `l0-${idx}`,
+      name: stageName,
+      level: 0 as const,
+      order: idx + 1,
+      exitCriteria,
+      ownerRole,
+      slaDays,
+      checklist,
+      relatedBlockIds: seg.blocks.map((b) => b.id),
+      automations,
+      conversionTarget: Math.round(100 - (idx / Math.max(merged.length - 1, 1)) * 65),
+    };
+  });
+
+  return l0Stages;
+}
+
+/**
+ * Build L1 sub-stages (within each L0 stage, group by process stage)
+ * and L2 actions (individual blocks within L1).
+ */
+function buildSubStages(data: ProcessData, l0Stages: CrmFunnelStage[]): CrmFunnelStage[] {
+  const sortedStages = [...data.stages].sort((a, b) => a.order - b.order);
+  const stageOrder = new Map(sortedStages.map((s, i) => [s.id, i]));
+  const stageNameOrder = new Map(sortedStages.map((s, i) => [s.name, i]));
+  const blockMap = new Map(data.blocks.map((b) => [b.id, b]));
+  const roleMap = new Map(data.roles.map((r) => [r.id, r.name]));
+
+  const allStages: CrmFunnelStage[] = [];
+  let globalOrder = 1;
+
+  for (const l0 of l0Stages) {
+    // Add L0 stage
+    allStages.push({ ...l0, order: globalOrder++ });
+
+    // Group blocks within this L0 by their process stage
+    const blocksByStage = new Map<string, ProcessBlock[]>();
+    for (const blockId of l0.relatedBlockIds) {
+      const block = blockMap.get(blockId);
+      if (block && block.type !== "start" && block.type !== "end") {
+        const key = block.stage;
+        if (!blocksByStage.has(key)) blocksByStage.set(key, []);
+        blocksByStage.get(key)!.push(block);
+      }
+    }
+
+    // Only create L1 sub-stages if there are multiple process stages in this L0
+    if (blocksByStage.size > 1) {
+      const sortedKeys = [...blocksByStage.keys()].sort((a, b) => {
+        const oA = stageOrder.get(a) ?? stageNameOrder.get(a) ?? 999;
+        const oB = stageOrder.get(b) ?? stageNameOrder.get(b) ?? 999;
+        return oA - oB;
       });
+
+      for (const stageKey of sortedKeys) {
+        const blocks = blocksByStage.get(stageKey)!;
+        const actionBlocks = blocks.filter((b) => b.type === "action" || b.type === "product");
+        if (actionBlocks.length === 0) continue;
+
+        const matchedStage = sortedStages.find((s) => s.id === stageKey || s.name === stageKey);
+        const l1Name = matchedStage ? matchedStage.name : stageKey;
+
+        // Owner: most frequent role
+        const roleCounts = new Map<string, number>();
+        for (const b of blocks) {
+          roleCounts.set(b.role, (roleCounts.get(b.role) || 0) + 1);
+        }
+        let topRole = "";
+        let topCount = 0;
+        for (const [r, c] of roleCounts) {
+          if (c > topCount) { topCount = c; topRole = r; }
+        }
+
+        const l1Id = `l1-${l0.id}-${stageKey}`;
+        allStages.push({
+          id: l1Id,
+          name: l1Name,
+          level: 1,
+          order: globalOrder++,
+          parentId: l0.id,
+          exitCriteria: actionBlocks[actionBlocks.length - 1].name,
+          ownerRole: roleMap.get(topRole) || topRole,
+          checklist: actionBlocks.map((b) => b.name),
+          relatedBlockIds: blocks.map((b) => b.id),
+          automations: blocks
+            .flatMap((b) => b.infoSystems || [])
+            .filter((v, i, a) => a.indexOf(v) === i),
+        });
+      }
     }
   }
 
-  return {
-    id: "funnel-extended",
-    name: "Расширенная воронка",
-    variant: 3,
-    stages,
-  };
+  return allStages;
+}
+
+/**
+ * Generate funnel-external statuses: Pause, Lost, Won.
+ */
+function generateStatuses(data: ProcessData): CrmFunnelStatus[] {
+  return [
+    {
+      id: "status-pause",
+      name: "Пауза",
+      type: "pause",
+      description: "Сделка приостановлена — клиент попросил отложить или нет ресурсов для продвижения",
+    },
+    {
+      id: "status-lost",
+      name: "Проиграно",
+      type: "lost",
+      description: "Сделка проиграна — клиент выбрал конкурента, отказался или нет бюджета",
+    },
+    {
+      id: "status-won",
+      name: "Успешно",
+      type: "won",
+      description: "Сделка успешно завершена — контракт подписан, оплата получена",
+    },
+  ];
+}
+
+/**
+ * Validate funnel quality and return notes.
+ */
+function validateFunnel(stages: CrmFunnelStage[]): string[] {
+  const notes: string[] = [];
+  const l0 = stages.filter((s) => s.level === 0);
+
+  if (l0.length < 5) notes.push(`Мало L0-этапов (${l0.length}), рекомендуется 5-12`);
+  if (l0.length > 12) notes.push(`Много L0-этапов (${l0.length}), рекомендуется 5-12`);
+
+  for (const s of l0) {
+    if (!s.exitCriteria || s.exitCriteria.length < 3) {
+      notes.push(`Этап «${s.name}» не имеет критерия выхода`);
+    }
+    if (!s.ownerRole || s.ownerRole === "Не определено") {
+      notes.push(`Этап «${s.name}» не имеет владельца`);
+    }
+    if (s.checklist.length === 0) {
+      notes.push(`Этап «${s.name}» не имеет чек-листа`);
+    }
+  }
+
+  if (notes.length === 0) notes.push("Воронка корректна. Все проверки пройдены.");
+  return notes;
+}
+
+/**
+ * Generate a single CRM funnel from ProcessData using two-pass gate extraction.
+ */
+function generateCrmFunnels(data: ProcessData): CrmFunnel[] {
+  if (data.blocks.length < 3) return [];
+
+  // Pass 1: extract gates
+  const gates = extractGates(data);
+
+  // Pass 2: aggregate into L0 stages
+  const l0Stages = aggregateToFunnelStages(data, gates);
+
+  // Build L0+L1 hierarchy
+  const allStages = buildSubStages(data, l0Stages);
+
+  // Statuses
+  const statuses = generateStatuses(data);
+
+  // Validate
+  const qualityNotes = validateFunnel(allStages);
+
+  return [
+    {
+      id: "funnel-main",
+      name: "CRM-воронка",
+      description: `${l0Stages.length} этапов (L0), ${allStages.filter((s) => s.level === 1).length} подэтапов (L1)`,
+      stages: allStages,
+      statuses,
+      qualityNotes,
+    },
+  ];
 }
 
 /**
@@ -1763,6 +2058,18 @@ function MetricsTab({
 // Tab: CRM Funnels
 // ============================================
 
+const STATUS_ICONS: Record<string, typeof PauseCircle> = {
+  pause: PauseCircle,
+  lost: XOctagon,
+  won: Trophy,
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  pause: "text-yellow-600 bg-yellow-50 border-yellow-200",
+  lost: "text-red-600 bg-red-50 border-red-200",
+  won: "text-green-600 bg-green-50 border-green-200",
+};
+
 function CrmFunnelsTab({
   funnels,
   data,
@@ -1771,6 +2078,7 @@ function CrmFunnelsTab({
   data: ProcessData;
 }) {
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set());
+  const [showQuality, setShowQuality] = useState(false);
 
   const toggleStage = useCallback((stageId: string) => {
     setExpandedStages((prev) => {
@@ -1799,130 +2107,319 @@ function CrmFunnelsTab({
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {funnels.map((funnel) => (
-        <Card key={funnel.id}>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 text-sm font-bold">
-                {funnel.variant}
-              </div>
+    <div className="space-y-6">
+      {funnels.map((funnel) => {
+        const l0Stages = funnel.stages.filter((s) => s.level === 0);
+        const l1Stages = funnel.stages.filter((s) => s.level === 1);
+
+        return (
+          <div key={funnel.id} className="space-y-4">
+            {/* Header */}
+            <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-base">{funnel.name}</CardTitle>
-                <CardDescription>
-                  {funnel.stages.length}{" "}
-                  {funnel.stages.length === 1
-                    ? "этап"
-                    : funnel.stages.length < 5
-                      ? "этапа"
-                      : "этапов"}
-                </CardDescription>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  {funnel.name}
+                </h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {funnel.description}
+                </p>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowQuality((v) => !v)}
+              >
+                <ClipboardCheck className="w-4 h-4" />
+                {showQuality ? "Скрыть проверки" : "Проверки качества"}
+              </Button>
             </div>
-          </CardHeader>
-          <CardContent>
-            <div className="relative">
-              {funnel.stages.map((stage, idx) => {
-                const isExpanded = expandedStages.has(stage.id);
-                const relatedBlocks = stage.relatedBlockIds
-                  .map((bid) => data.blocks.find((b) => b.id === bid))
-                  .filter(Boolean) as ProcessBlock[];
 
-                // Funnel width decreases from top to bottom
-                const widthPercent =
-                  100 -
-                  (idx / Math.max(funnel.stages.length - 1, 1)) * 40;
-                const isSubStage = stage.name.startsWith("  ");
-
-                return (
-                  <div key={stage.id} className="mb-1">
-                    <button
-                      className={cn(
-                        "w-full text-left transition-all",
-                        "rounded-md border px-3 py-2",
-                        isSubStage
-                          ? "bg-gray-50 border-gray-200 ml-4"
-                          : "bg-purple-50 border-purple-200 hover:bg-purple-100"
-                      )}
-                      style={{
-                        maxWidth: isSubStage ? `${widthPercent - 5}%` : `${widthPercent}%`,
-                        marginLeft: isSubStage ? "16px" : "auto",
-                        marginRight: "auto",
-                      }}
-                      onClick={() => toggleStage(stage.id)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span
-                            className={cn(
-                              "text-sm font-medium truncate",
-                              isSubStage ? "text-gray-600" : "text-purple-800"
-                            )}
-                          >
-                            {stage.name.trim()}
-                          </span>
-                          {stage.conversionTarget !== undefined && !isSubStage && (
-                            <Badge
-                              variant="outline"
-                              className="text-[10px] px-1 py-0 shrink-0 border-purple-300 text-purple-600"
-                            >
-                              {stage.conversionTarget}%
-                            </Badge>
-                          )}
-                        </div>
-                        {relatedBlocks.length > 0 && (
-                          <ChevronDown
-                            className={cn(
-                              "w-3.5 h-3.5 text-gray-400 transition-transform shrink-0",
-                              isExpanded && "rotate-180"
-                            )}
-                          />
-                        )}
-                      </div>
-                    </button>
-
-                    {isExpanded && relatedBlocks.length > 0 && (
+            {/* Quality notes */}
+            {showQuality && funnel.qualityNotes.length > 0 && (
+              <Card>
+                <CardContent className="py-3">
+                  <div className="space-y-1">
+                    {funnel.qualityNotes.map((note, i) => (
                       <div
-                        className="mt-1 mb-2 space-y-1 pl-6"
-                        style={{ maxWidth: `${widthPercent - 5}%` }}
+                        key={i}
+                        className={cn(
+                          "flex items-start gap-2 text-sm",
+                          note.includes("корректна") ? "text-green-700" : "text-amber-700"
+                        )}
                       >
-                        {relatedBlocks.map((block) => (
-                          <div
-                            key={block.id}
-                            className="flex items-center gap-2 text-xs text-gray-600 py-1 px-2 rounded bg-white border border-gray-100"
-                          >
-                            <div
-                              className="w-1.5 h-1.5 rounded-full shrink-0"
-                              style={{
-                                backgroundColor:
-                                  BLOCK_CONFIG[block.type]?.borderColor || "#6b7280",
-                              }}
-                            />
-                            <span className="truncate">{block.name}</span>
-                          </div>
-                        ))}
-                        {stage.automations.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {stage.automations.map((auto, i) => (
-                              <Badge
-                                key={i}
-                                variant="secondary"
-                                className="text-[10px] px-1.5 py-0"
+                        {note.includes("корректна") ? (
+                          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                        )}
+                        <span>{note}</span>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Funnel visualization */}
+            <Card>
+              <CardHeader className="pb-3">
+                <div className="flex items-center gap-2">
+                  <Filter className="w-5 h-5 text-purple-600" />
+                  <CardTitle className="text-base">
+                    Этапы воронки (L0)
+                  </CardTitle>
+                  <Badge variant="secondary" className="ml-auto">
+                    {l0Stages.length} этапов
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="relative">
+                  {funnel.stages.map((stage, idx) => {
+                    const isExpanded = expandedStages.has(stage.id);
+                    const isL0 = stage.level === 0;
+                    const isL1 = stage.level === 1;
+                    const relatedBlocks = stage.relatedBlockIds
+                      .map((bid) => data.blocks.find((b) => b.id === bid))
+                      .filter(Boolean) as ProcessBlock[];
+
+                    // Funnel width decreases for L0 stages
+                    const l0Index = isL0 ? l0Stages.indexOf(stage) : -1;
+                    const widthPercent = isL0
+                      ? 100 - (l0Index / Math.max(l0Stages.length - 1, 1)) * 35
+                      : 90;
+
+                    return (
+                      <div key={stage.id} className={cn("mb-1", isL1 && "ml-6")}>
+                        <button
+                          className={cn(
+                            "w-full text-left transition-all",
+                            "rounded-md border px-3 py-2",
+                            isL0
+                              ? "bg-purple-50 border-purple-200 hover:bg-purple-100"
+                              : "bg-gray-50 border-gray-200 hover:bg-gray-100"
+                          )}
+                          style={{
+                            maxWidth: isL0 ? `${widthPercent}%` : `${widthPercent}%`,
+                            marginLeft: "auto",
+                            marginRight: "auto",
+                          }}
+                          onClick={() => toggleStage(stage.id)}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              {isL0 && (
+                                <span className="text-xs font-bold text-purple-500 shrink-0">
+                                  L0.{l0Index + 1}
+                                </span>
+                              )}
+                              {isL1 && (
+                                <span className="text-xs font-medium text-gray-400 shrink-0">
+                                  L1
+                                </span>
+                              )}
+                              <span
+                                className={cn(
+                                  "text-sm font-medium truncate",
+                                  isL0 ? "text-purple-800" : "text-gray-700"
+                                )}
                               >
-                                {auto}
-                              </Badge>
-                            ))}
+                                {stage.name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {isL0 && stage.slaDays !== undefined && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] px-1 py-0 border-blue-200 text-blue-600"
+                                >
+                                  <Timer className="w-2.5 h-2.5 mr-0.5" />
+                                  {stage.slaDays}д
+                                </Badge>
+                              )}
+                              {isL0 && stage.conversionTarget !== undefined && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] px-1 py-0 border-purple-300 text-purple-600"
+                                >
+                                  {stage.conversionTarget}%
+                                </Badge>
+                              )}
+                              <ChevronDown
+                                className={cn(
+                                  "w-3.5 h-3.5 text-gray-400 transition-transform",
+                                  isExpanded && "rotate-180"
+                                )}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Compact info for L0 */}
+                          {isL0 && (
+                            <div className="flex items-center gap-3 mt-1 text-[11px] text-gray-500">
+                              <span className="flex items-center gap-0.5">
+                                <UserCircle className="w-3 h-3" />
+                                {stage.ownerRole}
+                              </span>
+                              <span className="flex items-center gap-0.5">
+                                <LogOut className="w-3 h-3" />
+                                {stage.exitCriteria.length > 40
+                                  ? stage.exitCriteria.slice(0, 40) + "..."
+                                  : stage.exitCriteria}
+                              </span>
+                            </div>
+                          )}
+                        </button>
+
+                        {/* Expanded details */}
+                        {isExpanded && (
+                          <div
+                            className={cn("mt-1 mb-2 space-y-2", isL0 ? "pl-4" : "pl-3")}
+                            style={{ maxWidth: `${widthPercent - 2}%`, marginLeft: "auto", marginRight: "auto" }}
+                          >
+                            {/* Exit criteria */}
+                            {isL0 && (
+                              <div className="text-xs text-gray-600 bg-white rounded border border-gray-100 p-2">
+                                <div className="font-medium text-gray-700 mb-1 flex items-center gap-1">
+                                  <LogOut className="w-3 h-3" />
+                                  Критерий выхода
+                                </div>
+                                <span>{stage.exitCriteria}</span>
+                              </div>
+                            )}
+
+                            {/* Owner & SLA */}
+                            {isL0 && (
+                              <div className="flex gap-2">
+                                <div className="flex-1 text-xs text-gray-600 bg-white rounded border border-gray-100 p-2">
+                                  <div className="font-medium text-gray-700 mb-0.5 flex items-center gap-1">
+                                    <UserCircle className="w-3 h-3" />
+                                    Владелец
+                                  </div>
+                                  <span>{stage.ownerRole}</span>
+                                </div>
+                                {stage.slaDays !== undefined && (
+                                  <div className="flex-1 text-xs text-gray-600 bg-white rounded border border-gray-100 p-2">
+                                    <div className="font-medium text-gray-700 mb-0.5 flex items-center gap-1">
+                                      <Timer className="w-3 h-3" />
+                                      SLA
+                                    </div>
+                                    <span>
+                                      {stage.slaDays}{" "}
+                                      {stage.slaDays === 1
+                                        ? "день"
+                                        : stage.slaDays < 5
+                                          ? "дня"
+                                          : "дней"}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Checklist */}
+                            {stage.checklist.length > 0 && (
+                              <div className="text-xs text-gray-600 bg-white rounded border border-gray-100 p-2">
+                                <div className="font-medium text-gray-700 mb-1 flex items-center gap-1">
+                                  <ListChecks className="w-3 h-3" />
+                                  Чек-лист ({stage.checklist.length})
+                                </div>
+                                <div className="space-y-0.5">
+                                  {stage.checklist.map((item, i) => (
+                                    <div key={i} className="flex items-start gap-1.5">
+                                      <div className="w-3.5 h-3.5 rounded border border-gray-300 shrink-0 mt-0.5 flex items-center justify-center">
+                                        <span className="text-[8px] text-gray-400">{i + 1}</span>
+                                      </div>
+                                      <span>{item}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Related blocks */}
+                            {relatedBlocks.length > 0 && (
+                              <div className="space-y-0.5">
+                                {relatedBlocks.map((block) => (
+                                  <div
+                                    key={block.id}
+                                    className="flex items-center gap-2 text-xs text-gray-600 py-1 px-2 rounded bg-white border border-gray-100"
+                                  >
+                                    <div
+                                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                                      style={{
+                                        backgroundColor:
+                                          BLOCK_CONFIG[block.type]?.borderColor || "#6b7280",
+                                      }}
+                                    />
+                                    <span className="truncate">{block.name}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Automations */}
+                            {stage.automations.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {stage.automations.map((auto, i) => (
+                                  <Badge
+                                    key={i}
+                                    variant="secondary"
+                                    className="text-[10px] px-1.5 py-0"
+                                  >
+                                    {auto}
+                                  </Badge>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
-                    )}
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Statuses outside funnel */}
+            {funnel.statuses.length > 0 && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">
+                    Статусы вне воронки
+                  </CardTitle>
+                  <CardDescription>
+                    Статусы, в которые сделка может перейти из любого этапа
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {funnel.statuses.map((status) => {
+                      const IconComp = STATUS_ICONS[status.type] || PauseCircle;
+                      const colorCls = STATUS_COLORS[status.type] || "";
+                      return (
+                        <div
+                          key={status.id}
+                          className={cn(
+                            "rounded-lg border p-3",
+                            colorCls
+                          )}
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <IconComp className="w-4 h-4" />
+                            <span className="text-sm font-medium">{status.name}</span>
+                          </div>
+                          <p className="text-xs opacity-80">{status.description}</p>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

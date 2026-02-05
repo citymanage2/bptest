@@ -145,17 +145,32 @@ export interface Recommendation {
 export interface CrmFunnel {
   id: string;
   name: string;
-  variant: number;
+  description: string;
   stages: CrmFunnelStage[];
+  statuses: CrmFunnelStatus[];
+  qualityNotes: string[];
 }
 
 export interface CrmFunnelStage {
   id: string;
   name: string;
+  level: 0 | 1 | 2; // L0 = gate stage, L1 = sub-stage, L2 = action/task
   order: number;
+  parentId?: string; // L1/L2 reference to parent L0/L1 stage
+  exitCriteria: string;
+  ownerRole: string;
+  slaDays?: number;
+  checklist: string[];
   relatedBlockIds: string[];
   automations: string[];
   conversionTarget?: number;
+}
+
+export interface CrmFunnelStatus {
+  id: string;
+  name: string;
+  type: "pause" | "lost" | "won";
+  description: string;
 }
 
 // --- Process Passport ---
