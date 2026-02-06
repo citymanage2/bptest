@@ -1026,27 +1026,7 @@ export function ProcessPage() {
           >
             <ArrowLeft className="w-4 h-4" />
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">{data.name}</h1>
-            <p className="text-gray-500 mt-1">{data.goal}</p>
-            <div className="flex items-center gap-2 mt-2">
-              <Badge variant="secondary">{data.owner}</Badge>
-              <Badge
-                variant="outline"
-                className={cn(
-                  process.status === "active" && "border-green-300 text-green-700 bg-green-50",
-                  process.status === "draft" && "border-yellow-300 text-yellow-700 bg-yellow-50",
-                  process.status === "archived" && "border-gray-300 text-gray-500 bg-gray-50"
-                )}
-              >
-                {process.status === "active"
-                  ? "Активный"
-                  : process.status === "draft"
-                    ? "Черновик"
-                    : "Архив"}
-              </Badge>
-            </div>
-          </div>
+          <h1 className="text-2xl font-bold text-gray-900">{data.name}</h1>
         </div>
 
         <div className="flex items-center gap-2">
