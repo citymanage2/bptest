@@ -348,18 +348,18 @@ export const BLOCK_CONFIG: Record<BlockType, { shape: string; borderColor: strin
   end: { shape: "double-rect", borderColor: "#ef4444", label: "Конец" },
 };
 
-// Swimlane colors — 12 distinct pastel tones for many-role diagrams
+// Swimlane colors — 12 distinct pastel tones for many-role diagrams (slightly darker)
 export const SWIMLANE_COLORS = [
-  "#e9d5ff", // purple
-  "#bfdbfe", // blue
-  "#bbf7d0", // green
-  "#fef08a", // yellow
-  "#fed7aa", // orange
-  "#fecdd3", // pink
-  "#c7d2fe", // indigo
-  "#a5f3fc", // cyan
-  "#d9f99d", // lime
-  "#fcd6bb", // peach
-  "#e2e8f0", // slate
-  "#ddd6fe", // violet
+  "#d8b4f8", // purple
+  "#a5c8f0", // blue
+  "#98e8b8", // green
+  "#f0e070", // yellow
+  "#f0c090", // orange
+  "#f0b0b8", // pink
+  "#a8b8f0", // indigo
+  "#80e0f0", // cyan
+  "#c0e880", // lime
+  "#f0c0a0", // peach
+  "#c8d0e0", // slate
+  "#c8b8f0", // violet
 ];
