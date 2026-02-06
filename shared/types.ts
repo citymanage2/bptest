@@ -132,12 +132,24 @@ export interface ChangeRequest {
 }
 
 // --- Recommendations ---
+export type RecommendationCategory =
+  | "summary"      // Краткое резюме
+  | "diagnostics"  // Диагностика по карте процесса
+  | "lean"         // Потери LEAN
+  | "duplicates"   // Дубли и задвоение
+  | "automation"   // Автоматизация
+  | "quality"      // Управление качеством
+  | "data"         // Данные и документы
+  | "roles"        // Роли и ответственность
+  | "backlog"      // План внедрения
+  | "variants";    // Варианты целевого процесса
+
 export interface Recommendation {
   id: number;
   processId: number;
-  category: "ai" | "crm" | "chatbot" | "spreadsheet" | "1c";
+  category: RecommendationCategory;
   title: string;
-  description: string;
+  description: string; // Supports markdown
   priority: "high" | "medium" | "low";
   relatedSteps: string[];
 }

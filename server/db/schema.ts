@@ -17,7 +17,18 @@ export const interviewModeEnum = pgEnum("interview_mode", ["full", "express"]);
 export const interviewStatusEnum = pgEnum("interview_status", ["draft", "completed"]);
 export const processStatusEnum = pgEnum("process_status", ["draft", "active", "archived"]);
 export const changeRequestStatusEnum = pgEnum("change_request_status", ["pending", "applied", "rejected"]);
-export const recommendationCategoryEnum = pgEnum("recommendation_category", ["ai", "crm", "chatbot", "spreadsheet", "1c"]);
+export const recommendationCategoryEnum = pgEnum("recommendation_category", [
+  "summary",      // Краткое резюме
+  "diagnostics",  // Диагностика по карте процесса
+  "lean",         // Потери LEAN
+  "duplicates",   // Дубли и задвоение
+  "automation",   // Автоматизация
+  "quality",      // Управление качеством
+  "data",         // Данные и документы
+  "roles",        // Роли и ответственность
+  "backlog",      // План внедрения
+  "variants",     // Варианты целевого процесса
+]);
 export const recommendationPriorityEnum = pgEnum("recommendation_priority", ["high", "medium", "low"]);
 export const supportChatStatusEnum = pgEnum("support_chat_status", ["open", "closed"]);
 export const senderRoleEnum = pgEnum("sender_role", ["user", "admin"]);

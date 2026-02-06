@@ -96,6 +96,7 @@ import {
   Eye,
   ArrowRightLeft,
   TrendingUp,
+  TrendingDown,
   Filter,
   ClipboardCheck,
   ScrollText,
@@ -110,7 +111,12 @@ import {
   PauseCircle,
   XOctagon,
   Trophy,
+  Search,
+  Copy,
+  Zap,
+  GitBranch,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
 // ============================================
 // Helper Functions
@@ -765,20 +771,43 @@ function computeProcessDiff(
 
 // Category icon mapping for recommendations
 const CATEGORY_ICONS: Record<string, typeof Brain> = {
-  ai: Brain,
-  crm: Users,
-  chatbot: MessageSquare,
-  spreadsheet: Table,
-  "1c": Database,
+  summary: FileText,
+  diagnostics: Search,
+  lean: TrendingDown,
+  duplicates: Copy,
+  automation: Zap,
+  quality: Shield,
+  data: Database,
+  roles: Users,
+  backlog: ListChecks,
+  variants: GitBranch,
 };
 
 const CATEGORY_LABELS: Record<string, string> = {
-  ai: "Искусственный интеллект",
-  crm: "CRM-система",
-  chatbot: "Чат-бот",
-  spreadsheet: "Электронные таблицы",
-  "1c": "1С",
+  summary: "Краткое резюме",
+  diagnostics: "Диагностика процесса",
+  lean: "Потери LEAN",
+  duplicates: "Дубли и задвоение",
+  automation: "Автоматизация",
+  quality: "Качество и риски",
+  data: "Данные и документы",
+  roles: "Роли и ответственность",
+  backlog: "План внедрения",
+  variants: "Варианты оптимизации",
 };
+
+const CATEGORY_ORDER = [
+  "summary",
+  "diagnostics",
+  "lean",
+  "duplicates",
+  "automation",
+  "quality",
+  "data",
+  "roles",
+  "backlog",
+  "variants",
+];
 
 const PRIORITY_COLORS: Record<string, string> = {
   high: "bg-red-100 text-red-700 border-red-200",
@@ -2463,6 +2492,9 @@ function CrmFunnelsTab({
 
 function RecommendationsTab({ processId }: { processId: number }) {
   const utils = trpc.useUtils();
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(
+    new Set(["summary", "backlog"])
+  );
 
   const recommendationsQuery = trpc.process.getRecommendations.useQuery({
     processId,
@@ -2476,44 +2508,80 @@ function RecommendationsTab({ processId }: { processId: number }) {
 
   const recommendations = (recommendationsQuery.data || []) as Recommendation[];
 
-  // Group by category
-  const grouped = useMemo(() => {
-    const map = new Map<string, Recommendation[]>();
+  // Group by category and sort by CATEGORY_ORDER
+  const sortedSections = useMemo(() => {
+    const map = new Map<string, Recommendation>();
     for (const rec of recommendations) {
-      const list = map.get(rec.category) || [];
-      list.push(rec);
-      map.set(rec.category, list);
+      // Take first recommendation per category (comprehensive analysis has one per section)
+      if (!map.has(rec.category)) {
+        map.set(rec.category, rec);
+      }
     }
-    return map;
+    // Sort by predefined order
+    return CATEGORY_ORDER
+      .filter((cat) => map.has(cat))
+      .map((cat) => ({ category: cat, rec: map.get(cat)! }));
   }, [recommendations]);
+
+  const toggleSection = useCallback((category: string) => {
+    setExpandedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) {
+        next.delete(category);
+      } else {
+        next.add(category);
+      }
+      return next;
+    });
+  }, []);
+
+  const expandAll = useCallback(() => {
+    setExpandedSections(new Set(CATEGORY_ORDER));
+  }, []);
+
+  const collapseAll = useCallback(() => {
+    setExpandedSections(new Set());
+  }, []);
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-gray-900">
-            Рекомендации по оптимизации
+            Комплексный анализ процесса
           </h2>
           <p className="text-sm text-gray-500 mt-0.5">
-            ИИ-рекомендации для улучшения бизнес-процесса
+            Lean-диагностика, рекомендации по оптимизации и план внедрения
           </p>
         </div>
-        <Button
-          onClick={() => generateMutation.mutate({ processId })}
-          disabled={generateMutation.isPending}
-        >
-          {generateMutation.isPending ? (
+        <div className="flex items-center gap-2">
+          {sortedSections.length > 0 && (
             <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Генерация...
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-4 h-4" />
-              Сгенерировать рекомендации
+              <Button variant="outline" size="sm" onClick={expandAll}>
+                Развернуть всё
+              </Button>
+              <Button variant="outline" size="sm" onClick={collapseAll}>
+                Свернуть всё
+              </Button>
             </>
           )}
-        </Button>
+          <Button
+            onClick={() => generateMutation.mutate({ processId })}
+            disabled={generateMutation.isPending}
+          >
+            {generateMutation.isPending ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Генерация...
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" />
+                {recommendations.length > 0 ? "Обновить анализ" : "Сгенерировать анализ"}
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       {recommendationsQuery.isLoading ? (
@@ -2525,73 +2593,172 @@ function RecommendationsTab({ processId }: { processId: number }) {
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <Brain className="w-12 h-12 text-gray-300 mb-4" />
             <h3 className="text-lg font-semibold text-gray-900 mb-1">
-              Рекомендаций пока нет
+              Анализ ещё не проводился
             </h3>
-            <p className="text-gray-500 text-sm max-w-sm">
-              Нажмите кнопку "Сгенерировать рекомендации", чтобы получить
-              ИИ-рекомендации по оптимизации процесса.
-              Стоимость: {TOKEN_COSTS.recommendations} токенов.
+            <p className="text-gray-500 text-sm max-w-md">
+              Нажмите "Сгенерировать анализ", чтобы получить комплексную
+              Lean-диагностику процесса с рекомендациями по оптимизации,
+              выявлением потерь и планом внедрения улучшений.
+              <br />
+              <span className="text-purple-600 font-medium">
+                Стоимость: {TOKEN_COSTS.recommendations} токенов
+              </span>
             </p>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-6">
-          {Array.from(grouped.entries()).map(([category, recs]) => {
+        <div className="space-y-3">
+          {sortedSections.map(({ category, rec }) => {
             const IconComp = CATEGORY_ICONS[category] || Brain;
             const categoryLabel = CATEGORY_LABELS[category] || category;
+            const isExpanded = expandedSections.has(category);
 
             return (
-              <Card key={category}>
-                <CardHeader className="pb-3">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
-                      <IconComp className="w-4 h-4 text-purple-600" />
-                    </div>
-                    <CardTitle className="text-base">{categoryLabel}</CardTitle>
-                    <Badge variant="secondary" className="ml-auto">
-                      {recs.length}
-                    </Badge>
+              <Card key={category} className="overflow-hidden">
+                <button
+                  onClick={() => toggleSection(category)}
+                  className="w-full flex items-center gap-3 p-4 text-left hover:bg-gray-50 transition-colors"
+                >
+                  <div
+                    className={cn(
+                      "w-9 h-9 rounded-lg flex items-center justify-center",
+                      category === "summary"
+                        ? "bg-purple-100"
+                        : category === "backlog"
+                          ? "bg-green-100"
+                          : category === "lean"
+                            ? "bg-red-100"
+                            : category === "automation"
+                              ? "bg-blue-100"
+                              : "bg-gray-100"
+                    )}
+                  >
+                    <IconComp
+                      className={cn(
+                        "w-4.5 h-4.5",
+                        category === "summary"
+                          ? "text-purple-600"
+                          : category === "backlog"
+                            ? "text-green-600"
+                            : category === "lean"
+                              ? "text-red-600"
+                              : category === "automation"
+                                ? "text-blue-600"
+                                : "text-gray-600"
+                      )}
+                    />
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {recs.map((rec) => (
-                      <div
-                        key={rec.id}
-                        className="p-3 rounded-lg border border-gray-100 bg-gray-50/50"
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-semibold text-gray-900">
+                      {categoryLabel}
+                    </h3>
+                    <p className="text-xs text-gray-500 truncate">{rec.title}</p>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-[10px] px-1.5 py-0 shrink-0",
+                      PRIORITY_COLORS[rec.priority]
+                    )}
+                  >
+                    {PRIORITY_LABELS[rec.priority]}
+                  </Badge>
+                  {isExpanded ? (
+                    <ChevronDown className="w-4 h-4 text-gray-400" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                  )}
+                </button>
+
+                {isExpanded && (
+                  <CardContent className="pt-0 pb-4 px-4">
+                    <div className="pl-12 prose prose-sm prose-gray max-w-none">
+                      <ReactMarkdown
+                        components={{
+                          h2: ({ children }) => (
+                            <h4 className="text-sm font-semibold text-gray-900 mt-4 mb-2 first:mt-0">
+                              {children}
+                            </h4>
+                          ),
+                          h3: ({ children }) => (
+                            <h5 className="text-sm font-medium text-gray-800 mt-3 mb-1.5">
+                              {children}
+                            </h5>
+                          ),
+                          p: ({ children }) => (
+                            <p className="text-sm text-gray-600 mb-2">{children}</p>
+                          ),
+                          ul: ({ children }) => (
+                            <ul className="text-sm text-gray-600 list-disc list-inside mb-2 space-y-0.5">
+                              {children}
+                            </ul>
+                          ),
+                          ol: ({ children }) => (
+                            <ol className="text-sm text-gray-600 list-decimal list-inside mb-2 space-y-0.5">
+                              {children}
+                            </ol>
+                          ),
+                          li: ({ children }) => (
+                            <li className="text-sm text-gray-600">{children}</li>
+                          ),
+                          strong: ({ children }) => (
+                            <strong className="font-semibold text-gray-900">
+                              {children}
+                            </strong>
+                          ),
+                          table: ({ children }) => (
+                            <div className="overflow-x-auto my-3">
+                              <table className="min-w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+                                {children}
+                              </table>
+                            </div>
+                          ),
+                          thead: ({ children }) => (
+                            <thead className="bg-gray-50">{children}</thead>
+                          ),
+                          tbody: ({ children }) => (
+                            <tbody className="divide-y divide-gray-100">
+                              {children}
+                            </tbody>
+                          ),
+                          tr: ({ children }) => (
+                            <tr className="hover:bg-gray-50">{children}</tr>
+                          ),
+                          th: ({ children }) => (
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200">
+                              {children}
+                            </th>
+                          ),
+                          td: ({ children }) => (
+                            <td className="px-3 py-2 text-sm text-gray-700">
+                              {children}
+                            </td>
+                          ),
+                        }}
                       >
-                        <div className="flex items-start justify-between gap-2 mb-1">
-                          <h4 className="text-sm font-medium text-gray-900">
-                            {rec.title}
-                          </h4>
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-[10px] px-1.5 py-0 shrink-0",
-                              PRIORITY_COLORS[rec.priority]
-                            )}
-                          >
-                            {PRIORITY_LABELS[rec.priority]}
-                          </Badge>
+                        {rec.description}
+                      </ReactMarkdown>
+                    </div>
+                    {rec.relatedSteps.length > 0 && (
+                      <div className="pl-12 mt-3 pt-3 border-t border-gray-100">
+                        <p className="text-xs text-gray-500 mb-1.5">
+                          Связанные блоки процесса:
+                        </p>
+                        <div className="flex flex-wrap gap-1">
+                          {rec.relatedSteps.map((step, i) => (
+                            <Badge
+                              key={i}
+                              variant="secondary"
+                              className="text-[10px] px-1.5 py-0"
+                            >
+                              {step}
+                            </Badge>
+                          ))}
                         </div>
-                        <p className="text-sm text-gray-600">{rec.description}</p>
-                        {rec.relatedSteps.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-2">
-                            {rec.relatedSteps.map((step, i) => (
-                              <Badge
-                                key={i}
-                                variant="secondary"
-                                className="text-[10px] px-1.5 py-0"
-                              >
-                                {step}
-                              </Badge>
-                            ))}
-                          </div>
-                        )}
                       </div>
-                    ))}
-                  </div>
-                </CardContent>
+                    )}
+                  </CardContent>
+                )}
               </Card>
             );
           })}
