@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ProcessData, ProcessBlock, ProcessRole, ProcessStage, ProcessPassport } from "../../shared/types";
 import { SWIMLANE_COLORS } from "../../shared/types";
+import { logger } from "./logger";
 
 const anthropic = new Anthropic({
   apiKey: process.env.CLAUDE_API_KEY || "dummy-key",
@@ -367,17 +368,24 @@ ${JSON.stringify(processData, null, 2)}
     });
 
     const text = response.content[0].type === "text" ? response.content[0].text : "";
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error("Не удалось извлечь JSON из ответа");
+    logger.info("AI", "Recommendations response received", { length: text.length });
 
-    return JSON.parse(jsonMatch[0]);
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      logger.error("AI", "Failed to extract JSON from recommendations response", { textPreview: text.slice(0, 500) });
+      throw new Error("Не удалось извлечь JSON из ответа");
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    logger.info("AI", "Recommendations parsed successfully", { count: parsed.length });
+    return parsed;
   } catch (error) {
-    console.error("AI recommendations error:", error);
+    logger.error("AI", "Recommendations generation failed", error);
     return [
       {
         category: "summary",
         title: "Краткое резюме анализа",
-        description: "Не удалось сгенерировать полный анализ. Попробуйте ещё раз.",
+        description: `Не удалось сгенерировать полный анализ. Ошибка: ${error instanceof Error ? error.message : String(error)}. Попробуйте ещё раз.`,
         priority: "high",
         relatedSteps: [],
       },

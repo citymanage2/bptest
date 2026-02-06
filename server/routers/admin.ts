@@ -4,6 +4,7 @@ import { router, adminProcedure } from "../trpc";
 import { db } from "../db";
 import { users, supportChats, supportMessages, faqArticles, tokenOperations, processes, companies } from "../db/schema";
 import type { ProcessData } from "@shared/types";
+import { logger } from "../services/logger";
 
 export const adminRouter = router({
   listUsers: adminProcedure.query(async () => {
@@ -283,4 +284,33 @@ export const adminRouter = router({
         updatedAt: process.updatedAt.toISOString(),
       };
     }),
+
+  // Server logs (admin only)
+  getLogs: adminProcedure
+    .input(
+      z.object({
+        limit: z.number().min(1).max(500).optional().default(200),
+        level: z.enum(["info", "warn", "error"]).optional(),
+      }).optional()
+    )
+    .query(({ input }) => {
+      const logs = logger.getLogs(input?.limit ?? 200, input?.level);
+      return {
+        logs,
+        total: logs.length,
+        timestamp: new Date().toISOString(),
+      };
+    }),
+
+  getLogsText: adminProcedure
+    .input(z.object({ limit: z.number().min(1).max(500).optional().default(200) }).optional())
+    .query(({ input }) => {
+      return logger.getLogsAsText(input?.limit ?? 200);
+    }),
+
+  clearLogs: adminProcedure.mutation(() => {
+    logger.clear();
+    logger.info("Admin", "Logs cleared by admin");
+    return { success: true };
+  }),
 });
