@@ -19,7 +19,7 @@ const BLOCK_PADDING = 36;
 const MIN_STAGE_HEIGHT = 220;
 const MIN_ZOOM = 0.3;
 const MAX_ZOOM = 3;
-const ZOOM_SENSITIVITY = 0.002;
+const ZOOM_SENSITIVITY = 0.006; // Increased for better touchpad pinch-to-zoom
 const CLICK_THRESHOLD = 5;
 const FONT_FAMILY = "'Inter', system-ui, -apple-system, sans-serif";
 
