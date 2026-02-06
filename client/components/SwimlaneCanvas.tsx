@@ -965,10 +965,10 @@ function renderDiagram(
 
     // Role name
     ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.3)";
+    ctx.shadowColor = "rgba(255,255,255,0.5)";
     ctx.shadowBlur = 2;
     ctx.shadowOffsetY = 1;
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = "#1f2937";
     ctx.font = `bold 14px ${FONT_FAMILY}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -984,7 +984,7 @@ function renderDiagram(
 
     // Department subtitle
     if (role.department) {
-      ctx.fillStyle = "rgba(255,255,255,0.75)";
+      ctx.fillStyle = "#4b5563";
       ctx.font = `11px ${FONT_FAMILY}`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
