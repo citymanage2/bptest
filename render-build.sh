@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-echo "==> Installing dependencies..."
-npm install
+echo "==> Installing dependencies (including dev)..."
+npm install --include=dev
 
 echo "==> Building client..."
 npx vite build --mode production
