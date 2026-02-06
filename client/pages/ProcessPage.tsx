@@ -1301,7 +1301,7 @@ export function ProcessPage() {
 
         {/* ======== Tab: Recommendations ======== */}
         <TabsContent value="recommendations">
-          <RecommendationsTab processId={processId} />
+          <RecommendationsTab processId={processId} data={data} />
         </TabsContent>
 
         {/* ======== Tab: History ======== */}
@@ -2490,7 +2490,7 @@ function CrmFunnelsTab({
 // Tab: Recommendations
 // ============================================
 
-function RecommendationsTab({ processId }: { processId: number }) {
+function RecommendationsTab({ processId, data }: { processId: number; data?: ProcessData }) {
   const utils = trpc.useUtils();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(["summary", "backlog"])
@@ -2745,15 +2745,20 @@ function RecommendationsTab({ processId }: { processId: number }) {
                           Связанные блоки процесса:
                         </p>
                         <div className="flex flex-wrap gap-1">
-                          {rec.relatedSteps.map((step, i) => (
-                            <Badge
-                              key={i}
-                              variant="secondary"
-                              className="text-[10px] px-1.5 py-0"
-                            >
-                              {step}
-                            </Badge>
-                          ))}
+                          {rec.relatedSteps.map((stepId, i) => {
+                            const block = data?.blocks.find((b) => b.id === stepId);
+                            const displayName = block?.name || stepId;
+                            return (
+                              <Badge
+                                key={i}
+                                variant="secondary"
+                                className="text-[10px] px-1.5 py-0"
+                                title={stepId}
+                              >
+                                {displayName}
+                              </Badge>
+                            );
+                          })}
                         </div>
                       </div>
                     )}
