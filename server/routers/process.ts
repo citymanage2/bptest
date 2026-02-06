@@ -92,7 +92,9 @@ export const processRouter = router({
         with: { company: true },
       });
       if (!process) throw new Error("Процесс не найден");
-      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+      if (process.company.userId !== ctx.userId && ctx.userRole !== "admin") {
+        throw new Error("Доступ запрещён");
+      }
 
       return {
         id: process.id,
