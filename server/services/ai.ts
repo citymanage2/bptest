@@ -172,7 +172,7 @@ export async function generateProcess(
 
   try {
     const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 16000,
       messages: [
         {
@@ -215,7 +215,7 @@ export async function applyChanges(
 ): Promise<ProcessData> {
   try {
     const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 16000,
       messages: [
         {
@@ -267,7 +267,7 @@ export async function generateRecommendations(
 > {
   try {
     const response = await anthropic.messages.create({
-      model: "claude-3-5-sonnet-20241022",
+      model: "claude-sonnet-4-20250514",
       max_tokens: 16000,
       messages: [
         {
