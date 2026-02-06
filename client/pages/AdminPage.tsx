@@ -53,9 +53,13 @@ function UsersTab() {
 
   const usersQuery = trpc.admin.listUsers.useQuery();
   const updateBalanceMutation = trpc.admin.updateUserBalance.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
       usersQuery.refetch();
-      setEditingUser(null);
+      // Update local state to show new balance without closing dialog
+      if (editingUser) {
+        setEditingUser({ ...editingUser, tokenBalance: data.newBalance });
+      }
+      setBalanceValue("");
     },
   });
   const updateRoleMutation = trpc.admin.updateUserRole.useMutation({
@@ -76,7 +80,7 @@ function UsersTab() {
 
   const openEditDialog = useCallback((user: User) => {
     setEditingUser(user);
-    setBalanceValue(String(user.tokenBalance));
+    setBalanceValue("");
     setRoleValue(user.role);
   }, []);
 
@@ -213,25 +217,65 @@ function UsersTab() {
           </DialogHeader>
           <div className="space-y-6">
             {/* Balance */}
-            <div className="space-y-2">
-              <Label htmlFor="balance">Баланс токенов</Label>
-              <div className="flex gap-2">
-                <Input
-                  id="balance"
-                  type="number"
-                  value={balanceValue}
-                  onChange={(e) => setBalanceValue(e.target.value)}
-                />
+            <div className="space-y-3">
+              <Label>Баланс токенов</Label>
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                <Coins className="w-5 h-5 text-yellow-600" />
+                <span className="text-lg font-bold text-gray-900">
+                  {editingUser?.tokenBalance.toLocaleString()}
+                </span>
+                <span className="text-sm text-gray-500">токенов</span>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="add-tokens" className="text-xs text-gray-500">
+                  Добавить/списать токены
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="add-tokens"
+                    type="number"
+                    value={balanceValue}
+                    onChange={(e) => setBalanceValue(e.target.value)}
+                    placeholder="Например: 100 или -50"
+                  />
+                  <Button
+                    onClick={handleSaveBalance}
+                    disabled={updateBalanceMutation.isPending || !balanceValue || balanceValue === "0"}
+                    size="sm"
+                  >
+                    {updateBalanceMutation.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Plus className="w-4 h-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-1.5">
+                {[100, 500, 1000, 5000].map((amount) => (
+                  <Button
+                    key={amount}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                    onClick={() => {
+                      setBalanceValue(String(amount));
+                    }}
+                  >
+                    +{amount}
+                  </Button>
+                ))}
                 <Button
-                  onClick={handleSaveBalance}
-                  disabled={updateBalanceMutation.isPending}
+                  variant="outline"
                   size="sm"
+                  className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
+                  onClick={() => {
+                    setBalanceValue(String(-editingUser!.tokenBalance));
+                  }}
                 >
-                  {updateBalanceMutation.isPending ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Save className="w-4 h-4" />
-                  )}
+                  Обнулить
                 </Button>
               </div>
             </div>
