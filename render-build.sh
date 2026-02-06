@@ -11,7 +11,7 @@ echo "==> Building server..."
 npx tsc -p tsconfig.server.json
 
 echo "==> Clearing recommendations table for schema migration..."
-node scripts/clear-recommendations.js
+node scripts/clear-recommendations.cjs
 
 echo "==> Pushing database schema..."
 npx drizzle-kit push --force
