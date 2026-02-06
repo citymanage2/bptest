@@ -855,6 +855,13 @@ export function ProcessPage() {
   const [editDescription, setEditDescription] = useState("");
   const [editType, setEditType] = useState<BlockType>("action");
   const [editRole, setEditRole] = useState("");
+  const [editStage, setEditStage] = useState("");
+  const [editTimeEstimate, setEditTimeEstimate] = useState("");
+  const [editInputDocuments, setEditInputDocuments] = useState("");
+  const [editOutputDocuments, setEditOutputDocuments] = useState("");
+  const [editInfoSystems, setEditInfoSystems] = useState("");
+  const [editConditionLabel, setEditConditionLabel] = useState("");
+  const [editIsDefault, setEditIsDefault] = useState(false);
 
   // ---- Mutations ----
   const updateDataMutation = trpc.process.updateData.useMutation({
@@ -921,6 +928,13 @@ export function ProcessPage() {
       setEditDescription(block.description);
       setEditType(block.type);
       setEditRole(block.role);
+      setEditStage(block.stage || "");
+      setEditTimeEstimate(block.timeEstimate || "");
+      setEditInputDocuments(block.inputDocuments?.join(", ") || "");
+      setEditOutputDocuments(block.outputDocuments?.join(", ") || "");
+      setEditInfoSystems(block.infoSystems?.join(", ") || "");
+      setEditConditionLabel(block.conditionLabel || "");
+      setEditIsDefault(block.isDefault || false);
     },
     []
   );
@@ -928,9 +942,25 @@ export function ProcessPage() {
   const handleSaveEdit = useCallback(() => {
     if (!data || !editingBlock) return;
 
+    const parseCommaSeparated = (str: string): string[] =>
+      str.split(",").map((s) => s.trim()).filter(Boolean);
+
     const updatedBlocks = data.blocks.map((b) =>
       b.id === editingBlock.id
-        ? { ...b, name: editName, description: editDescription, type: editType, role: editRole }
+        ? {
+            ...b,
+            name: editName,
+            description: editDescription,
+            type: editType,
+            role: editRole,
+            stage: editStage,
+            timeEstimate: editTimeEstimate || undefined,
+            inputDocuments: parseCommaSeparated(editInputDocuments),
+            outputDocuments: parseCommaSeparated(editOutputDocuments),
+            infoSystems: parseCommaSeparated(editInfoSystems),
+            conditionLabel: editConditionLabel || undefined,
+            isDefault: editIsDefault,
+          }
         : b
     );
 
@@ -939,7 +969,7 @@ export function ProcessPage() {
       data: { ...data, blocks: updatedBlocks },
     });
     setEditingBlock(null);
-  }, [data, editingBlock, editName, editDescription, editType, editRole, processId, updateDataMutation]);
+  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editConditionLabel, editIsDefault, processId, updateDataMutation]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingBlock(null);
@@ -1234,6 +1264,13 @@ export function ProcessPage() {
             editDescription={editDescription}
             editType={editType}
             editRole={editRole}
+            editStage={editStage}
+            editTimeEstimate={editTimeEstimate}
+            editInputDocuments={editInputDocuments}
+            editOutputDocuments={editOutputDocuments}
+            editInfoSystems={editInfoSystems}
+            editConditionLabel={editConditionLabel}
+            editIsDefault={editIsDefault}
             canvasScale={canvasScale}
             canvasContainerRef={canvasContainerRef}
             canvasHandleRef={canvasHandleRef}
@@ -1247,6 +1284,13 @@ export function ProcessPage() {
             onSetEditDescription={setEditDescription}
             onSetEditType={setEditType}
             onSetEditRole={setEditRole}
+            onSetEditStage={setEditStage}
+            onSetEditTimeEstimate={setEditTimeEstimate}
+            onSetEditInputDocuments={setEditInputDocuments}
+            onSetEditOutputDocuments={setEditOutputDocuments}
+            onSetEditInfoSystems={setEditInfoSystems}
+            onSetEditConditionLabel={setEditConditionLabel}
+            onSetEditIsDefault={setEditIsDefault}
             onScaleChange={setCanvasScale}
             onExportPNG={handleExportPNG}
             onExportBPMN={handleExportBPMN}
@@ -1307,6 +1351,13 @@ interface DiagramTabProps {
   editDescription: string;
   editType: BlockType;
   editRole: string;
+  editStage: string;
+  editTimeEstimate: string;
+  editInputDocuments: string;
+  editOutputDocuments: string;
+  editInfoSystems: string;
+  editConditionLabel: string;
+  editIsDefault: boolean;
   canvasScale: number;
   canvasContainerRef: React.RefObject<HTMLDivElement | null>;
   canvasHandleRef: React.RefObject<SwimlaneCanvasHandle | null>;
@@ -1320,6 +1371,13 @@ interface DiagramTabProps {
   onSetEditDescription: (v: string) => void;
   onSetEditType: (v: BlockType) => void;
   onSetEditRole: (v: string) => void;
+  onSetEditStage: (v: string) => void;
+  onSetEditTimeEstimate: (v: string) => void;
+  onSetEditInputDocuments: (v: string) => void;
+  onSetEditOutputDocuments: (v: string) => void;
+  onSetEditInfoSystems: (v: string) => void;
+  onSetEditConditionLabel: (v: string) => void;
+  onSetEditIsDefault: (v: boolean) => void;
   onScaleChange: (scale: number) => void;
   onExportPNG: () => void;
   onExportBPMN: () => void;
@@ -1335,6 +1393,13 @@ function DiagramTab({
   editDescription,
   editType,
   editRole,
+  editStage,
+  editTimeEstimate,
+  editInputDocuments,
+  editOutputDocuments,
+  editInfoSystems,
+  editConditionLabel,
+  editIsDefault,
   canvasScale,
   canvasContainerRef,
   canvasHandleRef,
@@ -1348,6 +1413,13 @@ function DiagramTab({
   onSetEditDescription,
   onSetEditType,
   onSetEditRole,
+  onSetEditStage,
+  onSetEditTimeEstimate,
+  onSetEditInputDocuments,
+  onSetEditOutputDocuments,
+  onSetEditInfoSystems,
+  onSetEditConditionLabel,
+  onSetEditIsDefault,
   onScaleChange,
   onExportPNG,
   onExportBPMN,
@@ -1451,59 +1523,152 @@ function DiagramTab({
             <CardContent className="space-y-4">
               {editingBlock?.id === selectedBlock.id ? (
                 /* Editing Mode */
-                <>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-700">
+                <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-700">
                       Название
                     </label>
                     <Input
                       value={editName}
                       onChange={(e) => onSetEditName(e.target.value)}
+                      className="h-8 text-sm"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-700">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-700">
                       Описание
                     </label>
                     <Textarea
                       value={editDescription}
                       onChange={(e) => onSetEditDescription(e.target.value)}
-                      rows={3}
+                      rows={2}
+                      className="text-sm"
                     />
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-700">
-                      Тип
-                    </label>
-                    <select
-                      className="flex h-9 w-full rounded-md border border-gray-300 bg-transparent px-3 py-1 text-sm"
-                      value={editType}
-                      onChange={(e) => onSetEditType(e.target.value as BlockType)}
-                    >
-                      {Object.entries(BLOCK_CONFIG).map(([key, cfg]) => (
-                        <option key={key} value={key}>
-                          {cfg.label}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-gray-700">
+                        Тип
+                      </label>
+                      <select
+                        className="flex h-8 w-full rounded-md border border-gray-300 bg-transparent px-2 py-1 text-sm"
+                        value={editType}
+                        onChange={(e) => onSetEditType(e.target.value as BlockType)}
+                      >
+                        {Object.entries(BLOCK_CONFIG).map(([key, cfg]) => (
+                          <option key={key} value={key}>
+                            {cfg.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-gray-700">
+                        Роль
+                      </label>
+                      <select
+                        className="flex h-8 w-full rounded-md border border-gray-300 bg-transparent px-2 py-1 text-sm"
+                        value={editRole}
+                        onChange={(e) => onSetEditRole(e.target.value)}
+                      >
+                        {data.roles.map((role) => (
+                          <option key={role.id} value={role.name}>
+                            {role.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-700">
-                      Роль
-                    </label>
-                    <select
-                      className="flex h-9 w-full rounded-md border border-gray-300 bg-transparent px-3 py-1 text-sm"
-                      value={editRole}
-                      onChange={(e) => onSetEditRole(e.target.value)}
-                    >
-                      {data.roles.map((role) => (
-                        <option key={role.id} value={role.name}>
-                          {role.name}
-                        </option>
-                      ))}
-                    </select>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-gray-700">
+                        Этап
+                      </label>
+                      <select
+                        className="flex h-8 w-full rounded-md border border-gray-300 bg-transparent px-2 py-1 text-sm"
+                        value={editStage}
+                        onChange={(e) => onSetEditStage(e.target.value)}
+                      >
+                        {data.stages.map((stage) => (
+                          <option key={stage.id} value={stage.id}>
+                            {stage.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-gray-700">
+                        Время
+                      </label>
+                      <Input
+                        value={editTimeEstimate}
+                        onChange={(e) => onSetEditTimeEstimate(e.target.value)}
+                        placeholder="напр. 30 мин"
+                        className="h-8 text-sm"
+                      />
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 pt-2">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-700">
+                      Входные документы
+                    </label>
+                    <Input
+                      value={editInputDocuments}
+                      onChange={(e) => onSetEditInputDocuments(e.target.value)}
+                      placeholder="через запятую"
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-700">
+                      Выходные документы
+                    </label>
+                    <Input
+                      value={editOutputDocuments}
+                      onChange={(e) => onSetEditOutputDocuments(e.target.value)}
+                      placeholder="через запятую"
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-700">
+                      Информационные системы
+                    </label>
+                    <Input
+                      value={editInfoSystems}
+                      onChange={(e) => onSetEditInfoSystems(e.target.value)}
+                      placeholder="через запятую"
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  {(editType === "decision" || editingBlock.conditionLabel) && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-gray-700">
+                        Метка условия
+                      </label>
+                      <Input
+                        value={editConditionLabel}
+                        onChange={(e) => onSetEditConditionLabel(e.target.value)}
+                        placeholder="напр. Да / Нет"
+                        className="h-8 text-sm"
+                      />
+                    </div>
+                  )}
+                  {editingBlock.conditionLabel && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="isDefault"
+                        checked={editIsDefault}
+                        onChange={(e) => onSetEditIsDefault(e.target.checked)}
+                        className="h-4 w-4 rounded border-gray-300"
+                      />
+                      <label htmlFor="isDefault" className="text-xs font-medium text-gray-700">
+                        Ветка по умолчанию
+                      </label>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 pt-2 border-t">
                     <Button
                       size="sm"
                       onClick={onSaveEdit}
@@ -1524,7 +1689,7 @@ function DiagramTab({
                       Отмена
                     </Button>
                   </div>
-                </>
+                </div>
               ) : (
                 /* View Mode */
                 <>
