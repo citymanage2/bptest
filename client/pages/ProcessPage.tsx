@@ -862,6 +862,7 @@ export function ProcessPage() {
   const [editInfoSystems, setEditInfoSystems] = useState("");
   const [editConditionLabel, setEditConditionLabel] = useState("");
   const [editIsDefault, setEditIsDefault] = useState(false);
+  const [editConnections, setEditConnections] = useState<string[]>([]);
 
   // ---- Mutations ----
   const updateDataMutation = trpc.process.updateData.useMutation({
@@ -935,6 +936,7 @@ export function ProcessPage() {
       setEditInfoSystems(block.infoSystems?.join(", ") || "");
       setEditConditionLabel(block.conditionLabel || "");
       setEditIsDefault(block.isDefault || false);
+      setEditConnections([...block.connections]);
     },
     []
   );
@@ -960,6 +962,7 @@ export function ProcessPage() {
             infoSystems: parseCommaSeparated(editInfoSystems),
             conditionLabel: editConditionLabel || undefined,
             isDefault: editIsDefault,
+            connections: editConnections,
           }
         : b
     );
@@ -969,7 +972,7 @@ export function ProcessPage() {
       data: { ...data, blocks: updatedBlocks },
     });
     setEditingBlock(null);
-  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editConditionLabel, editIsDefault, processId, updateDataMutation]);
+  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editConditionLabel, editIsDefault, editConnections, processId, updateDataMutation]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingBlock(null);
@@ -1271,6 +1274,7 @@ export function ProcessPage() {
             editInfoSystems={editInfoSystems}
             editConditionLabel={editConditionLabel}
             editIsDefault={editIsDefault}
+            editConnections={editConnections}
             canvasScale={canvasScale}
             canvasContainerRef={canvasContainerRef}
             canvasHandleRef={canvasHandleRef}
@@ -1291,6 +1295,7 @@ export function ProcessPage() {
             onSetEditInfoSystems={setEditInfoSystems}
             onSetEditConditionLabel={setEditConditionLabel}
             onSetEditIsDefault={setEditIsDefault}
+            onSetEditConnections={setEditConnections}
             onScaleChange={setCanvasScale}
             onExportPNG={handleExportPNG}
             onExportBPMN={handleExportBPMN}
@@ -1358,6 +1363,7 @@ interface DiagramTabProps {
   editInfoSystems: string;
   editConditionLabel: string;
   editIsDefault: boolean;
+  editConnections: string[];
   canvasScale: number;
   canvasContainerRef: React.RefObject<HTMLDivElement | null>;
   canvasHandleRef: React.RefObject<SwimlaneCanvasHandle | null>;
@@ -1378,6 +1384,7 @@ interface DiagramTabProps {
   onSetEditInfoSystems: (v: string) => void;
   onSetEditConditionLabel: (v: string) => void;
   onSetEditIsDefault: (v: boolean) => void;
+  onSetEditConnections: (v: string[]) => void;
   onScaleChange: (scale: number) => void;
   onExportPNG: () => void;
   onExportBPMN: () => void;
@@ -1400,6 +1407,7 @@ function DiagramTab({
   editInfoSystems,
   editConditionLabel,
   editIsDefault,
+  editConnections,
   canvasScale,
   canvasContainerRef,
   canvasHandleRef,
@@ -1420,6 +1428,7 @@ function DiagramTab({
   onSetEditInfoSystems,
   onSetEditConditionLabel,
   onSetEditIsDefault,
+  onSetEditConnections,
   onScaleChange,
   onExportPNG,
   onExportBPMN,
@@ -1668,6 +1677,65 @@ function DiagramTab({
                       </label>
                     </div>
                   )}
+                  {/* Connections editor */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-700">
+                      Связи ({editConnections.length})
+                    </label>
+                    {editConnections.length > 0 && (
+                      <div className="space-y-1">
+                        {editConnections.map((connId, idx) => {
+                          const connBlock = data.blocks.find((b) => b.id === connId);
+                          return (
+                            <div
+                              key={connId + "-" + idx}
+                              className="flex items-center gap-1.5 group"
+                            >
+                              <ChevronRight className="w-3 h-3 text-gray-400 shrink-0" />
+                              <span className="text-sm text-gray-700 truncate flex-1">
+                                {connBlock?.name || connId}
+                              </span>
+                              <button
+                                type="button"
+                                className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-red-50"
+                                onClick={() => {
+                                  onSetEditConnections(editConnections.filter((_, i) => i !== idx));
+                                }}
+                                title="Удалить связь"
+                              >
+                                <X className="w-3.5 h-3.5 text-red-500" />
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {/* Add connection dropdown */}
+                    {(() => {
+                      const availableBlocks = data.blocks.filter(
+                        (b) => b.id !== editingBlock.id && !editConnections.includes(b.id)
+                      );
+                      if (availableBlocks.length === 0) return null;
+                      return (
+                        <select
+                          className="flex h-8 w-full rounded-md border border-gray-300 bg-transparent px-2 py-1 text-sm text-gray-500"
+                          value=""
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              onSetEditConnections([...editConnections, e.target.value]);
+                            }
+                          }}
+                        >
+                          <option value="">+ Добавить связь...</option>
+                          {availableBlocks.map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.name} ({BLOCK_CONFIG[b.type]?.label})
+                            </option>
+                          ))}
+                        </select>
+                      );
+                    })()}
+                  </div>
                   <div className="flex items-center gap-2 pt-2 border-t">
                     <Button
                       size="sm"
