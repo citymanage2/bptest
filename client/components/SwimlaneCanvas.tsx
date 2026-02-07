@@ -844,16 +844,25 @@ function drawAllConnections(
         targetBlock?.conditionLabel &&
         (block.type === "decision" || block.type === "split")
       ) {
-        const labelPt =
-          points.length >= 3
-            ? {
-                x: (points[0].x + points[1].x) / 2 + 20,
-                y: (points[0].y + points[1].y) / 2,
-              }
-            : {
-                x: (points[0].x + last.x) / 2 + 20,
-                y: (points[0].y + last.y) / 2,
-              };
+        // Position label near the exit point of the diamond
+        const exitPt = points[0];
+        const nextPt = points[1];
+        const condLower = targetBlock.conditionLabel.toLowerCase();
+
+        let labelPt: Point;
+        if (condLower === "да" && block.type === "decision") {
+          // Left exit — place label to the left of the exit point
+          labelPt = { x: exitPt.x - 20, y: exitPt.y - 14 };
+        } else if (condLower === "нет" && block.type === "decision") {
+          // Right exit — place label to the right of the exit point
+          labelPt = { x: exitPt.x + 20, y: exitPt.y - 14 };
+        } else {
+          // Default: place along the first segment with small offset
+          labelPt = {
+            x: (exitPt.x + nextPt.x) / 2 + 20,
+            y: (exitPt.y + nextPt.y) / 2,
+          };
+        }
 
         const labelText = "[" + targetBlock.conditionLabel + "]";
         ctx.font = `italic 11px ${FONT_FAMILY}`;
