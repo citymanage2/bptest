@@ -827,12 +827,27 @@ function drawAllConnections(
 
       // Condition label for decision/split branches
       const targetBlock = allBlocks.find((b) => b.id === targetId);
-      if (
-        targetBlock?.conditionLabel &&
-        (block.type === "decision" || block.type === "split")
-      ) {
+
+      // For decision blocks: auto-generate labels if conditionLabel is missing
+      // 1st branch = "Да", 2nd = "Нет", 3rd+ = use conditionLabel or index
+      const autoDecisionLabels = ["Да", "Нет"];
+      const shouldShowLabel =
+        (block.type === "decision") ||
+        (block.type === "split" && targetBlock?.conditionLabel);
+
+      if (shouldShowLabel) {
         const exitPt = points[0];
         const nextPt = points[1];
+
+        // Determine label text: use conditionLabel if present, otherwise auto-generate
+        let rawLabel: string;
+        if (targetBlock?.conditionLabel) {
+          rawLabel = targetBlock.conditionLabel;
+        } else if (block.type === "decision" && ci < autoDecisionLabels.length) {
+          rawLabel = autoDecisionLabels[ci];
+        } else {
+          rawLabel = `Ветвь ${ci + 1}`;
+        }
 
         let labelPt: Point;
         if (block.type === "decision") {
@@ -855,7 +870,7 @@ function drawAllConnections(
           };
         }
 
-        const labelText = "[" + targetBlock.conditionLabel + "]";
+        const labelText = "[" + rawLabel + "]";
         ctx.font = `italic 11px ${FONT_FAMILY}`;
         const tw = ctx.measureText(labelText).width + 12;
         const th = 20;
