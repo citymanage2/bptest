@@ -453,18 +453,14 @@ function segmentIntersectsObstacle(
   return false;
 }
 
-/** Check if the first segment after exit goes away from the source (anti-backtracking) */
-function isBacktracking(exit: Anchor, firstPoint: Point): boolean {
-  switch (exit.side) {
-    case "right":
-      return firstPoint.x < exit.x;
-    case "left":
-      return firstPoint.x > exit.x;
-    case "bottom":
-      return firstPoint.y < exit.y;
-    case "top":
-      return firstPoint.y > exit.y;
+/** Check if a full route (all segments) intersects any obstacle */
+function routeIntersectsAnyObstacle(pts: Point[], obstacles: Obstacle[]): boolean {
+  for (let i = 0; i < pts.length - 1; i++) {
+    for (const obs of obstacles) {
+      if (segmentIntersectsObstacle(pts[i], pts[i + 1], obs)) return true;
+    }
   }
+  return false;
 }
 
 /** Build orthogonal route from exit anchor to entry anchor, avoiding obstacles */
@@ -475,11 +471,47 @@ function buildOrthogonalRoute(
   sourceBlock: LayoutBlock,
   targetBlock: LayoutBlock,
 ): Point[] {
-  const MIN_STEP = 30; // Minimum straight segment before first turn
-  const gap = Math.max(ROUTE_GAP, MIN_STEP);
+  const gap = ROUTE_GAP;
+
+  // ---- Fast path: simple straight connection ----
+  // If exit and entry are on complementary sides and aligned, use straight line
+  const isDirectVertical =
+    exit.side === "bottom" && entry.side === "top" &&
+    Math.abs(exit.x - entry.x) < 2;
+  const isDirectHorizontal =
+    ((exit.side === "right" && entry.side === "left") ||
+     (exit.side === "left" && entry.side === "right")) &&
+    Math.abs(exit.y - entry.y) < 2;
+
+  if (isDirectVertical || isDirectHorizontal) {
+    const straight = [
+      { x: exit.x, y: exit.y },
+      { x: entry.x, y: entry.y },
+    ];
+    if (!routeIntersectsAnyObstacle(straight, obstacles)) {
+      return straight;
+    }
+  }
+
+  // ---- Near-straight: blocks stacked vertically in same column (bottom→top) ----
+  if (exit.side === "bottom" && entry.side === "top") {
+    const midY = (exit.y + entry.y) / 2;
+    // Simple Z with one horizontal jog
+    const simple: Point[] = [
+      { x: exit.x, y: exit.y },
+      { x: exit.x, y: midY },
+      { x: entry.x, y: midY },
+      { x: entry.x, y: entry.y },
+    ];
+    if (!routeIntersectsAnyObstacle(simple, obstacles)) {
+      return simplifyPath(simple);
+    }
+  }
+
+  // ---- General orthogonal routing ----
   const points: Point[] = [];
 
-  // Step out from exit
+  // Step out from exit anchor (short, strictly along the anchor direction)
   let ex: Point;
   switch (exit.side) {
     case "bottom":
@@ -496,7 +528,7 @@ function buildOrthogonalRoute(
       break;
   }
 
-  // Step in to entry
+  // Step in to entry anchor
   let en: Point;
   switch (entry.side) {
     case "top":
@@ -516,20 +548,16 @@ function buildOrthogonalRoute(
   points.push({ x: exit.x, y: exit.y });
   points.push(ex);
 
-  // Now route from ex to en with L or Z or U shape
   const isExHorizontal = exit.side === "left" || exit.side === "right";
   const isEnHorizontal = entry.side === "left" || entry.side === "right";
 
-  // Detect U-route situations:
-  // When both exit and enter are same axis AND the target is "behind" the exit direction
+  // Detect U-route: both same axis AND target is behind the exit direction
   const needsURoute = (() => {
     if (isExHorizontal && isEnHorizontal) {
-      // Both horizontal — check if target is behind the exit
       if (exit.side === "right" && en.x < ex.x) return true;
       if (exit.side === "left" && en.x > ex.x) return true;
     }
     if (!isExHorizontal && !isEnHorizontal) {
-      // Both vertical — check if target is behind
       if (exit.side === "bottom" && en.y < ex.y) return true;
       if (exit.side === "top" && en.y > ex.y) return true;
     }
@@ -537,15 +565,12 @@ function buildOrthogonalRoute(
   })();
 
   if (needsURoute) {
-    // U-route: go out, go perpendicular to bypass, then come back to entry
+    // U-route: go out, perpendicular bypass, come back to entry
+    const srcObs = blockToObstacle(sourceBlock, gap);
+    const tgtObs = blockToObstacle(targetBlock, gap);
     if (isExHorizontal) {
-      // Exit horizontally, need to go around vertically
-      // Pick a Y that clears both source and target blocks
-      const srcObs = blockToObstacle(sourceBlock, ROUTE_GAP);
-      const tgtObs = blockToObstacle(targetBlock, ROUTE_GAP);
-      const bypassAbove = Math.min(srcObs.y1, tgtObs.y1) - ROUTE_GAP;
-      const bypassBelow = Math.max(srcObs.y2, tgtObs.y2) + ROUTE_GAP;
-      // Pick the bypass that's closer to both ex and en
+      const bypassAbove = Math.min(srcObs.y1, tgtObs.y1) - gap;
+      const bypassBelow = Math.max(srcObs.y2, tgtObs.y2) + gap;
       const distAbove = Math.abs(ex.y - bypassAbove) + Math.abs(en.y - bypassAbove);
       const distBelow = Math.abs(ex.y - bypassBelow) + Math.abs(en.y - bypassBelow);
       const bypassY = findSafeHorizontalY(
@@ -555,11 +580,8 @@ function buildOrthogonalRoute(
       points.push({ x: ex.x, y: bypassY });
       points.push({ x: en.x, y: bypassY });
     } else {
-      // Exit vertically, need to go around horizontally
-      const srcObs = blockToObstacle(sourceBlock, ROUTE_GAP);
-      const tgtObs = blockToObstacle(targetBlock, ROUTE_GAP);
-      const bypassLeft = Math.min(srcObs.x1, tgtObs.x1) - ROUTE_GAP;
-      const bypassRight = Math.max(srcObs.x2, tgtObs.x2) + ROUTE_GAP;
+      const bypassLeft = Math.min(srcObs.x1, tgtObs.x1) - gap;
+      const bypassRight = Math.max(srcObs.x2, tgtObs.x2) + gap;
       const distLeft = Math.abs(ex.x - bypassLeft) + Math.abs(en.x - bypassLeft);
       const distRight = Math.abs(ex.x - bypassRight) + Math.abs(en.x - bypassRight);
       const bypassX = findSafeVerticalX(
@@ -570,37 +592,29 @@ function buildOrthogonalRoute(
       points.push({ x: bypassX, y: en.y });
     }
   } else if (isExHorizontal === isEnHorizontal) {
-    // Both exit/enter along same axis → Z-route (3 segments)
+    // Both on same axis → Z-route (3 segments)
     if (isExHorizontal) {
-      // Both horizontal → connect via vertical mid
       const midX = (ex.x + en.x) / 2;
-      // Check if midX goes through source/target
       const safeMidX = findSafeVerticalX(midX, ex, en, obstacles, sourceBlock, targetBlock);
       points.push({ x: safeMidX, y: ex.y });
       points.push({ x: safeMidX, y: en.y });
     } else {
-      // Both vertical → connect via horizontal mid
       const midY = (ex.y + en.y) / 2;
       const safeMidY = findSafeHorizontalY(midY, ex, en, obstacles, sourceBlock, targetBlock);
       points.push({ x: ex.x, y: safeMidY });
       points.push({ x: en.x, y: safeMidY });
     }
   } else {
-    // Different axes → L-route (2 segments)
-    // Try corner at (en.x, ex.y) or (ex.x, en.y)
+    // Different axes → L-route
     const corner1: Point = { x: en.x, y: ex.y };
     const corner2: Point = { x: ex.x, y: en.y };
 
-    // Check if corners cause backtracking
-    const c1Backtracks = isBacktracking(exit, corner1);
-    const c2Backtracks = isBacktracking(exit, corner2);
-
-    const c1Blocked = c1Backtracks || obstacles.some(
+    const c1Blocked = obstacles.some(
       (o) =>
         segmentIntersectsObstacle(ex, corner1, o) ||
         segmentIntersectsObstacle(corner1, en, o),
     );
-    const c2Blocked = c2Backtracks || obstacles.some(
+    const c2Blocked = obstacles.some(
       (o) =>
         segmentIntersectsObstacle(ex, corner2, o) ||
         segmentIntersectsObstacle(corner2, en, o),
@@ -611,7 +625,7 @@ function buildOrthogonalRoute(
     } else if (!c2Blocked) {
       points.push(corner2);
     } else {
-      // Both blocked → use Z-route via mid
+      // Both blocked → Z-route via mid
       if (isExHorizontal) {
         const midX = (ex.x + en.x) / 2;
         const safeMidX = findSafeVerticalX(midX, ex, en, obstacles, sourceBlock, targetBlock);
@@ -650,8 +664,8 @@ function findSafeVerticalX(
 
   if (!testSeg(preferred)) return preferred;
 
-  // Try shifting left and right
-  for (let offset = 30; offset <= 200; offset += 20) {
+  // Try shifting left and right with wider range
+  for (let offset = 20; offset <= 400; offset += 15) {
     if (!testSeg(preferred - offset)) return preferred - offset;
     if (!testSeg(preferred + offset)) return preferred + offset;
   }
@@ -676,46 +690,45 @@ function findSafeHorizontalY(
 
   if (!testSeg(preferred)) return preferred;
 
-  for (let offset = 30; offset <= 200; offset += 20) {
+  for (let offset = 20; offset <= 400; offset += 15) {
     if (!testSeg(preferred - offset)) return preferred - offset;
     if (!testSeg(preferred + offset)) return preferred + offset;
   }
   return preferred;
 }
 
-/** Remove redundant collinear points */
+/** Remove redundant collinear points and duplicates */
 function simplifyPath(pts: Point[]): Point[] {
   if (pts.length <= 2) return pts;
-  const result: Point[] = [pts[0]];
-  for (let i = 1; i < pts.length - 1; i++) {
+
+  // Remove duplicate consecutive points
+  const dedup: Point[] = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    if (
+      Math.abs(pts[i].x - dedup[dedup.length - 1].x) > 0.5 ||
+      Math.abs(pts[i].y - dedup[dedup.length - 1].y) > 0.5
+    ) {
+      dedup.push(pts[i]);
+    }
+  }
+
+  if (dedup.length <= 2) return dedup;
+
+  // Remove collinear middle points
+  const result: Point[] = [dedup[0]];
+  for (let i = 1; i < dedup.length - 1; i++) {
     const prev = result[result.length - 1];
-    const curr = pts[i];
-    const next = pts[i + 1];
-    // Skip if collinear
+    const curr = dedup[i];
+    const next = dedup[i + 1];
     const sameX = Math.abs(prev.x - curr.x) < 1 && Math.abs(curr.x - next.x) < 1;
     const sameY = Math.abs(prev.y - curr.y) < 1 && Math.abs(curr.y - next.y) < 1;
+    // Skip only if collinear (all 3 on same X or same Y line)
     if (!sameX && !sameY) {
       result.push(curr);
-    } else if (sameX || sameY) {
-      // Keep only non-collinear
-      if (!sameX && !sameY) result.push(curr);
-      // If both same-x or same-y, skip (collinear)
-      else if (!sameX || !sameY) result.push(curr);
     }
   }
-  result.push(pts[pts.length - 1]);
-
-  // Second pass: remove duplicate points
-  const dedup: Point[] = [result[0]];
-  for (let i = 1; i < result.length; i++) {
-    if (
-      Math.abs(result[i].x - dedup[dedup.length - 1].x) > 0.5 ||
-      Math.abs(result[i].y - dedup[dedup.length - 1].y) > 0.5
-    ) {
-      dedup.push(result[i]);
-    }
-  }
-  return dedup;
+  result.push(dedup[dedup.length - 1]);
+  return result;
 }
 
 // ---- Crossing detection and nudging -----------------------------------------
@@ -827,10 +840,10 @@ function routeAllConnections(
 ): RoutedConnection[] {
   const routes: RoutedConnection[] = [];
 
-  // Build obstacles from all blocks (inflated by margin)
+  // Build obstacles from all blocks (inflated by margin so lines route around blocks)
   const allObstacles: { blockId: string; obs: Obstacle }[] = [];
   for (const lb of Object.values(blockMap)) {
-    allObstacles.push({ blockId: lb.block.id, obs: blockToObstacle(lb, 8) });
+    allObstacles.push({ blockId: lb.block.id, obs: blockToObstacle(lb, ROUTE_GAP) });
   }
 
   for (const block of allBlocks) {
