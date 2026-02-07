@@ -863,6 +863,7 @@ export function ProcessPage() {
   const [editConditionLabel, setEditConditionLabel] = useState("");
   const [editIsDefault, setEditIsDefault] = useState(false);
   const [editConnections, setEditConnections] = useState<string[]>([]);
+  const [editConnectionLabels, setEditConnectionLabels] = useState<Record<string, string>>({});
 
   // ---- Mutations ----
   const updateDataMutation = trpc.process.updateData.useMutation({
@@ -937,8 +938,19 @@ export function ProcessPage() {
       setEditConditionLabel(block.conditionLabel || "");
       setEditIsDefault(block.isDefault || false);
       setEditConnections([...block.connections]);
+      // Load connection labels from target blocks
+      const labels: Record<string, string> = {};
+      if (data) {
+        for (const connId of block.connections) {
+          const target = data.blocks.find((b) => b.id === connId);
+          if (target?.conditionLabel) {
+            labels[connId] = target.conditionLabel;
+          }
+        }
+      }
+      setEditConnectionLabels(labels);
     },
-    []
+    [data]
   );
 
   const handleSaveEdit = useCallback(() => {
@@ -947,32 +959,42 @@ export function ProcessPage() {
     const parseCommaSeparated = (str: string): string[] =>
       str.split(",").map((s) => s.trim()).filter(Boolean);
 
-    const updatedBlocks = data.blocks.map((b) =>
-      b.id === editingBlock.id
-        ? {
-            ...b,
-            name: editName,
-            description: editDescription,
-            type: editType,
-            role: editRole,
-            stage: editStage,
-            timeEstimate: editTimeEstimate || undefined,
-            inputDocuments: parseCommaSeparated(editInputDocuments),
-            outputDocuments: parseCommaSeparated(editOutputDocuments),
-            infoSystems: parseCommaSeparated(editInfoSystems),
-            conditionLabel: editConditionLabel || undefined,
-            isDefault: editIsDefault,
-            connections: editConnections,
-          }
-        : b
-    );
+    const updatedBlocks = data.blocks.map((b) => {
+      // Update the edited block itself
+      if (b.id === editingBlock.id) {
+        return {
+          ...b,
+          name: editName,
+          description: editDescription,
+          type: editType,
+          role: editRole,
+          stage: editStage,
+          timeEstimate: editTimeEstimate || undefined,
+          inputDocuments: parseCommaSeparated(editInputDocuments),
+          outputDocuments: parseCommaSeparated(editOutputDocuments),
+          infoSystems: parseCommaSeparated(editInfoSystems),
+          conditionLabel: editConditionLabel || undefined,
+          isDefault: editIsDefault,
+          connections: editConnections,
+        };
+      }
+      // Update conditionLabel on target blocks of this block's connections
+      if (editConnections.includes(b.id)) {
+        const newLabel = editConnectionLabels[b.id];
+        return {
+          ...b,
+          conditionLabel: newLabel || undefined,
+        };
+      }
+      return b;
+    });
 
     updateDataMutation.mutate({
       id: processId,
       data: { ...data, blocks: updatedBlocks },
     });
     setEditingBlock(null);
-  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editConditionLabel, editIsDefault, editConnections, processId, updateDataMutation]);
+  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editConditionLabel, editIsDefault, editConnections, editConnectionLabels, processId, updateDataMutation]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingBlock(null);
@@ -1275,6 +1297,7 @@ export function ProcessPage() {
             editConditionLabel={editConditionLabel}
             editIsDefault={editIsDefault}
             editConnections={editConnections}
+            editConnectionLabels={editConnectionLabels}
             canvasScale={canvasScale}
             canvasContainerRef={canvasContainerRef}
             canvasHandleRef={canvasHandleRef}
@@ -1296,6 +1319,7 @@ export function ProcessPage() {
             onSetEditConditionLabel={setEditConditionLabel}
             onSetEditIsDefault={setEditIsDefault}
             onSetEditConnections={setEditConnections}
+            onSetEditConnectionLabels={setEditConnectionLabels}
             onScaleChange={setCanvasScale}
             onExportPNG={handleExportPNG}
             onExportBPMN={handleExportBPMN}
@@ -1364,6 +1388,7 @@ interface DiagramTabProps {
   editConditionLabel: string;
   editIsDefault: boolean;
   editConnections: string[];
+  editConnectionLabels: Record<string, string>;
   canvasScale: number;
   canvasContainerRef: React.RefObject<HTMLDivElement | null>;
   canvasHandleRef: React.RefObject<SwimlaneCanvasHandle | null>;
@@ -1385,6 +1410,7 @@ interface DiagramTabProps {
   onSetEditConditionLabel: (v: string) => void;
   onSetEditIsDefault: (v: boolean) => void;
   onSetEditConnections: (v: string[]) => void;
+  onSetEditConnectionLabels: (v: Record<string, string>) => void;
   onScaleChange: (scale: number) => void;
   onExportPNG: () => void;
   onExportBPMN: () => void;
@@ -1408,6 +1434,7 @@ function DiagramTab({
   editConditionLabel,
   editIsDefault,
   editConnections,
+  editConnectionLabels,
   canvasScale,
   canvasContainerRef,
   canvasHandleRef,
@@ -1429,6 +1456,7 @@ function DiagramTab({
   onSetEditConditionLabel,
   onSetEditIsDefault,
   onSetEditConnections,
+  onSetEditConnectionLabels,
   onScaleChange,
   onExportPNG,
   onExportBPMN,
@@ -1683,28 +1711,44 @@ function DiagramTab({
                       Связи ({editConnections.length})
                     </label>
                     {editConnections.length > 0 && (
-                      <div className="space-y-1">
+                      <div className="space-y-2">
                         {editConnections.map((connId, idx) => {
                           const connBlock = data.blocks.find((b) => b.id === connId);
                           return (
                             <div
                               key={connId + "-" + idx}
-                              className="flex items-center gap-1.5 group"
+                              className="rounded-md border border-gray-200 bg-gray-50/50 p-2 space-y-1.5 group"
                             >
-                              <ChevronRight className="w-3 h-3 text-gray-400 shrink-0" />
-                              <span className="text-sm text-gray-700 truncate flex-1">
-                                {connBlock?.name || connId}
-                              </span>
-                              <button
-                                type="button"
-                                className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-red-50"
-                                onClick={() => {
-                                  onSetEditConnections(editConnections.filter((_, i) => i !== idx));
+                              <div className="flex items-center gap-1.5">
+                                <ChevronRight className="w-3 h-3 text-gray-400 shrink-0" />
+                                <span className="text-sm text-gray-700 truncate flex-1">
+                                  {connBlock?.name || connId}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-red-50"
+                                  onClick={() => {
+                                    onSetEditConnections(editConnections.filter((_, i) => i !== idx));
+                                    const updated = { ...editConnectionLabels };
+                                    delete updated[connId];
+                                    onSetEditConnectionLabels(updated);
+                                  }}
+                                  title="Удалить связь"
+                                >
+                                  <X className="w-3.5 h-3.5 text-red-500" />
+                                </button>
+                              </div>
+                              <Input
+                                value={editConnectionLabels[connId] || ""}
+                                onChange={(e) => {
+                                  onSetEditConnectionLabels({
+                                    ...editConnectionLabels,
+                                    [connId]: e.target.value,
+                                  });
                                 }}
-                                title="Удалить связь"
-                              >
-                                <X className="w-3.5 h-3.5 text-red-500" />
-                              </button>
+                                placeholder="Метка (напр. Да, Нет, Одобрено)"
+                                className="h-7 text-xs"
+                              />
                             </div>
                           );
                         })}
