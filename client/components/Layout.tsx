@@ -144,12 +144,18 @@ export function Layout() {
               <span className="font-semibold text-sm text-foreground">BPB</span>
               <span className="text-sm text-muted-foreground">— Business Process Builder</span>
             </div>
-            <div className="flex items-center gap-6 text-sm text-muted-foreground">
+            <div className="flex items-center gap-6 text-sm text-muted-foreground flex-wrap justify-center">
               <Link to="/faq" className="hover:text-foreground transition-colors">
                 База знаний
               </Link>
               <Link to="/support" className="hover:text-foreground transition-colors">
                 Поддержка
+              </Link>
+              <Link to="/privacy-policy" className="hover:text-foreground transition-colors">
+                Конфиденциальность
+              </Link>
+              <Link to="/cookie-policy" className="hover:text-foreground transition-colors">
+                Cookie
               </Link>
             </div>
             <div className="text-sm text-muted-foreground">

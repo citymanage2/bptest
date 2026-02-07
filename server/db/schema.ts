@@ -242,3 +242,64 @@ export const tokenOperations = pgTable("token_operations", {
 export const tokenOperationsRelations = relations(tokenOperations, ({ one }) => ({
   user: one(users, { fields: [tokenOperations.userId], references: [users.id] }),
 }));
+
+// ===== Consent & Privacy =====
+
+export const consentTypeEnum = pgEnum("consent_type", [
+  "privacy_policy",
+  "personal_data",
+  "cookie_policy",
+  "marketing",
+]);
+
+export const consentActionEnum = pgEnum("consent_action", [
+  "granted",
+  "revoked",
+]);
+
+// Policy versions — for versioning policy texts
+export const policyVersions = pgTable("policy_versions", {
+  id: serial("id").primaryKey(),
+  policyType: varchar("policy_type", { length: 50 }).notNull(), // "privacy" | "cookie"
+  version: integer("version").notNull().default(1),
+  content: text("content").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// User consents — records of each consent given/revoked
+export const userConsents = pgTable("user_consents", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  consentType: consentTypeEnum("consent_type").notNull(),
+  action: consentActionEnum("action").notNull(),
+  policyVersion: integer("policy_version"),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+  revokeReason: text("revoke_reason"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const userConsentsRelations = relations(userConsents, ({ one }) => ({
+  user: one(users, { fields: [userConsents.userId], references: [users.id] }),
+}));
+
+// Cookie consent settings — anonymous or user-based cookie preferences
+export const cookieConsents = pgTable("cookie_consents", {
+  id: serial("id").primaryKey(),
+  visitorId: varchar("visitor_id", { length: 255 }),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  functional: boolean("functional").notNull().default(false),
+  analytics: boolean("analytics").notNull().default(false),
+  marketing: boolean("marketing").notNull().default(false),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const cookieConsentsRelations = relations(cookieConsents, ({ one }) => ({
+  user: one(users, { fields: [cookieConsents.userId], references: [users.id] }),
+}));

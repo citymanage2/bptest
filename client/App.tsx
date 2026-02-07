@@ -12,6 +12,9 @@ import { ProfilePage } from "./pages/ProfilePage";
 import { SupportPage } from "./pages/SupportPage";
 import { FaqPage } from "./pages/FaqPage";
 import { AdminPage } from "./pages/AdminPage";
+import { PrivacyPolicyPage } from "./pages/PrivacyPolicyPage";
+import { CookiePolicyPage } from "./pages/CookiePolicyPage";
+import { CookieConsentBanner } from "./components/CookieConsentBanner";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -43,35 +46,40 @@ export default function App() {
   const { user } = useAuth();
 
   return (
-    <Routes>
-      <Route path="/" element={user ? <Navigate to="/companies" replace /> : <LandingPage />} />
-      <Route path="/login" element={user ? <Navigate to="/companies" replace /> : <LoginPage />} />
-      <Route path="/register" element={user ? <Navigate to="/companies" replace /> : <RegisterPage />} />
-      <Route path="/faq" element={<FaqPage />} />
-      <Route
-        element={
-          <ProtectedRoute>
-            <Layout />
-          </ProtectedRoute>
-        }
-      >
-        <Route path="/companies" element={<CompaniesPage />} />
-        <Route path="/companies/:id" element={<CompanyPage />} />
-        <Route path="/interview/:id" element={<InterviewPage />} />
-        <Route path="/process/:id" element={<ProcessPage />} />
-        <Route path="/profile" element={<ProfilePage />} />
-        <Route path="/support" element={<SupportPage />} />
-      </Route>
-      <Route
-        path="/admin/*"
-        element={
-          <AdminRoute>
-            <Layout />
-          </AdminRoute>
-        }
-      >
-        <Route index element={<AdminPage />} />
-      </Route>
-    </Routes>
+    <>
+      <Routes>
+        <Route path="/" element={user ? <Navigate to="/companies" replace /> : <LandingPage />} />
+        <Route path="/login" element={user ? <Navigate to="/companies" replace /> : <LoginPage />} />
+        <Route path="/register" element={user ? <Navigate to="/companies" replace /> : <RegisterPage />} />
+        <Route path="/faq" element={<FaqPage />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+        <Route path="/cookie-policy" element={<CookiePolicyPage />} />
+        <Route
+          element={
+            <ProtectedRoute>
+              <Layout />
+            </ProtectedRoute>
+          }
+        >
+          <Route path="/companies" element={<CompaniesPage />} />
+          <Route path="/companies/:id" element={<CompanyPage />} />
+          <Route path="/interview/:id" element={<InterviewPage />} />
+          <Route path="/process/:id" element={<ProcessPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/support" element={<SupportPage />} />
+        </Route>
+        <Route
+          path="/admin/*"
+          element={
+            <AdminRoute>
+              <Layout />
+            </AdminRoute>
+          }
+        >
+          <Route index element={<AdminPage />} />
+        </Route>
+      </Routes>
+      <CookieConsentBanner />
+    </>
   );
 }
