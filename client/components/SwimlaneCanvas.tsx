@@ -280,52 +280,66 @@ function routeConnection(
   target: LayoutBlock,
   connIndex: number,
   totalConns: number,
+  blockMap: Record<string, LayoutBlock>,
 ): Point[] {
   const tx = target.x + target.w / 2;
   const ty = target.y;
 
-  // Special handling for decision blocks (diamonds) - exit from corners based on conditionLabel
+  // Special handling for decision blocks (diamonds) - exit from corners
   if (source.block.type === "decision") {
-    const conditionLabel = target.block.conditionLabel?.toLowerCase();
-    const cy = source.y + source.h / 2; // center Y of diamond
+    const cy = source.y + source.h / 2; // center Y of diamond (left/right corner Y)
+    const targetBlock = target.block;
+    const hasLabel = !!targetBlock.conditionLabel;
+    const isDefault = !!targetBlock.isDefault;
+    const gap = 35;
 
-    // "Да" (Yes) branch - exit from LEFT corner of diamond
-    if (conditionLabel === "да") {
-      const sx = source.x; // left corner X
-      const sy = cy; // left corner Y (center height)
+    // Determine exit direction:
+    // - Default branch (isDefault=true, or no conditionLabel) -> exit from BOTTOM
+    // - Non-default branches with conditionLabel -> exit from LEFT or RIGHT corners
+    if (hasLabel && !isDefault) {
+      // For labeled non-default branches, assign left/right based on connection index
+      // among labeled non-default connections of this decision block
+      // Find all labeled non-default target indices for this source
+      const labeledIndices: number[] = [];
+      for (let i = 0; i < source.block.connections.length; i++) {
+        const tid = source.block.connections[i];
+        const tb = blockMap[tid];
+        if (tb && tb.block.conditionLabel && !tb.block.isDefault) {
+          labeledIndices.push(i);
+        }
+      }
+      const posInLabeled = labeledIndices.indexOf(connIndex);
+      // First labeled -> LEFT, second labeled -> RIGHT
+      const exitLeft = posInLabeled === 0;
 
-      // Route: left -> horizontal -> down to target
-      const gap = 35;
-      const routeX = Math.min(source.x - gap, tx);
-
-      return [
-        { x: sx, y: sy },
-        { x: routeX, y: sy },
-        { x: routeX, y: ty - gap },
-        { x: tx, y: ty - gap },
-        { x: tx, y: ty },
-      ];
+      if (exitLeft) {
+        // Exit from LEFT corner of diamond
+        const sx = source.x;
+        const sy = cy;
+        const routeX = Math.min(source.x - gap, tx);
+        return [
+          { x: sx, y: sy },
+          { x: routeX, y: sy },
+          { x: routeX, y: ty - gap },
+          { x: tx, y: ty - gap },
+          { x: tx, y: ty },
+        ];
+      } else {
+        // Exit from RIGHT corner of diamond
+        const sx = source.x + source.w;
+        const sy = cy;
+        const routeX = Math.max(source.x + source.w + gap, tx);
+        return [
+          { x: sx, y: sy },
+          { x: routeX, y: sy },
+          { x: routeX, y: ty - gap },
+          { x: tx, y: ty - gap },
+          { x: tx, y: ty },
+        ];
+      }
     }
 
-    // "Нет" (No) branch - exit from RIGHT corner of diamond
-    if (conditionLabel === "нет") {
-      const sx = source.x + source.w; // right corner X
-      const sy = cy; // right corner Y (center height)
-
-      // Route: right -> horizontal -> down to target
-      const gap = 35;
-      const routeX = Math.max(source.x + source.w + gap, tx);
-
-      return [
-        { x: sx, y: sy },
-        { x: routeX, y: sy },
-        { x: routeX, y: ty - gap },
-        { x: tx, y: ty - gap },
-        { x: tx, y: ty },
-      ];
-    }
-
-    // Default branch (no specific label or isDefault) - exit from bottom
+    // Default branch or unlabeled -> exit from BOTTOM of diamond
     const sx = source.x + source.w / 2;
     const sy = source.y + source.h;
 
@@ -344,6 +358,19 @@ function routeConnection(
         { x: tx, y: ty },
       ];
     }
+    // Target is above or at same level — route around
+    const isRight = tx > sx;
+    const sideX = isRight
+      ? Math.max(source.x + source.w, target.x + target.w) + gap
+      : Math.min(source.x, target.x) - gap;
+    return [
+      { x: sx, y: sy },
+      { x: sx, y: sy + gap },
+      { x: sideX, y: sy + gap },
+      { x: sideX, y: ty - gap },
+      { x: tx, y: ty - gap },
+      { x: tx, y: ty },
+    ];
   }
 
   // Standard routing for non-decision blocks
@@ -818,7 +845,7 @@ function drawAllConnections(
         targetId === hoveredBlockId ||
         targetId === selectedBlockId;
 
-      const points = routeConnection(source, target, ci, totalConns);
+      const points = routeConnection(source, target, ci, totalConns, blockMap);
 
       // Draw the polyline path
       ctx.strokeStyle = isHL ? "#3b82f6" : "#6b7280";
@@ -844,20 +871,26 @@ function drawAllConnections(
         targetBlock?.conditionLabel &&
         (block.type === "decision" || block.type === "split")
       ) {
-        // Position label near the exit point of the diamond
+        // Position label near the exit point of the connection line
         const exitPt = points[0];
         const nextPt = points[1];
-        const condLower = targetBlock.conditionLabel.toLowerCase();
 
         let labelPt: Point;
-        if (condLower === "да" && block.type === "decision") {
-          // Left exit — place label to the left of the exit point
-          labelPt = { x: exitPt.x - 20, y: exitPt.y - 14 };
-        } else if (condLower === "нет" && block.type === "decision") {
-          // Right exit — place label to the right of the exit point
-          labelPt = { x: exitPt.x + 20, y: exitPt.y - 14 };
+        if (block.type === "decision" && targetBlock.conditionLabel && !targetBlock.isDefault) {
+          // Labeled non-default branch exits from left or right corner
+          // Determine which side by checking if exit X matches left or right corner
+          const srcBlock = blockMap[block.id];
+          const leftCornerX = srcBlock ? srcBlock.x : exitPt.x;
+          const rightCornerX = srcBlock ? srcBlock.x + srcBlock.w : exitPt.x;
+          const isLeftExit = Math.abs(exitPt.x - leftCornerX) < Math.abs(exitPt.x - rightCornerX);
+
+          if (isLeftExit) {
+            labelPt = { x: exitPt.x - 22, y: exitPt.y - 14 };
+          } else {
+            labelPt = { x: exitPt.x + 22, y: exitPt.y - 14 };
+          }
         } else {
-          // Default: place along the first segment with small offset
+          // Default/bottom exit or split: place along first segment
           labelPt = {
             x: (exitPt.x + nextPt.x) / 2 + 20,
             y: (exitPt.y + nextPt.y) / 2,
