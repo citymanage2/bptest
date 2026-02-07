@@ -913,8 +913,16 @@ function drawAllConnections(
 
         const labelText = "[" + rawLabel + "]";
         ctx.font = `italic 11px ${FONT_FAMILY}`;
-        const tw = ctx.measureText(labelText).width + 12;
-        const th = 20;
+        const MAX_LABEL_WIDTH = 150;
+        const labelLineH = 14;
+        const labelPadH = 6;
+        const labelPadV = 4;
+
+        // Wrap label text if it exceeds max width
+        const labelLines = wrapText(ctx, labelText, MAX_LABEL_WIDTH, 3);
+        const maxLineW = Math.max(...labelLines.map((l) => ctx.measureText(l).width));
+        const tw = maxLineW + labelPadH * 2;
+        const th = labelLines.length * labelLineH + labelPadV * 2;
 
         // Label background
         ctx.fillStyle = "#ffffff";
@@ -927,11 +935,14 @@ function drawAllConnections(
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        // Label text
+        // Label text (multi-line centered)
         ctx.fillStyle = "#3b82f6";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(labelText, labelPt.x, labelPt.y);
+        const labelTextStartY = labelPt.y - ((labelLines.length - 1) * labelLineH) / 2;
+        for (let li = 0; li < labelLines.length; li++) {
+          ctx.fillText(labelLines[li], labelPt.x, labelTextStartY + li * labelLineH);
+        }
       }
 
       // Default branch slash mark
