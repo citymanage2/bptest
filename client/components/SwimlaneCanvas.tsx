@@ -378,6 +378,11 @@ function chooseBestEntrySide(
   target: LayoutBlock,
   exitSide: AnchorSide,
 ): AnchorSide {
+  // Decision (diamond) blocks: ALWAYS enter from top
+  if (target.block.type === "decision") {
+    return "top";
+  }
+
   const sc = getBlockCenter(source);
   const tc = getBlockCenter(target);
   const dy = tc.y - sc.y;
@@ -388,13 +393,10 @@ function chooseBestEntrySide(
 
   // Lateral flow — enter from the opposite side of approach
   if (exitSide === "right") {
-    // Target is to the right — prefer entering from left
     if (dx > target.w * 0.5) return "left";
-    // Target is not far enough right — enter vertically
     return dy > 0 ? "top" : "bottom";
   }
   if (exitSide === "left") {
-    // Target is to the left — prefer entering from right
     if (dx < -target.w * 0.5) return "right";
     return dy > 0 ? "top" : "bottom";
   }
@@ -402,7 +404,6 @@ function chooseBestEntrySide(
   // Backward flow (exit from top)
   if (exitSide === "top") {
     if (dy < -target.h * 0.5) return "bottom";
-    // Target is at same level or below — enter from side
     return dx > 0 ? "left" : "right";
   }
 
@@ -463,18 +464,26 @@ function routeIntersectsAnyObstacle(pts: Point[], obstacles: Obstacle[]): boolea
   return false;
 }
 
-/** Build orthogonal route from exit anchor to entry anchor, avoiding obstacles */
+/** Build orthogonal route from exit anchor to entry anchor, avoiding obstacles.
+ *  `sourceObs`/`targetObs` are the inflated bboxes of source/target — intermediate
+ *  segments must not cross them (only the first step-out and last step-in may). */
 function buildOrthogonalRoute(
   exit: Anchor,
   entry: Anchor,
   obstacles: Obstacle[],
   sourceBlock: LayoutBlock,
   targetBlock: LayoutBlock,
+  sourceObs?: Obstacle,
+  targetObs?: Obstacle,
 ): Point[] {
   const gap = ROUTE_GAP;
 
+  // All obstacles including source/target for intermediate segment checks
+  const allObs = [...obstacles];
+  if (sourceObs) allObs.push(sourceObs);
+  if (targetObs) allObs.push(targetObs);
+
   // ---- Fast path: simple straight connection ----
-  // If exit and entry are on complementary sides and aligned, use straight line
   const isDirectVertical =
     exit.side === "bottom" && entry.side === "top" &&
     Math.abs(exit.x - entry.x) < 2;
@@ -488,21 +497,22 @@ function buildOrthogonalRoute(
       { x: exit.x, y: exit.y },
       { x: entry.x, y: entry.y },
     ];
+    // For straight connections only check other-block obstacles (not source/target)
     if (!routeIntersectsAnyObstacle(straight, obstacles)) {
       return straight;
     }
   }
 
-  // ---- Near-straight: blocks stacked vertically in same column (bottom→top) ----
+  // ---- Near-straight: blocks stacked vertically (bottom→top) ----
   if (exit.side === "bottom" && entry.side === "top") {
     const midY = (exit.y + entry.y) / 2;
-    // Simple Z with one horizontal jog
     const simple: Point[] = [
       { x: exit.x, y: exit.y },
       { x: exit.x, y: midY },
       { x: entry.x, y: midY },
       { x: entry.x, y: entry.y },
     ];
+    // Check against other-block obstacles only (first/last connect to source/target)
     if (!routeIntersectsAnyObstacle(simple, obstacles)) {
       return simplifyPath(simple);
     }
@@ -511,7 +521,7 @@ function buildOrthogonalRoute(
   // ---- General orthogonal routing ----
   const points: Point[] = [];
 
-  // Step out from exit anchor (short, strictly along the anchor direction)
+  // Step out from exit anchor
   let ex: Point;
   switch (exit.side) {
     case "bottom":
@@ -565,28 +575,28 @@ function buildOrthogonalRoute(
   })();
 
   if (needsURoute) {
-    // U-route: go out, perpendicular bypass, come back to entry
-    const srcObs = blockToObstacle(sourceBlock, gap);
-    const tgtObs = blockToObstacle(targetBlock, gap);
+    // U-route: go out, perpendicular bypass around source+target, come back to entry
+    const sObs = sourceObs || blockToObstacle(sourceBlock, gap);
+    const tObs = targetObs || blockToObstacle(targetBlock, gap);
     if (isExHorizontal) {
-      const bypassAbove = Math.min(srcObs.y1, tgtObs.y1) - gap;
-      const bypassBelow = Math.max(srcObs.y2, tgtObs.y2) + gap;
+      const bypassAbove = Math.min(sObs.y1, tObs.y1) - gap;
+      const bypassBelow = Math.max(sObs.y2, tObs.y2) + gap;
       const distAbove = Math.abs(ex.y - bypassAbove) + Math.abs(en.y - bypassAbove);
       const distBelow = Math.abs(ex.y - bypassBelow) + Math.abs(en.y - bypassBelow);
       const bypassY = findSafeHorizontalY(
         distAbove < distBelow ? bypassAbove : bypassBelow,
-        ex, en, obstacles, sourceBlock, targetBlock,
+        ex, en, allObs, sourceBlock, targetBlock,
       );
       points.push({ x: ex.x, y: bypassY });
       points.push({ x: en.x, y: bypassY });
     } else {
-      const bypassLeft = Math.min(srcObs.x1, tgtObs.x1) - gap;
-      const bypassRight = Math.max(srcObs.x2, tgtObs.x2) + gap;
+      const bypassLeft = Math.min(sObs.x1, tObs.x1) - gap;
+      const bypassRight = Math.max(sObs.x2, tObs.x2) + gap;
       const distLeft = Math.abs(ex.x - bypassLeft) + Math.abs(en.x - bypassLeft);
       const distRight = Math.abs(ex.x - bypassRight) + Math.abs(en.x - bypassRight);
       const bypassX = findSafeVerticalX(
         distLeft < distRight ? bypassLeft : bypassRight,
-        ex, en, obstacles, sourceBlock, targetBlock,
+        ex, en, allObs, sourceBlock, targetBlock,
       );
       points.push({ x: bypassX, y: ex.y });
       points.push({ x: bypassX, y: en.y });
@@ -595,12 +605,12 @@ function buildOrthogonalRoute(
     // Both on same axis → Z-route (3 segments)
     if (isExHorizontal) {
       const midX = (ex.x + en.x) / 2;
-      const safeMidX = findSafeVerticalX(midX, ex, en, obstacles, sourceBlock, targetBlock);
+      const safeMidX = findSafeVerticalX(midX, ex, en, allObs, sourceBlock, targetBlock);
       points.push({ x: safeMidX, y: ex.y });
       points.push({ x: safeMidX, y: en.y });
     } else {
       const midY = (ex.y + en.y) / 2;
-      const safeMidY = findSafeHorizontalY(midY, ex, en, obstacles, sourceBlock, targetBlock);
+      const safeMidY = findSafeHorizontalY(midY, ex, en, allObs, sourceBlock, targetBlock);
       points.push({ x: ex.x, y: safeMidY });
       points.push({ x: en.x, y: safeMidY });
     }
@@ -609,12 +619,12 @@ function buildOrthogonalRoute(
     const corner1: Point = { x: en.x, y: ex.y };
     const corner2: Point = { x: ex.x, y: en.y };
 
-    const c1Blocked = obstacles.some(
+    const c1Blocked = allObs.some(
       (o) =>
         segmentIntersectsObstacle(ex, corner1, o) ||
         segmentIntersectsObstacle(corner1, en, o),
     );
-    const c2Blocked = obstacles.some(
+    const c2Blocked = allObs.some(
       (o) =>
         segmentIntersectsObstacle(ex, corner2, o) ||
         segmentIntersectsObstacle(corner2, en, o),
@@ -628,12 +638,12 @@ function buildOrthogonalRoute(
       // Both blocked → Z-route via mid
       if (isExHorizontal) {
         const midX = (ex.x + en.x) / 2;
-        const safeMidX = findSafeVerticalX(midX, ex, en, obstacles, sourceBlock, targetBlock);
+        const safeMidX = findSafeVerticalX(midX, ex, en, allObs, sourceBlock, targetBlock);
         points.push({ x: safeMidX, y: ex.y });
         points.push({ x: safeMidX, y: en.y });
       } else {
         const midY = (ex.y + en.y) / 2;
-        const safeMidY = findSafeHorizontalY(midY, ex, en, obstacles, sourceBlock, targetBlock);
+        const safeMidY = findSafeHorizontalY(midY, ex, en, allObs, sourceBlock, targetBlock);
         points.push({ x: ex.x, y: safeMidY });
         points.push({ x: en.x, y: safeMidY });
       }
@@ -896,17 +906,24 @@ function routeAllConnections(
           ? getDiamondAnchor(target, entrySide)
           : getAnchorPoint(target, entrySide, 0);
 
-      // Build obstacle list excluding source and target
-      const obstacles = allObstacles
+      // Build obstacle list — include ALL blocks except source/target for general obstacles,
+      // but also pass source+target obstacles separately so intermediate segments avoid them
+      const otherObstacles = allObstacles
         .filter((o) => o.blockId !== block.id && o.blockId !== targetId)
         .map((o) => o.obs);
+
+      // Source and target as obstacles for intermediate segments (lines shouldn't cross them)
+      const sourceObs = blockToObstacle(source, ROUTE_GAP);
+      const targetObs = blockToObstacle(target, ROUTE_GAP);
 
       const points = buildOrthogonalRoute(
         exitAnchor,
         entryAnchor,
-        obstacles,
+        otherObstacles,
         source,
         target,
+        sourceObs,
+        targetObs,
       );
 
       routes.push({
