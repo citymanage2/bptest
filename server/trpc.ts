@@ -76,3 +76,12 @@ export const adminProcedure = t.procedure.use(async ({ ctx, next }) => {
 export function signToken(userId: number, role: string): string {
   return jwt.sign({ userId, role }, JWT_SECRET, { expiresIn: "24h" });
 }
+
+export function verifyToken(token: string): number | null {
+  try {
+    const payload = jwt.verify(token, JWT_SECRET) as { userId: number };
+    return payload.userId;
+  } catch {
+    return null;
+  }
+}

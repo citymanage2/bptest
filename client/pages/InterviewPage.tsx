@@ -21,7 +21,31 @@ import {
   Sparkles,
   SkipForward,
   Save,
+  Paperclip,
+  FileText,
+  Trash2,
+  AlertCircle,
+  Upload,
 } from "lucide-react";
+
+interface UploadedFile {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  storedName: string;
+  url: string;
+  uploadedAt: string;
+}
+
+const MAX_FILES = 10;
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + " Б";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " КБ";
+  return (bytes / (1024 * 1024)).toFixed(1) + " МБ";
+}
 
 export function InterviewPage() {
   const { id } = useParams<{ id: string }>();
@@ -34,6 +58,10 @@ export function InterviewPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [recordingQuestionId, setRecordingQuestionId] = useState<string | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -77,12 +105,13 @@ export function InterviewPage() {
 
   const currentBlock = blocks[currentBlockIndex];
 
-  // Initialize answers from interview data
+  // Initialize answers and files from interview data
   useEffect(() => {
     if (interview?.answers) {
       setAnswers((prev) => {
         const merged = { ...prev };
         for (const [key, value] of Object.entries(interview.answers)) {
+          if (key === "__files__") continue; // Skip file metadata
           if (!(key in merged) || !merged[key]) {
             merged[key] = value;
           }
@@ -92,6 +121,11 @@ export function InterviewPage() {
           ? prev
           : merged;
       });
+      // Load uploaded files
+      const files = (interview.answers as Record<string, unknown>).__files__;
+      if (Array.isArray(files)) {
+        setUploadedFiles(files as UploadedFile[]);
+      }
     }
   }, [interview?.answers]);
 
@@ -182,6 +216,74 @@ export function InterviewPage() {
       mediaRecorderRef.current.stop();
     }
   }, []);
+
+  // File upload
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploadError(null);
+
+    const remainingSlots = MAX_FILES - uploadedFiles.length;
+    if (remainingSlots <= 0) {
+      setUploadError(`Достигнут лимит: максимум ${MAX_FILES} файлов на анкету`);
+      e.target.value = "";
+      return;
+    }
+
+    const filesToUpload = Array.from(files).slice(0, remainingSlots);
+
+    for (const file of filesToUpload) {
+      if (file.size > MAX_FILE_SIZE) {
+        setUploadError(`Файл "${file.name}" превышает максимальный размер 10 МБ`);
+        continue;
+      }
+
+      setIsUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const token = localStorage.getItem("auth_token");
+        const response = await fetch(`/api/interview/${interviewId}/upload`, {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          setUploadError(err.error || "Ошибка при загрузке файла");
+          continue;
+        }
+
+        const fileMeta: UploadedFile = await response.json();
+        setUploadedFiles((prev) => [...prev, fileMeta]);
+      } catch {
+        setUploadError("Ошибка сети при загрузке файла");
+      }
+    }
+
+    setIsUploading(false);
+    e.target.value = "";
+  }, [interviewId, uploadedFiles.length]);
+
+  const handleFileDelete = useCallback(async (fileId: string) => {
+    try {
+      const token = localStorage.getItem("auth_token");
+      const response = await fetch(`/api/interview/${interviewId}/file/${fileId}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      if (response.ok) {
+        setUploadedFiles((prev) => prev.filter((f) => f.id !== fileId));
+        setUploadError(null);
+      }
+    } catch {
+      setUploadError("Ошибка при удалении файла");
+    }
+  }, [interviewId]);
 
   const handleNavigateBlock = useCallback(
     (direction: "prev" | "next") => {
@@ -463,6 +565,89 @@ export function InterviewPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* File upload section */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Paperclip className="w-4 h-4 text-gray-500" />
+              Прикрепленные файлы
+            </CardTitle>
+            <span className="text-sm text-gray-500">
+              {uploadedFiles.length} из {MAX_FILES}
+            </span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">
+            Прикрепите имеющиеся у вас регламенты, инструкции, описания процессов и другие документы — они будут учтены при генерации бизнес-процесса
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {/* File list */}
+          {uploadedFiles.length > 0 && (
+            <div className="space-y-2">
+              {uploadedFiles.map((file) => (
+                <div
+                  key={file.id}
+                  className="flex items-center gap-3 p-2.5 rounded-lg border border-gray-200 bg-gray-50/50 group"
+                >
+                  <FileText className="w-4 h-4 text-purple-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-800 truncate">{file.name}</p>
+                    <p className="text-xs text-gray-400">{formatFileSize(file.size)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleFileDelete(file.id)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-500"
+                    title="Удалить файл"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Error message */}
+          {uploadError && (
+            <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-200">
+              <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">{uploadError}</p>
+            </div>
+          )}
+
+          {/* Upload button */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.rtf,.odt,.ods,.ppt,.pptx,.csv,.png,.jpg,.jpeg"
+          />
+          {uploadedFiles.length < MAX_FILES && (
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+            >
+              {isUploading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Upload className="w-4 h-4 mr-2" />
+              )}
+              {isUploading ? "Загрузка..." : "Прикрепить файлы"}
+            </Button>
+          )}
+
+          {/* Limits info */}
+          <p className="text-[11px] text-gray-400 text-center">
+            Макс. размер файла: 10 МБ. Форматы: PDF, DOC, DOCX, XLS, XLSX, TXT, RTF, PPT, PPTX, CSV, изображения
+          </p>
+        </CardContent>
+      </Card>
 
       {/* Navigation footer */}
       <div className="flex items-center justify-between pt-4 pb-8">

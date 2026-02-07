@@ -13,6 +13,14 @@ import {
   tokenOperations,
 } from "../db/schema";
 import { generateProcess, applyChanges, generateRecommendations, generatePassport } from "../services/ai";
+import type { AttachedFileMeta } from "../services/ai";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename_p = fileURLToPath(import.meta.url);
+const __dirname_p = path.dirname(__filename_p);
+const uploadsDir = path.resolve(__dirname_p, "../../uploads");
 import { validateProcess } from "../services/validation";
 import type { ProcessData } from "../../shared/types";
 import { TOKEN_COSTS } from "../../shared/types";
@@ -47,7 +55,34 @@ export const processRouter = router({
 
       // Generate process via AI
       const answers = interview.answers as Record<string, string>;
-      const processData = await generateProcess(answers, interview.company.name, interview.company.industry);
+
+      // Read attached files content for AI
+      const rawFiles = (interview.answers as Record<string, unknown>).__files__;
+      let attachedFiles: AttachedFileMeta[] | undefined;
+      if (Array.isArray(rawFiles) && rawFiles.length > 0) {
+        const textExtensions = [".txt", ".csv", ".md", ".rtf", ".log"];
+        attachedFiles = (rawFiles as Array<Record<string, unknown>>).map((f) => {
+          const meta: AttachedFileMeta = {
+            name: f.name as string,
+            size: f.size as number,
+            type: f.type as string,
+            storedName: f.storedName as string,
+          };
+          // Try to read text content for text-based files
+          const ext = path.extname(meta.name).toLowerCase();
+          if (textExtensions.includes(ext) || meta.type.startsWith("text/")) {
+            try {
+              const filePath = path.join(uploadsDir, meta.storedName);
+              if (fs.existsSync(filePath)) {
+                meta.content = fs.readFileSync(filePath, "utf-8");
+              }
+            } catch { /* skip unreadable files */ }
+          }
+          return meta;
+        });
+      }
+
+      const processData = await generateProcess(answers, interview.company.name, interview.company.industry, attachedFiles);
 
       // Save process
       const [process] = await db

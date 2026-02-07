@@ -160,15 +160,43 @@ const PROCESS_GENERATION_PROMPT = `Ты — эксперт-аналитик по
 9. Каждый action: timeEstimate + inputDocuments + infoSystems
 10. Ответ — ТОЛЬКО валидный JSON, без markdown, без пояснений`;
 
+export interface AttachedFileMeta {
+  name: string;
+  size: number;
+  type: string;
+  storedName: string;
+  content?: string; // text content if readable
+}
+
 export async function generateProcess(
   answers: Record<string, string>,
   companyName: string,
-  industry: string
+  industry: string,
+  attachedFiles?: AttachedFileMeta[]
 ): Promise<ProcessData> {
   const answersText = Object.entries(answers)
-    .filter(([, v]) => v && v.trim())
+    .filter(([k, v]) => v && v.trim() && k !== "__files__")
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
+
+  // Build attached files section for the prompt
+  let filesSection = "";
+  if (attachedFiles && attachedFiles.length > 0) {
+    filesSection = "\n\nПрикреплённые документы пользователя:\n";
+    for (const file of attachedFiles) {
+      filesSection += `\n--- Файл: ${file.name} (${file.type}, ${(file.size / 1024).toFixed(0)} КБ) ---\n`;
+      if (file.content) {
+        // Limit content to 3000 chars per file to avoid token overflow
+        const trimmed = file.content.length > 3000
+          ? file.content.slice(0, 3000) + "\n[...текст обрезан...]"
+          : file.content;
+        filesSection += trimmed + "\n";
+      } else {
+        filesSection += "[Содержимое файла недоступно для текстового анализа]\n";
+      }
+    }
+    filesSection += "\nУчти информацию из прикреплённых документов при построении бизнес-процесса.\n";
+  }
 
   try {
     const response = await anthropic.messages.create({
@@ -183,7 +211,7 @@ export async function generateProcess(
 Отрасль: ${industry}
 
 Ответы на анкету (структурированы по BMC/VPC):
-${answersText}
+${answersText}${filesSection}
 
 Построй бизнес-процесс по 10-шаговой методологии. Ответ — ТОЛЬКО JSON.`,
         },
