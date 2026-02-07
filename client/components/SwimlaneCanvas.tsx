@@ -281,6 +281,72 @@ function routeConnection(
   connIndex: number,
   totalConns: number,
 ): Point[] {
+  const tx = target.x + target.w / 2;
+  const ty = target.y;
+
+  // Special handling for decision blocks (diamonds) - exit from corners based on conditionLabel
+  if (source.block.type === "decision") {
+    const conditionLabel = target.block.conditionLabel?.toLowerCase();
+    const cy = source.y + source.h / 2; // center Y of diamond
+
+    // "Да" (Yes) branch - exit from LEFT corner of diamond
+    if (conditionLabel === "да") {
+      const sx = source.x; // left corner X
+      const sy = cy; // left corner Y (center height)
+
+      // Route: left -> horizontal -> down to target
+      const gap = 35;
+      const routeX = Math.min(source.x - gap, tx);
+
+      return [
+        { x: sx, y: sy },
+        { x: routeX, y: sy },
+        { x: routeX, y: ty - gap },
+        { x: tx, y: ty - gap },
+        { x: tx, y: ty },
+      ];
+    }
+
+    // "Нет" (No) branch - exit from RIGHT corner of diamond
+    if (conditionLabel === "нет") {
+      const sx = source.x + source.w; // right corner X
+      const sy = cy; // right corner Y (center height)
+
+      // Route: right -> horizontal -> down to target
+      const gap = 35;
+      const routeX = Math.max(source.x + source.w + gap, tx);
+
+      return [
+        { x: sx, y: sy },
+        { x: routeX, y: sy },
+        { x: routeX, y: ty - gap },
+        { x: tx, y: ty - gap },
+        { x: tx, y: ty },
+      ];
+    }
+
+    // Default branch (no specific label or isDefault) - exit from bottom
+    const sx = source.x + source.w / 2;
+    const sy = source.y + source.h;
+
+    if (ty > sy + 5) {
+      if (Math.abs(sx - tx) < 8) {
+        return [
+          { x: sx, y: sy },
+          { x: tx, y: ty },
+        ];
+      }
+      const midY = (sy + ty) / 2;
+      return [
+        { x: sx, y: sy },
+        { x: sx, y: midY },
+        { x: tx, y: midY },
+        { x: tx, y: ty },
+      ];
+    }
+  }
+
+  // Standard routing for non-decision blocks
   // Spread multiple exit points horizontally
   const spread = Math.min(totalConns - 1, 4) * 14;
   const exitOffset =
@@ -291,8 +357,6 @@ function routeConnection(
 
   const sx = source.x + source.w / 2 + exitOffset;
   const sy = source.y + source.h;
-  const tx = target.x + target.w / 2;
-  const ty = target.y;
 
   // Normal downward flow
   if (ty > sy + 5) {
