@@ -333,134 +333,20 @@ function getDiamondAnchor(lb: LayoutBlock, side: AnchorSide): Anchor {
   }
 }
 
-/** Compute the ideal exit side for a decision block toward a single target using quadrant analysis */
-function decisionIdealExit(source: LayoutBlock, target: LayoutBlock): AnchorSide {
-  const sc = getBlockCenter(source);
-  const tc = getBlockCenter(target);
-  const dx = tc.x - sc.x;
-  const dy = tc.y - sc.y;
-  const absDx = Math.abs(dx);
-  const absDy = Math.abs(dy);
-
-  // Target is below the decision block
-  if (dy > source.h * 0.3) {
-    // Nearly same column → bottom
-    if (absDx < source.w * 0.8) return "bottom";
-    // Target is clearly to a side and below → side exit
-    return dx > 0 ? "right" : "left";
-  }
-
-  // Target is above (backward)
-  if (dy < -source.h * 0.3) {
-    if (absDx < source.w * 0.8) return "top";
-    return dx > 0 ? "right" : "left";
-  }
-
-  // Target is roughly at the same level (lateral)
-  if (absDx > absDy) {
-    return dx > 0 ? "right" : "left";
-  }
-  return dy > 0 ? "bottom" : "top";
-}
-
-/** For decision blocks with exactly 2 connections, ensure paths diverge (don't both use same side) */
-function resolveDecisionPairExits(
-  source: LayoutBlock,
-  targets: [LayoutBlock, LayoutBlock],
-): [AnchorSide, AnchorSide] {
-  const ideal0 = decisionIdealExit(source, targets[0]);
-  const ideal1 = decisionIdealExit(source, targets[1]);
-
-  // If they already chose different sides, great
-  if (ideal0 !== ideal1) return [ideal0, ideal1];
-
-  // Both want the same side — use target positions to separate them
-  const sc = getBlockCenter(source);
-  const tc0 = getBlockCenter(targets[0]);
-  const tc1 = getBlockCenter(targets[1]);
-
-  const sharedSide = ideal0;
-
-  if (sharedSide === "bottom") {
-    // Both below — split by horizontal position
-    const dx0 = tc0.x - sc.x;
-    const dx1 = tc1.x - sc.x;
-    if (dx0 !== dx1) {
-      return dx0 < dx1 ? ["left", "right"] : ["right", "left"];
-    }
-    // Same x — use left/right based on which is further down
-    return tc0.y < tc1.y ? ["left", "bottom"] : ["bottom", "left"];
-  }
-
-  if (sharedSide === "top") {
-    const dx0 = tc0.x - sc.x;
-    const dx1 = tc1.x - sc.x;
-    if (dx0 !== dx1) {
-      return dx0 < dx1 ? ["left", "right"] : ["right", "left"];
-    }
-    return ["left", "top"];
-  }
-
-  if (sharedSide === "left" || sharedSide === "right") {
-    // Both want same horizontal side — split vertically
-    const dy0 = tc0.y - sc.y;
-    const dy1 = tc1.y - sc.y;
-    if (dy0 > 0 && dy1 > 0) {
-      // Both below — one gets the shared side, other gets bottom
-      return dy0 < dy1 ? [sharedSide, "bottom"] : ["bottom", sharedSide];
-    }
-    if (dy0 < 0 && dy1 < 0) {
-      return Math.abs(dy0) < Math.abs(dy1)
-        ? [sharedSide, "top"]
-        : ["top", sharedSide];
-    }
-    // One above, one below
-    return dy0 > dy1
-      ? ["bottom", "top"]
-      : ["top", "bottom"];
-  }
-
-  return [ideal0, ideal1];
-}
-
 /** Choose the best exit side for a source block toward a target */
 function chooseBestExitSide(
   source: LayoutBlock,
   target: LayoutBlock,
   connIndex: number,
   totalConns: number,
-  allTargets?: LayoutBlock[],
+  _allTargets?: LayoutBlock[],
 ): AnchorSide {
-  // Decision blocks: quadrant-based analysis
+  // Decision blocks: fixed exit sides
+  // Ветвь "Да" (1-я) → left, Ветвь "Нет" (2-я) → right, 3-я+ → bottom
   if (source.block.type === "decision") {
-    if (totalConns === 2 && allTargets && allTargets.length === 2) {
-      const [exit0, exit1] = resolveDecisionPairExits(
-        source,
-        allTargets as [LayoutBlock, LayoutBlock],
-      );
-      return connIndex === 0 ? exit0 : exit1;
-    }
-    // Single connection or 3+ connections: use ideal exit per target
-    if (totalConns === 1) {
-      return decisionIdealExit(source, target);
-    }
-    // 3+ connections: ideal per target, with fallback deconfliction
-    const ideal = decisionIdealExit(source, target);
-    if (allTargets) {
-      const sideUsage: Record<AnchorSide, number> = { top: 0, bottom: 0, left: 0, right: 0 };
-      for (let i = 0; i < connIndex; i++) {
-        const prevIdeal = decisionIdealExit(source, allTargets[i]);
-        sideUsage[prevIdeal]++;
-      }
-      // If this side is already heavily used, try alternative
-      if (sideUsage[ideal] >= 1) {
-        const alternatives: AnchorSide[] = ["bottom", "right", "left", "top"];
-        for (const alt of alternatives) {
-          if (alt !== ideal && sideUsage[alt] === 0) return alt;
-        }
-      }
-    }
-    return ideal;
+    if (connIndex === 0) return "left";
+    if (connIndex === 1) return "right";
+    return "bottom";
   }
 
   const sc = getBlockCenter(source);
