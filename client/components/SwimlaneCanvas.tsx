@@ -333,18 +333,134 @@ function getDiamondAnchor(lb: LayoutBlock, side: AnchorSide): Anchor {
   }
 }
 
+/** Compute the ideal exit side for a decision block toward a single target using quadrant analysis */
+function decisionIdealExit(source: LayoutBlock, target: LayoutBlock): AnchorSide {
+  const sc = getBlockCenter(source);
+  const tc = getBlockCenter(target);
+  const dx = tc.x - sc.x;
+  const dy = tc.y - sc.y;
+  const absDx = Math.abs(dx);
+  const absDy = Math.abs(dy);
+
+  // Target is below the decision block
+  if (dy > source.h * 0.3) {
+    // Nearly same column → bottom
+    if (absDx < source.w * 0.8) return "bottom";
+    // Target is clearly to a side and below → side exit
+    return dx > 0 ? "right" : "left";
+  }
+
+  // Target is above (backward)
+  if (dy < -source.h * 0.3) {
+    if (absDx < source.w * 0.8) return "top";
+    return dx > 0 ? "right" : "left";
+  }
+
+  // Target is roughly at the same level (lateral)
+  if (absDx > absDy) {
+    return dx > 0 ? "right" : "left";
+  }
+  return dy > 0 ? "bottom" : "top";
+}
+
+/** For decision blocks with exactly 2 connections, ensure paths diverge (don't both use same side) */
+function resolveDecisionPairExits(
+  source: LayoutBlock,
+  targets: [LayoutBlock, LayoutBlock],
+): [AnchorSide, AnchorSide] {
+  const ideal0 = decisionIdealExit(source, targets[0]);
+  const ideal1 = decisionIdealExit(source, targets[1]);
+
+  // If they already chose different sides, great
+  if (ideal0 !== ideal1) return [ideal0, ideal1];
+
+  // Both want the same side — use target positions to separate them
+  const sc = getBlockCenter(source);
+  const tc0 = getBlockCenter(targets[0]);
+  const tc1 = getBlockCenter(targets[1]);
+
+  const sharedSide = ideal0;
+
+  if (sharedSide === "bottom") {
+    // Both below — split by horizontal position
+    const dx0 = tc0.x - sc.x;
+    const dx1 = tc1.x - sc.x;
+    if (dx0 !== dx1) {
+      return dx0 < dx1 ? ["left", "right"] : ["right", "left"];
+    }
+    // Same x — use left/right based on which is further down
+    return tc0.y < tc1.y ? ["left", "bottom"] : ["bottom", "left"];
+  }
+
+  if (sharedSide === "top") {
+    const dx0 = tc0.x - sc.x;
+    const dx1 = tc1.x - sc.x;
+    if (dx0 !== dx1) {
+      return dx0 < dx1 ? ["left", "right"] : ["right", "left"];
+    }
+    return ["left", "top"];
+  }
+
+  if (sharedSide === "left" || sharedSide === "right") {
+    // Both want same horizontal side — split vertically
+    const dy0 = tc0.y - sc.y;
+    const dy1 = tc1.y - sc.y;
+    if (dy0 > 0 && dy1 > 0) {
+      // Both below — one gets the shared side, other gets bottom
+      return dy0 < dy1 ? [sharedSide, "bottom"] : ["bottom", sharedSide];
+    }
+    if (dy0 < 0 && dy1 < 0) {
+      return Math.abs(dy0) < Math.abs(dy1)
+        ? [sharedSide, "top"]
+        : ["top", sharedSide];
+    }
+    // One above, one below
+    return dy0 > dy1
+      ? ["bottom", "top"]
+      : ["top", "bottom"];
+  }
+
+  return [ideal0, ideal1];
+}
+
 /** Choose the best exit side for a source block toward a target */
 function chooseBestExitSide(
   source: LayoutBlock,
   target: LayoutBlock,
   connIndex: number,
   totalConns: number,
+  allTargets?: LayoutBlock[],
 ): AnchorSide {
-  // Decision blocks: 1st=left, 2nd=right, 3rd+=bottom
+  // Decision blocks: quadrant-based analysis
   if (source.block.type === "decision") {
-    if (connIndex === 0) return "left";
-    if (connIndex === 1) return "right";
-    return "bottom";
+    if (totalConns === 2 && allTargets && allTargets.length === 2) {
+      const [exit0, exit1] = resolveDecisionPairExits(
+        source,
+        allTargets as [LayoutBlock, LayoutBlock],
+      );
+      return connIndex === 0 ? exit0 : exit1;
+    }
+    // Single connection or 3+ connections: use ideal exit per target
+    if (totalConns === 1) {
+      return decisionIdealExit(source, target);
+    }
+    // 3+ connections: ideal per target, with fallback deconfliction
+    const ideal = decisionIdealExit(source, target);
+    if (allTargets) {
+      const sideUsage: Record<AnchorSide, number> = { top: 0, bottom: 0, left: 0, right: 0 };
+      for (let i = 0; i < connIndex; i++) {
+        const prevIdeal = decisionIdealExit(source, allTargets[i]);
+        sideUsage[prevIdeal]++;
+      }
+      // If this side is already heavily used, try alternative
+      if (sideUsage[ideal] >= 1) {
+        const alternatives: AnchorSide[] = ["bottom", "right", "left", "top"];
+        for (const alt of alternatives) {
+          if (alt !== ideal && sideUsage[alt] === 0) return alt;
+        }
+      }
+    }
+    return ideal;
   }
 
   const sc = getBlockCenter(source);
@@ -384,18 +500,25 @@ function chooseBestEntrySide(
   // Standard forward flow → enter from top
   if (dy > 0 && exitSide === "bottom") return "top";
 
-  // Lateral flow
+  // Lateral flow — enter from the opposite side of approach
   if (exitSide === "right") {
-    if (dx > target.w) return "left";
+    // Target is to the right — prefer entering from left
+    if (dx > target.w * 0.5) return "left";
+    // Target is not far enough right — enter vertically
     return dy > 0 ? "top" : "bottom";
   }
   if (exitSide === "left") {
-    if (dx < -target.w) return "right";
+    // Target is to the left — prefer entering from right
+    if (dx < -target.w * 0.5) return "right";
     return dy > 0 ? "top" : "bottom";
   }
 
-  // Backward flow
-  if (exitSide === "top") return "bottom";
+  // Backward flow (exit from top)
+  if (exitSide === "top") {
+    if (dy < -target.h * 0.5) return "bottom";
+    // Target is at same level or below — enter from side
+    return dx > 0 ? "left" : "right";
+  }
 
   return "top";
 }
@@ -444,6 +567,20 @@ function segmentIntersectsObstacle(
   return false;
 }
 
+/** Check if the first segment after exit goes away from the source (anti-backtracking) */
+function isBacktracking(exit: Anchor, firstPoint: Point): boolean {
+  switch (exit.side) {
+    case "right":
+      return firstPoint.x < exit.x;
+    case "left":
+      return firstPoint.x > exit.x;
+    case "bottom":
+      return firstPoint.y < exit.y;
+    case "top":
+      return firstPoint.y > exit.y;
+  }
+}
+
 /** Build orthogonal route from exit anchor to entry anchor, avoiding obstacles */
 function buildOrthogonalRoute(
   exit: Anchor,
@@ -452,7 +589,8 @@ function buildOrthogonalRoute(
   sourceBlock: LayoutBlock,
   targetBlock: LayoutBlock,
 ): Point[] {
-  const gap = ROUTE_GAP;
+  const MIN_STEP = 30; // Minimum straight segment before first turn
+  const gap = Math.max(ROUTE_GAP, MIN_STEP);
   const points: Point[] = [];
 
   // Step out from exit
@@ -496,7 +634,56 @@ function buildOrthogonalRoute(
   const isExHorizontal = exit.side === "left" || exit.side === "right";
   const isEnHorizontal = entry.side === "left" || entry.side === "right";
 
-  if (isExHorizontal === isEnHorizontal) {
+  // Detect U-route situations:
+  // When both exit and enter are same axis AND the target is "behind" the exit direction
+  const needsURoute = (() => {
+    if (isExHorizontal && isEnHorizontal) {
+      // Both horizontal — check if target is behind the exit
+      if (exit.side === "right" && en.x < ex.x) return true;
+      if (exit.side === "left" && en.x > ex.x) return true;
+    }
+    if (!isExHorizontal && !isEnHorizontal) {
+      // Both vertical — check if target is behind
+      if (exit.side === "bottom" && en.y < ex.y) return true;
+      if (exit.side === "top" && en.y > ex.y) return true;
+    }
+    return false;
+  })();
+
+  if (needsURoute) {
+    // U-route: go out, go perpendicular to bypass, then come back to entry
+    if (isExHorizontal) {
+      // Exit horizontally, need to go around vertically
+      // Pick a Y that clears both source and target blocks
+      const srcObs = blockToObstacle(sourceBlock, ROUTE_GAP);
+      const tgtObs = blockToObstacle(targetBlock, ROUTE_GAP);
+      const bypassAbove = Math.min(srcObs.y1, tgtObs.y1) - ROUTE_GAP;
+      const bypassBelow = Math.max(srcObs.y2, tgtObs.y2) + ROUTE_GAP;
+      // Pick the bypass that's closer to both ex and en
+      const distAbove = Math.abs(ex.y - bypassAbove) + Math.abs(en.y - bypassAbove);
+      const distBelow = Math.abs(ex.y - bypassBelow) + Math.abs(en.y - bypassBelow);
+      const bypassY = findSafeHorizontalY(
+        distAbove < distBelow ? bypassAbove : bypassBelow,
+        ex, en, obstacles, sourceBlock, targetBlock,
+      );
+      points.push({ x: ex.x, y: bypassY });
+      points.push({ x: en.x, y: bypassY });
+    } else {
+      // Exit vertically, need to go around horizontally
+      const srcObs = blockToObstacle(sourceBlock, ROUTE_GAP);
+      const tgtObs = blockToObstacle(targetBlock, ROUTE_GAP);
+      const bypassLeft = Math.min(srcObs.x1, tgtObs.x1) - ROUTE_GAP;
+      const bypassRight = Math.max(srcObs.x2, tgtObs.x2) + ROUTE_GAP;
+      const distLeft = Math.abs(ex.x - bypassLeft) + Math.abs(en.x - bypassLeft);
+      const distRight = Math.abs(ex.x - bypassRight) + Math.abs(en.x - bypassRight);
+      const bypassX = findSafeVerticalX(
+        distLeft < distRight ? bypassLeft : bypassRight,
+        ex, en, obstacles, sourceBlock, targetBlock,
+      );
+      points.push({ x: bypassX, y: ex.y });
+      points.push({ x: bypassX, y: en.y });
+    }
+  } else if (isExHorizontal === isEnHorizontal) {
     // Both exit/enter along same axis → Z-route (3 segments)
     if (isExHorizontal) {
       // Both horizontal → connect via vertical mid
@@ -518,12 +705,16 @@ function buildOrthogonalRoute(
     const corner1: Point = { x: en.x, y: ex.y };
     const corner2: Point = { x: ex.x, y: en.y };
 
-    const c1Blocked = obstacles.some(
+    // Check if corners cause backtracking
+    const c1Backtracks = isBacktracking(exit, corner1);
+    const c2Backtracks = isBacktracking(exit, corner2);
+
+    const c1Blocked = c1Backtracks || obstacles.some(
       (o) =>
         segmentIntersectsObstacle(ex, corner1, o) ||
         segmentIntersectsObstacle(corner1, en, o),
     );
-    const c2Blocked = obstacles.some(
+    const c2Blocked = c2Backtracks || obstacles.some(
       (o) =>
         segmentIntersectsObstacle(ex, corner2, o) ||
         segmentIntersectsObstacle(corner2, en, o),
@@ -761,6 +952,12 @@ function routeAllConnections(
     if (!source) continue;
 
     const totalConns = block.connections.length;
+
+    // Pre-compute all target LayoutBlocks for decision blocks (needed for pair divergence)
+    const allTargets: LayoutBlock[] = block.connections
+      .map((cid) => blockMap[cid])
+      .filter(Boolean);
+
     for (let ci = 0; ci < totalConns; ci++) {
       const targetId = block.connections[ci];
       const target = blockMap[targetId];
@@ -771,7 +968,7 @@ function routeAllConnections(
       const isBackward = tc.y < sc.y - source.h / 2;
 
       // Choose anchor sides
-      const exitSide = chooseBestExitSide(source, target, ci, totalConns);
+      const exitSide = chooseBestExitSide(source, target, ci, totalConns, allTargets);
       const entrySide = chooseBestEntrySide(source, target, exitSide);
 
       // Compute exit offset for multiple connections from same side
@@ -780,7 +977,7 @@ function routeAllConnections(
         .filter((c) => {
           const t = blockMap[c.cid];
           if (!t) return false;
-          return chooseBestExitSide(source, t, c.idx, totalConns) === exitSide;
+          return chooseBestExitSide(source, t, c.idx, totalConns, allTargets) === exitSide;
         });
       const sameSideIdx = sameSideConns.findIndex((c) => c.idx === ci);
       const exitOffset =
