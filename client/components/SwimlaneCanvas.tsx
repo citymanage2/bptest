@@ -273,112 +273,606 @@ function computeLayout(data: ProcessData): LayoutInfo {
 }
 
 // ============================================================
-// Connection Routing (orthogonal paths)
+// Connection Routing — Obstacle-Aware Orthogonal Router
 // ============================================================
-function routeConnection(
+
+/** Which side of a block a connection anchors to */
+type AnchorSide = "top" | "bottom" | "left" | "right";
+
+interface Anchor {
+  x: number;
+  y: number;
+  side: AnchorSide;
+}
+
+/** Inflated bounding box used as obstacle for routing */
+interface Obstacle {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+const ROUTE_GAP = 20; // min distance from block edges
+const PARALLEL_SPACING = 12; // spacing between parallel lines
+const CORNER_RADIUS = 8; // rounded corner radius for orthogonal paths
+
+// ---- Anchor selection --------------------------------------------------------
+
+function getBlockCenter(lb: LayoutBlock): Point {
+  return { x: lb.x + lb.w / 2, y: lb.y + lb.h / 2 };
+}
+
+function getAnchorPoint(lb: LayoutBlock, side: AnchorSide, offset = 0): Anchor {
+  const cx = lb.x + lb.w / 2;
+  const cy = lb.y + lb.h / 2;
+  switch (side) {
+    case "top":
+      return { x: cx + offset, y: lb.y, side };
+    case "bottom":
+      return { x: cx + offset, y: lb.y + lb.h, side };
+    case "left":
+      return { x: lb.x, y: cy + offset, side };
+    case "right":
+      return { x: lb.x + lb.w, y: cy + offset, side };
+  }
+}
+
+function getDiamondAnchor(lb: LayoutBlock, side: AnchorSide): Anchor {
+  const cx = lb.x + lb.w / 2;
+  const cy = lb.y + lb.h / 2;
+  switch (side) {
+    case "top":
+      return { x: cx, y: lb.y, side };
+    case "bottom":
+      return { x: cx, y: lb.y + lb.h, side };
+    case "left":
+      return { x: lb.x, y: cy, side };
+    case "right":
+      return { x: lb.x + lb.w, y: cy, side };
+  }
+}
+
+/** Choose the best exit side for a source block toward a target */
+function chooseBestExitSide(
   source: LayoutBlock,
   target: LayoutBlock,
   connIndex: number,
   totalConns: number,
-  blockMap: Record<string, LayoutBlock>,
-): Point[] {
-  const tx = target.x + target.w / 2;
-  const ty = target.y;
-
-  // Special handling for decision blocks (diamonds) — exit from LEFT, RIGHT, or BOTTOM corners
+): AnchorSide {
+  // Decision blocks: 1st=left, 2nd=right, 3rd+=bottom
   if (source.block.type === "decision") {
-    const cy = source.y + source.h / 2; // Y of left/right corner points
-    const gap = 35;
+    if (connIndex === 0) return "left";
+    if (connIndex === 1) return "right";
+    return "bottom";
+  }
 
-    // 1st connection -> LEFT, 2nd -> RIGHT, 3rd+ -> BOTTOM
-    if (connIndex === 0) {
-      // Exit from LEFT corner
-      const sx = source.x;
-      const routeX = Math.min(source.x - gap, tx);
-      return [
-        { x: sx, y: cy },
-        { x: routeX, y: cy },
-        { x: routeX, y: ty - gap },
-        { x: tx, y: ty - gap },
-        { x: tx, y: ty },
-      ];
-    } else if (connIndex === 1) {
-      // Exit from RIGHT corner
-      const sx = source.x + source.w;
-      const routeX = Math.max(source.x + source.w + gap, tx);
-      return [
-        { x: sx, y: cy },
-        { x: routeX, y: cy },
-        { x: routeX, y: ty - gap },
-        { x: tx, y: ty - gap },
-        { x: tx, y: ty },
-      ];
+  const sc = getBlockCenter(source);
+  const tc = getBlockCenter(target);
+  const dx = tc.x - sc.x;
+  const dy = tc.y - sc.y;
+
+  // Strongly prefer bottom for forward flow
+  if (dy > source.h / 2) {
+    // Target is below — if it's roughly in the same column, go bottom
+    if (Math.abs(dx) < source.w * 1.5) return "bottom";
+    // Otherwise side exit
+    return dx > 0 ? "right" : "left";
+  }
+
+  // Target is at same level or above (backward/lateral)
+  if (Math.abs(dy) < source.h) {
+    return dx > 0 ? "right" : "left";
+  }
+
+  // Target is above (backward connection)
+  if (Math.abs(dx) < source.w) return "top";
+  return dx > 0 ? "right" : "left";
+}
+
+/** Choose the best entry side for a target block from a source */
+function chooseBestEntrySide(
+  source: LayoutBlock,
+  target: LayoutBlock,
+  exitSide: AnchorSide,
+): AnchorSide {
+  const sc = getBlockCenter(source);
+  const tc = getBlockCenter(target);
+  const dy = tc.y - sc.y;
+  const dx = tc.x - sc.x;
+
+  // Standard forward flow → enter from top
+  if (dy > 0 && exitSide === "bottom") return "top";
+
+  // Lateral flow
+  if (exitSide === "right") {
+    if (dx > target.w) return "left";
+    return dy > 0 ? "top" : "bottom";
+  }
+  if (exitSide === "left") {
+    if (dx < -target.w) return "right";
+    return dy > 0 ? "top" : "bottom";
+  }
+
+  // Backward flow
+  if (exitSide === "top") return "bottom";
+
+  return "top";
+}
+
+// ---- Obstacle-aware orthogonal routing --------------------------------------
+
+function blockToObstacle(lb: LayoutBlock, margin: number): Obstacle {
+  return {
+    x1: lb.x - margin,
+    y1: lb.y - margin,
+    x2: lb.x + lb.w + margin,
+    y2: lb.y + lb.h + margin,
+  };
+}
+
+function pointInObstacle(p: Point, obs: Obstacle): boolean {
+  return p.x > obs.x1 && p.x < obs.x2 && p.y > obs.y1 && p.y < obs.y2;
+}
+
+function segmentIntersectsObstacle(
+  a: Point,
+  b: Point,
+  obs: Obstacle,
+): boolean {
+  // Check if horizontal/vertical segment intersects obstacle
+  const minX = Math.min(a.x, b.x);
+  const maxX = Math.max(a.x, b.x);
+  const minY = Math.min(a.y, b.y);
+  const maxY = Math.max(a.y, b.y);
+
+  // No overlap check
+  if (maxX < obs.x1 || minX > obs.x2 || maxY < obs.y1 || minY > obs.y2) {
+    return false;
+  }
+
+  // Horizontal segment
+  if (Math.abs(a.y - b.y) < 1) {
+    return a.y > obs.y1 && a.y < obs.y2 && maxX > obs.x1 && minX < obs.x2;
+  }
+
+  // Vertical segment
+  if (Math.abs(a.x - b.x) < 1) {
+    return a.x > obs.x1 && a.x < obs.x2 && maxY > obs.y1 && minY < obs.y2;
+  }
+
+  return false;
+}
+
+/** Build orthogonal route from exit anchor to entry anchor, avoiding obstacles */
+function buildOrthogonalRoute(
+  exit: Anchor,
+  entry: Anchor,
+  obstacles: Obstacle[],
+  sourceBlock: LayoutBlock,
+  targetBlock: LayoutBlock,
+): Point[] {
+  const gap = ROUTE_GAP;
+  const points: Point[] = [];
+
+  // Step out from exit
+  let ex: Point;
+  switch (exit.side) {
+    case "bottom":
+      ex = { x: exit.x, y: exit.y + gap };
+      break;
+    case "top":
+      ex = { x: exit.x, y: exit.y - gap };
+      break;
+    case "left":
+      ex = { x: exit.x - gap, y: exit.y };
+      break;
+    case "right":
+      ex = { x: exit.x + gap, y: exit.y };
+      break;
+  }
+
+  // Step in to entry
+  let en: Point;
+  switch (entry.side) {
+    case "top":
+      en = { x: entry.x, y: entry.y - gap };
+      break;
+    case "bottom":
+      en = { x: entry.x, y: entry.y + gap };
+      break;
+    case "left":
+      en = { x: entry.x - gap, y: entry.y };
+      break;
+    case "right":
+      en = { x: entry.x + gap, y: entry.y };
+      break;
+  }
+
+  points.push({ x: exit.x, y: exit.y });
+  points.push(ex);
+
+  // Now route from ex to en with L or Z or U shape
+  const isExHorizontal = exit.side === "left" || exit.side === "right";
+  const isEnHorizontal = entry.side === "left" || entry.side === "right";
+
+  if (isExHorizontal === isEnHorizontal) {
+    // Both exit/enter along same axis → Z-route (3 segments)
+    if (isExHorizontal) {
+      // Both horizontal → connect via vertical mid
+      const midX = (ex.x + en.x) / 2;
+      // Check if midX goes through source/target
+      const safeMidX = findSafeVerticalX(midX, ex, en, obstacles, sourceBlock, targetBlock);
+      points.push({ x: safeMidX, y: ex.y });
+      points.push({ x: safeMidX, y: en.y });
     } else {
-      // 3rd+ connections: exit from BOTTOM corner
-      const sx = source.x + source.w / 2;
-      const sy = source.y + source.h;
-      if (Math.abs(sx - tx) < 8) {
-        return [
-          { x: sx, y: sy },
-          { x: tx, y: ty },
-        ];
+      // Both vertical → connect via horizontal mid
+      const midY = (ex.y + en.y) / 2;
+      const safeMidY = findSafeHorizontalY(midY, ex, en, obstacles, sourceBlock, targetBlock);
+      points.push({ x: ex.x, y: safeMidY });
+      points.push({ x: en.x, y: safeMidY });
+    }
+  } else {
+    // Different axes → L-route (2 segments)
+    // Try corner at (en.x, ex.y) or (ex.x, en.y)
+    const corner1: Point = { x: en.x, y: ex.y };
+    const corner2: Point = { x: ex.x, y: en.y };
+
+    const c1Blocked = obstacles.some(
+      (o) =>
+        segmentIntersectsObstacle(ex, corner1, o) ||
+        segmentIntersectsObstacle(corner1, en, o),
+    );
+    const c2Blocked = obstacles.some(
+      (o) =>
+        segmentIntersectsObstacle(ex, corner2, o) ||
+        segmentIntersectsObstacle(corner2, en, o),
+    );
+
+    if (!c1Blocked) {
+      points.push(corner1);
+    } else if (!c2Blocked) {
+      points.push(corner2);
+    } else {
+      // Both blocked → use Z-route via mid
+      if (isExHorizontal) {
+        const midX = (ex.x + en.x) / 2;
+        const safeMidX = findSafeVerticalX(midX, ex, en, obstacles, sourceBlock, targetBlock);
+        points.push({ x: safeMidX, y: ex.y });
+        points.push({ x: safeMidX, y: en.y });
+      } else {
+        const midY = (ex.y + en.y) / 2;
+        const safeMidY = findSafeHorizontalY(midY, ex, en, obstacles, sourceBlock, targetBlock);
+        points.push({ x: ex.x, y: safeMidY });
+        points.push({ x: en.x, y: safeMidY });
       }
-      const midY = (sy + ty) / 2;
-      return [
-        { x: sx, y: sy },
-        { x: sx, y: midY },
-        { x: tx, y: midY },
-        { x: tx, y: ty },
-      ];
     }
   }
 
-  // Standard routing for non-decision blocks
-  // Spread multiple exit points horizontally
-  const spread = Math.min(totalConns - 1, 4) * 14;
-  const exitOffset =
-    totalConns > 1
-      ? -spread / 2 +
-        connIndex * (spread / Math.max(totalConns - 1, 1))
-      : 0;
+  points.push(en);
+  points.push({ x: entry.x, y: entry.y });
 
-  const sx = source.x + source.w / 2 + exitOffset;
-  const sy = source.y + source.h;
+  return simplifyPath(points);
+}
 
-  // Normal downward flow
-  if (ty > sy + 5) {
-    // Same column - straight vertical line
-    if (Math.abs(sx - tx) < 8) {
-      return [
-        { x: sx, y: sy },
-        { x: tx, y: ty },
-      ];
+/** Try to find an X coordinate for a vertical segment that doesn't cross obstacles */
+function findSafeVerticalX(
+  preferred: number,
+  from: Point,
+  to: Point,
+  obstacles: Obstacle[],
+  _source: LayoutBlock,
+  _target: LayoutBlock,
+): number {
+  const minY = Math.min(from.y, to.y);
+  const maxY = Math.max(from.y, to.y);
+  const testSeg = (x: number) =>
+    obstacles.some((o) =>
+      segmentIntersectsObstacle({ x, y: minY }, { x, y: maxY }, o),
+    );
+
+  if (!testSeg(preferred)) return preferred;
+
+  // Try shifting left and right
+  for (let offset = 30; offset <= 200; offset += 20) {
+    if (!testSeg(preferred - offset)) return preferred - offset;
+    if (!testSeg(preferred + offset)) return preferred + offset;
+  }
+  return preferred;
+}
+
+/** Try to find a Y coordinate for a horizontal segment that doesn't cross obstacles */
+function findSafeHorizontalY(
+  preferred: number,
+  from: Point,
+  to: Point,
+  obstacles: Obstacle[],
+  _source: LayoutBlock,
+  _target: LayoutBlock,
+): number {
+  const minX = Math.min(from.x, to.x);
+  const maxX = Math.max(from.x, to.x);
+  const testSeg = (y: number) =>
+    obstacles.some((o) =>
+      segmentIntersectsObstacle({ x: minX, y }, { x: maxX, y }, o),
+    );
+
+  if (!testSeg(preferred)) return preferred;
+
+  for (let offset = 30; offset <= 200; offset += 20) {
+    if (!testSeg(preferred - offset)) return preferred - offset;
+    if (!testSeg(preferred + offset)) return preferred + offset;
+  }
+  return preferred;
+}
+
+/** Remove redundant collinear points */
+function simplifyPath(pts: Point[]): Point[] {
+  if (pts.length <= 2) return pts;
+  const result: Point[] = [pts[0]];
+  for (let i = 1; i < pts.length - 1; i++) {
+    const prev = result[result.length - 1];
+    const curr = pts[i];
+    const next = pts[i + 1];
+    // Skip if collinear
+    const sameX = Math.abs(prev.x - curr.x) < 1 && Math.abs(curr.x - next.x) < 1;
+    const sameY = Math.abs(prev.y - curr.y) < 1 && Math.abs(curr.y - next.y) < 1;
+    if (!sameX && !sameY) {
+      result.push(curr);
+    } else if (sameX || sameY) {
+      // Keep only non-collinear
+      if (!sameX && !sameY) result.push(curr);
+      // If both same-x or same-y, skip (collinear)
+      else if (!sameX || !sameY) result.push(curr);
     }
-    // Z-route through midpoint
-    const midY = (sy + ty) / 2;
-    return [
-      { x: sx, y: sy },
-      { x: sx, y: midY },
-      { x: tx, y: midY },
-      { x: tx, y: ty },
-    ];
+  }
+  result.push(pts[pts.length - 1]);
+
+  // Second pass: remove duplicate points
+  const dedup: Point[] = [result[0]];
+  for (let i = 1; i < result.length; i++) {
+    if (
+      Math.abs(result[i].x - dedup[dedup.length - 1].x) > 0.5 ||
+      Math.abs(result[i].y - dedup[dedup.length - 1].y) > 0.5
+    ) {
+      dedup.push(result[i]);
+    }
+  }
+  return dedup;
+}
+
+// ---- Crossing detection and nudging -----------------------------------------
+
+interface RoutedConnection {
+  sourceId: string;
+  targetId: string;
+  connIndex: number;
+  points: Point[];
+  isBackward: boolean;
+}
+
+function segmentsIntersect(
+  a1: Point,
+  a2: Point,
+  b1: Point,
+  b2: Point,
+): boolean {
+  // Only check orthogonal segment crossings (H vs V)
+  const aHoriz = Math.abs(a1.y - a2.y) < 1;
+  const bHoriz = Math.abs(b1.y - b2.y) < 1;
+
+  if (aHoriz === bHoriz) return false; // parallel, no crossing
+
+  const h = aHoriz ? { y: a1.y, x1: Math.min(a1.x, a2.x), x2: Math.max(a1.x, a2.x) } : { y: b1.y, x1: Math.min(b1.x, b2.x), x2: Math.max(b1.x, b2.x) };
+  const v = aHoriz ? { x: b1.x, y1: Math.min(b1.y, b2.y), y2: Math.max(b1.y, b2.y) } : { x: a1.x, y1: Math.min(a1.y, a2.y), y2: Math.max(a1.y, a2.y) };
+
+  return v.x > h.x1 + 2 && v.x < h.x2 - 2 && h.y > v.y1 + 2 && h.y < v.y2 - 2;
+}
+
+/** Count total crossings among all routed connections */
+function countCrossings(routes: RoutedConnection[]): number {
+  let count = 0;
+  for (let i = 0; i < routes.length; i++) {
+    for (let j = i + 1; j < routes.length; j++) {
+      const a = routes[i].points;
+      const b = routes[j].points;
+      for (let ai = 0; ai < a.length - 1; ai++) {
+        for (let bi = 0; bi < b.length - 1; bi++) {
+          if (segmentsIntersect(a[ai], a[ai + 1], b[bi], b[bi + 1])) {
+            count++;
+          }
+        }
+      }
+    }
+  }
+  return count;
+}
+
+/** Nudge parallel overlapping horizontal segments apart */
+function nudgeParallelSegments(routes: RoutedConnection[]): void {
+  // Find horizontal segments that share the same Y
+  const hSegs: { routeIdx: number; segIdx: number; y: number; x1: number; x2: number }[] = [];
+  for (let ri = 0; ri < routes.length; ri++) {
+    const pts = routes[ri].points;
+    for (let si = 0; si < pts.length - 1; si++) {
+      if (Math.abs(pts[si].y - pts[si + 1].y) < 1) {
+        hSegs.push({
+          routeIdx: ri,
+          segIdx: si,
+          y: pts[si].y,
+          x1: Math.min(pts[si].x, pts[si + 1].x),
+          x2: Math.max(pts[si].x, pts[si + 1].x),
+        });
+      }
+    }
   }
 
-  // Backward or same-level flow - route around the side
-  const gap = 35;
-  const isRight = tx > sx;
-  const sideX = isRight
-    ? Math.max(source.x + source.w, target.x + target.w) + gap
-    : Math.min(source.x, target.x) - gap;
+  // Group by similar Y (within 3px)
+  type HSeg = typeof hSegs[number];
+  const groups: HSeg[][] = [];
+  const used = new Set<number>();
+  for (let i = 0; i < hSegs.length; i++) {
+    if (used.has(i)) continue;
+    const group = [hSegs[i]];
+    used.add(i);
+    for (let j = i + 1; j < hSegs.length; j++) {
+      if (used.has(j)) continue;
+      if (Math.abs(hSegs[i].y - hSegs[j].y) < 3) {
+        // Check if they overlap on X
+        if (hSegs[i].x1 < hSegs[j].x2 && hSegs[j].x1 < hSegs[i].x2) {
+          group.push(hSegs[j]);
+          used.add(j);
+        }
+      }
+    }
+    if (group.length > 1) groups.push(group);
+  }
 
-  return [
-    { x: sx, y: sy },
-    { x: sx, y: sy + gap },
-    { x: sideX, y: sy + gap },
-    { x: sideX, y: ty - gap },
-    { x: tx, y: ty - gap },
-    { x: tx, y: ty },
-  ];
+  // Spread each group
+  for (const group of groups) {
+    const totalSpread = (group.length - 1) * PARALLEL_SPACING;
+    const baseY = group[0].y;
+    for (let i = 0; i < group.length; i++) {
+      const offsetY = -totalSpread / 2 + i * PARALLEL_SPACING;
+      const { routeIdx, segIdx } = group[i];
+      const pts = routes[routeIdx].points;
+      pts[segIdx].y = baseY + offsetY;
+      pts[segIdx + 1].y = baseY + offsetY;
+    }
+  }
+}
+
+// ---- Main routing entry point -----------------------------------------------
+
+function routeAllConnections(
+  allBlocks: ProcessBlock[],
+  blockMap: Record<string, LayoutBlock>,
+): RoutedConnection[] {
+  const routes: RoutedConnection[] = [];
+
+  // Build obstacles from all blocks (inflated by margin)
+  const allObstacles: { blockId: string; obs: Obstacle }[] = [];
+  for (const lb of Object.values(blockMap)) {
+    allObstacles.push({ blockId: lb.block.id, obs: blockToObstacle(lb, 8) });
+  }
+
+  for (const block of allBlocks) {
+    const source = blockMap[block.id];
+    if (!source) continue;
+
+    const totalConns = block.connections.length;
+    for (let ci = 0; ci < totalConns; ci++) {
+      const targetId = block.connections[ci];
+      const target = blockMap[targetId];
+      if (!target) continue;
+
+      const sc = getBlockCenter(source);
+      const tc = getBlockCenter(target);
+      const isBackward = tc.y < sc.y - source.h / 2;
+
+      // Choose anchor sides
+      const exitSide = chooseBestExitSide(source, target, ci, totalConns);
+      const entrySide = chooseBestEntrySide(source, target, exitSide);
+
+      // Compute exit offset for multiple connections from same side
+      const sameSideConns = block.connections
+        .map((cid, idx) => ({ cid, idx }))
+        .filter((c) => {
+          const t = blockMap[c.cid];
+          if (!t) return false;
+          return chooseBestExitSide(source, t, c.idx, totalConns) === exitSide;
+        });
+      const sameSideIdx = sameSideConns.findIndex((c) => c.idx === ci);
+      const exitOffset =
+        sameSideConns.length > 1
+          ? -((sameSideConns.length - 1) * PARALLEL_SPACING) / 2 +
+            sameSideIdx * PARALLEL_SPACING
+          : 0;
+
+      // Get anchors
+      const isDiamond = source.block.type === "decision";
+      const exitAnchor = isDiamond
+        ? getDiamondAnchor(source, exitSide)
+        : getAnchorPoint(source, exitSide, exitOffset);
+
+      const entryAnchor =
+        target.block.type === "decision"
+          ? getDiamondAnchor(target, entrySide)
+          : getAnchorPoint(target, entrySide, 0);
+
+      // Build obstacle list excluding source and target
+      const obstacles = allObstacles
+        .filter((o) => o.blockId !== block.id && o.blockId !== targetId)
+        .map((o) => o.obs);
+
+      const points = buildOrthogonalRoute(
+        exitAnchor,
+        entryAnchor,
+        obstacles,
+        source,
+        target,
+      );
+
+      routes.push({
+        sourceId: block.id,
+        targetId,
+        connIndex: ci,
+        points,
+        isBackward,
+      });
+    }
+  }
+
+  // Post-process: nudge parallel segments
+  nudgeParallelSegments(routes);
+
+  return routes;
+}
+
+// ---- Drawing helpers --------------------------------------------------------
+
+/** Draw a polyline with rounded corners at each turn */
+function drawRoundedPolyline(
+  ctx: CanvasRenderingContext2D,
+  points: Point[],
+  radius: number,
+) {
+  if (points.length < 2) return;
+
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const next = points[i + 1];
+
+    // Distance to prev and next
+    const d1 = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+    const d2 = Math.hypot(next.x - curr.x, next.y - curr.y);
+    const r = Math.min(radius, d1 / 2, d2 / 2);
+
+    if (r < 2) {
+      ctx.lineTo(curr.x, curr.y);
+      continue;
+    }
+
+    // Point before corner
+    const ratio1 = r / d1;
+    const bx = curr.x - (curr.x - prev.x) * ratio1;
+    const by = curr.y - (curr.y - prev.y) * ratio1;
+
+    // Point after corner
+    const ratio2 = r / d2;
+    const ax = curr.x + (next.x - curr.x) * ratio2;
+    const ay = curr.y + (next.y - curr.y) * ratio2;
+
+    ctx.lineTo(bx, by);
+    ctx.quadraticCurveTo(curr.x, curr.y, ax, ay);
+  }
+
+  ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+  ctx.stroke();
 }
 
 function drawArrowHead(
@@ -830,150 +1324,147 @@ function drawAllConnections(
   hoveredBlockId: string | null,
   selectedBlockId: string | null | undefined,
 ) {
-  for (const block of allBlocks) {
-    const source = blockMap[block.id];
-    if (!source) continue;
+  // Route all connections with the new algorithm
+  const routes = routeAllConnections(allBlocks, blockMap);
 
-    const totalConns = block.connections.length;
-    for (let ci = 0; ci < block.connections.length; ci++) {
-      const targetId = block.connections[ci];
-      const target = blockMap[targetId];
-      if (!target) continue;
+  // Z-order: draw normal connections first, then highlighted on top
+  const normal: typeof routes = [];
+  const highlighted: typeof routes = [];
 
-      const isHL =
-        block.id === hoveredBlockId ||
-        block.id === selectedBlockId ||
-        targetId === hoveredBlockId ||
-        targetId === selectedBlockId;
+  for (const route of routes) {
+    const isHL =
+      route.sourceId === hoveredBlockId ||
+      route.sourceId === selectedBlockId ||
+      route.targetId === hoveredBlockId ||
+      route.targetId === selectedBlockId;
+    if (isHL) highlighted.push(route);
+    else normal.push(route);
+  }
 
-      const points = routeConnection(source, target, ci, totalConns, blockMap);
+  // Draw function for a single route
+  const drawRoute = (route: RoutedConnection, isHL: boolean) => {
+    const { points, isBackward, sourceId, targetId, connIndex: ci } = route;
+    if (points.length < 2) return;
 
-      // Draw the polyline path
-      ctx.strokeStyle = isHL ? "#3b82f6" : "#6b7280";
-      ctx.lineWidth = isHL ? 2.5 : 2;
-      ctx.setLineDash([]);
+    const sourceBlock = allBlocks.find((b) => b.id === sourceId);
+    if (!sourceBlock) return;
 
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      for (let i = 1; i < points.length; i++) {
-        ctx.lineTo(points[i].x, points[i].y);
+    // Line style
+    ctx.strokeStyle = isHL ? "#3b82f6" : isBackward ? "#9ca3af" : "#6b7280";
+    ctx.lineWidth = isHL ? 2.5 : 1.8;
+    ctx.setLineDash(isBackward ? [6, 4] : []);
+
+    // Draw with rounded corners
+    drawRoundedPolyline(ctx, points, CORNER_RADIUS);
+    ctx.setLineDash([]);
+
+    // Arrow head
+    const last = points[points.length - 1];
+    const prev = points[points.length - 2];
+    ctx.fillStyle = isHL ? "#3b82f6" : isBackward ? "#9ca3af" : "#6b7280";
+    drawArrowHead(ctx, last.x, last.y, prev.x, prev.y, isHL ? 11 : 9);
+
+    // ---- Condition labels ----
+    const targetBlock = allBlocks.find((b) => b.id === targetId);
+    const autoDecisionLabels = ["Да", "Нет"];
+    const shouldShowLabel =
+      sourceBlock.type === "decision" ||
+      (sourceBlock.type === "split" && targetBlock?.conditionLabel);
+
+    if (shouldShowLabel) {
+      const exitPt = points[0];
+      const nextPt = points.length > 1 ? points[1] : exitPt;
+
+      let rawLabel: string;
+      if (targetBlock?.conditionLabel) {
+        rawLabel = targetBlock.conditionLabel;
+      } else if (sourceBlock.type === "decision" && ci < autoDecisionLabels.length) {
+        rawLabel = autoDecisionLabels[ci];
+      } else {
+        rawLabel = `Ветвь ${ci + 1}`;
       }
+
+      // Place label near exit point, offset away from block
+      let labelPt: Point;
+      const dx = nextPt.x - exitPt.x;
+      const dy = nextPt.y - exitPt.y;
+      if (Math.abs(dx) > Math.abs(dy)) {
+        // Horizontal exit
+        labelPt = {
+          x: exitPt.x + Math.sign(dx) * 30,
+          y: exitPt.y - 14,
+        };
+      } else {
+        // Vertical exit
+        labelPt = {
+          x: exitPt.x + 24,
+          y: exitPt.y + Math.sign(dy) * 18,
+        };
+      }
+
+      ctx.font = `italic 11px ${FONT_FAMILY}`;
+      const MAX_LABEL_WIDTH = 120;
+      const labelLineH = 14;
+      const labelPadH = 8;
+      const labelPadV = 4;
+
+      const innerLines = wrapText(ctx, rawLabel, MAX_LABEL_WIDTH, 3);
+      if (innerLines.length === 1) {
+        innerLines[0] = truncateText(ctx, innerLines[0], MAX_LABEL_WIDTH);
+      }
+      const labelLines = innerLines.map((line, idx) => {
+        const prefix = idx === 0 ? "[" : "";
+        const suffix = idx === innerLines.length - 1 ? "]" : "";
+        return prefix + line + suffix;
+      });
+
+      const maxLineW = Math.max(...labelLines.map((l) => ctx.measureText(l).width));
+      const tw = Math.min(maxLineW + labelPadH * 2, MAX_LABEL_WIDTH + labelPadH * 2);
+      const th = labelLines.length * labelLineH + labelPadV * 2;
+
+      ctx.fillStyle = "#ffffff";
+      ctx.globalAlpha = 0.92;
+      ctx.beginPath();
+      ctx.roundRect(labelPt.x - tw / 2, labelPt.y - th / 2, tw, th, 4);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "#d1d5db";
+      ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Arrow head at end
-      const last = points[points.length - 1];
-      const prev = points[points.length - 2];
-      ctx.fillStyle = isHL ? "#3b82f6" : "#6b7280";
-      drawArrowHead(ctx, last.x, last.y, prev.x, prev.y, 10);
-
-      // Condition label for decision/split branches
-      const targetBlock = allBlocks.find((b) => b.id === targetId);
-
-      // For decision blocks: auto-generate labels if conditionLabel is missing
-      // 1st branch = "Да", 2nd = "Нет", 3rd+ = use conditionLabel or index
-      const autoDecisionLabels = ["Да", "Нет"];
-      const shouldShowLabel =
-        (block.type === "decision") ||
-        (block.type === "split" && targetBlock?.conditionLabel);
-
-      if (shouldShowLabel) {
-        const exitPt = points[0];
-        const nextPt = points[1];
-
-        // Determine label text: use conditionLabel if present, otherwise auto-generate
-        let rawLabel: string;
-        if (targetBlock?.conditionLabel) {
-          rawLabel = targetBlock.conditionLabel;
-        } else if (block.type === "decision" && ci < autoDecisionLabels.length) {
-          rawLabel = autoDecisionLabels[ci];
-        } else {
-          rawLabel = `Ветвь ${ci + 1}`;
-        }
-
-        let labelPt: Point;
-        if (block.type === "decision") {
-          // 1st -> left, 2nd -> right, 3rd+ -> bottom
-          if (ci === 0) {
-            labelPt = { x: exitPt.x - 22, y: exitPt.y - 14 };
-          } else if (ci === 1) {
-            labelPt = { x: exitPt.x + 22, y: exitPt.y - 14 };
-          } else {
-            labelPt = {
-              x: (exitPt.x + nextPt.x) / 2 + 20,
-              y: (exitPt.y + nextPt.y) / 2,
-            };
-          }
-        } else {
-          // Split: place along first segment
-          labelPt = {
-            x: (exitPt.x + nextPt.x) / 2 + 20,
-            y: (exitPt.y + nextPt.y) / 2,
-          };
-        }
-
-        ctx.font = `italic 11px ${FONT_FAMILY}`;
-        const MAX_LABEL_WIDTH = 120;
-        const labelLineH = 14;
-        const labelPadH = 8;
-        const labelPadV = 4;
-
-        // Wrap the raw label text, then add brackets to first/last lines
-        const innerLines = wrapText(ctx, rawLabel, MAX_LABEL_WIDTH, 3);
-        // If still single line and too wide, force truncate
-        if (innerLines.length === 1) {
-          innerLines[0] = truncateText(ctx, innerLines[0], MAX_LABEL_WIDTH);
-        }
-        // Add brackets
-        const labelLines = innerLines.map((line, idx) => {
-          const prefix = idx === 0 ? "[" : "";
-          const suffix = idx === innerLines.length - 1 ? "]" : "";
-          return prefix + line + suffix;
-        });
-
-        const maxLineW = Math.max(...labelLines.map((l) => ctx.measureText(l).width));
-        const tw = Math.min(maxLineW + labelPadH * 2, MAX_LABEL_WIDTH + labelPadH * 2);
-        const th = labelLines.length * labelLineH + labelPadV * 2;
-
-        // Label background
-        ctx.fillStyle = "#ffffff";
-        ctx.globalAlpha = 0.92;
-        ctx.beginPath();
-        ctx.roundRect(labelPt.x - tw / 2, labelPt.y - th / 2, tw, th, 4);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = "#d1d5db";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        // Label text (multi-line centered)
-        ctx.fillStyle = "#3b82f6";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        const labelTextStartY = labelPt.y - ((labelLines.length - 1) * labelLineH) / 2;
-        for (let li = 0; li < labelLines.length; li++) {
-          ctx.fillText(labelLines[li], labelPt.x, labelTextStartY + li * labelLineH);
-        }
-      }
-
-      // Default branch slash mark
-      if (
-        targetBlock?.isDefault &&
-        (block.type === "decision" || block.type === "split")
-      ) {
-        const midIdx = Math.min(1, points.length - 1);
-        const mp = {
-          x: (points[0].x + points[midIdx].x) / 2,
-          y: (points[0].y + points[midIdx].y) / 2,
-        };
-        ctx.strokeStyle = isHL ? "#3b82f6" : "#6b7280";
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(mp.x - 6, mp.y - 6);
-        ctx.lineTo(mp.x + 6, mp.y + 6);
-        ctx.stroke();
+      ctx.fillStyle = "#3b82f6";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const labelTextStartY = labelPt.y - ((labelLines.length - 1) * labelLineH) / 2;
+      for (let li = 0; li < labelLines.length; li++) {
+        ctx.fillText(labelLines[li], labelPt.x, labelTextStartY + li * labelLineH);
       }
     }
-  }
+
+    // Default branch slash mark
+    if (
+      targetBlock?.isDefault &&
+      (sourceBlock.type === "decision" || sourceBlock.type === "split")
+    ) {
+      const midIdx = Math.min(1, points.length - 1);
+      const mp = {
+        x: (points[0].x + points[midIdx].x) / 2,
+        y: (points[0].y + points[midIdx].y) / 2,
+      };
+      ctx.strokeStyle = isHL ? "#3b82f6" : "#6b7280";
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(mp.x - 6, mp.y - 6);
+      ctx.lineTo(mp.x + 6, mp.y + 6);
+      ctx.stroke();
+    }
+  };
+
+  // Draw normal (background) layer first
+  for (const route of normal) drawRoute(route, false);
+  // Draw highlighted (foreground) layer on top
+  for (const route of highlighted) drawRoute(route, true);
 }
 
 // ============================================================
