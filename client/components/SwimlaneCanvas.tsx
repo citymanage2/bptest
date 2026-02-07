@@ -911,17 +911,27 @@ function drawAllConnections(
           };
         }
 
-        const labelText = "[" + rawLabel + "]";
         ctx.font = `italic 11px ${FONT_FAMILY}`;
-        const MAX_LABEL_WIDTH = 150;
+        const MAX_LABEL_WIDTH = 120;
         const labelLineH = 14;
-        const labelPadH = 6;
+        const labelPadH = 8;
         const labelPadV = 4;
 
-        // Wrap label text if it exceeds max width
-        const labelLines = wrapText(ctx, labelText, MAX_LABEL_WIDTH, 3);
+        // Wrap the raw label text, then add brackets to first/last lines
+        const innerLines = wrapText(ctx, rawLabel, MAX_LABEL_WIDTH, 3);
+        // If still single line and too wide, force truncate
+        if (innerLines.length === 1) {
+          innerLines[0] = truncateText(ctx, innerLines[0], MAX_LABEL_WIDTH);
+        }
+        // Add brackets
+        const labelLines = innerLines.map((line, idx) => {
+          const prefix = idx === 0 ? "[" : "";
+          const suffix = idx === innerLines.length - 1 ? "]" : "";
+          return prefix + line + suffix;
+        });
+
         const maxLineW = Math.max(...labelLines.map((l) => ctx.measureText(l).width));
-        const tw = maxLineW + labelPadH * 2;
+        const tw = Math.min(maxLineW + labelPadH * 2, MAX_LABEL_WIDTH + labelPadH * 2);
         const th = labelLines.length * labelLineH + labelPadV * 2;
 
         // Label background
