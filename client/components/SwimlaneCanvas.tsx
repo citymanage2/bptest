@@ -285,16 +285,15 @@ function routeConnection(
   const tx = target.x + target.w / 2;
   const ty = target.y;
 
-  // Special handling for decision blocks (diamonds) — always exit from LEFT or RIGHT corners
+  // Special handling for decision blocks (diamonds) — exit from LEFT, RIGHT, or BOTTOM corners
   if (source.block.type === "decision") {
     const cy = source.y + source.h / 2; // Y of left/right corner points
     const gap = 35;
 
-    // First connection -> LEFT corner, second (and rest) -> RIGHT corner
-    const exitLeft = connIndex === 0;
-
-    if (exitLeft) {
-      const sx = source.x; // left corner X
+    // 1st connection -> LEFT, 2nd -> RIGHT, 3rd+ -> BOTTOM
+    if (connIndex === 0) {
+      // Exit from LEFT corner
+      const sx = source.x;
       const routeX = Math.min(source.x - gap, tx);
       return [
         { x: sx, y: cy },
@@ -303,14 +302,32 @@ function routeConnection(
         { x: tx, y: ty - gap },
         { x: tx, y: ty },
       ];
-    } else {
-      const sx = source.x + source.w; // right corner X
+    } else if (connIndex === 1) {
+      // Exit from RIGHT corner
+      const sx = source.x + source.w;
       const routeX = Math.max(source.x + source.w + gap, tx);
       return [
         { x: sx, y: cy },
         { x: routeX, y: cy },
         { x: routeX, y: ty - gap },
         { x: tx, y: ty - gap },
+        { x: tx, y: ty },
+      ];
+    } else {
+      // 3rd+ connections: exit from BOTTOM corner
+      const sx = source.x + source.w / 2;
+      const sy = source.y + source.h;
+      if (Math.abs(sx - tx) < 8) {
+        return [
+          { x: sx, y: sy },
+          { x: tx, y: ty },
+        ];
+      }
+      const midY = (sy + ty) / 2;
+      return [
+        { x: sx, y: sy },
+        { x: sx, y: midY },
+        { x: tx, y: midY },
         { x: tx, y: ty },
       ];
     }
@@ -819,12 +836,16 @@ function drawAllConnections(
 
         let labelPt: Point;
         if (block.type === "decision") {
-          // Decision: first connection exits left, rest exit right
-          const isLeftExit = ci === 0;
-          if (isLeftExit) {
+          // 1st -> left, 2nd -> right, 3rd+ -> bottom
+          if (ci === 0) {
             labelPt = { x: exitPt.x - 22, y: exitPt.y - 14 };
-          } else {
+          } else if (ci === 1) {
             labelPt = { x: exitPt.x + 22, y: exitPt.y - 14 };
+          } else {
+            labelPt = {
+              x: (exitPt.x + nextPt.x) / 2 + 20,
+              y: (exitPt.y + nextPt.y) / 2,
+            };
           }
         } else {
           // Split: place along first segment
