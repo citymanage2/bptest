@@ -579,12 +579,13 @@ function drawBlockShape(
   lb: LayoutBlock,
   isHighlighted: boolean,
   isSelected: boolean,
+  isConnectedHighlight: boolean = false,
 ) {
   const { block, x, y, w, h } = lb;
   const config = BLOCK_CONFIG[block.type];
   const fill = getBlockFill(block.type);
   const border = config.borderColor;
-  const lw = isHighlighted || isSelected ? 3 : 2;
+  const lw = isHighlighted || isSelected ? 3 : isConnectedHighlight ? 2.5 : 2;
 
   // Shadow
   ctx.save();
@@ -593,6 +594,11 @@ function drawBlockShape(
     ctx.shadowBlur = 18;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 4;
+  } else if (isConnectedHighlight) {
+    ctx.shadowColor = "rgba(99, 102, 241, 0.25)";
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 3;
   } else {
     ctx.shadowColor = "rgba(0, 0, 0, 0.08)";
     ctx.shadowBlur = 10;
@@ -622,6 +628,41 @@ function drawBlockShape(
   }
 
   ctx.restore();
+
+  // Connected highlight: light tinted overlay
+  if (isConnectedHighlight) {
+    ctx.save();
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = "#6366f1";
+    switch (config.shape) {
+      case "pill":
+        drawPill(ctx, x, y, w, h, "transparent", "#6366f1", 0);
+        break;
+      case "hexagon":
+        drawHexagon(ctx, x, y, w, h, "transparent", "#6366f1", 0);
+        break;
+      case "rounded-rect":
+        drawRoundedRect(ctx, x, y, w, h, "transparent", "#6366f1", 0);
+        break;
+      case "diamond":
+        drawDiamond(ctx, x, y, w, h, "transparent", "#6366f1", 0);
+        break;
+      case "triangle":
+        drawInvertedTriangle(ctx, x, y, w, h, "transparent", "#6366f1", 0);
+        break;
+      case "double-rect":
+        drawDoubleRect(ctx, x, y, w, h, "transparent", "#6366f1", 0);
+        break;
+    }
+    ctx.globalAlpha = 1;
+    // Subtle colored border on top
+    ctx.strokeStyle = "rgba(99, 102, 241, 0.4)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(x - 2, y - 2, w + 4, h + 4, 14);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   // Selected indicator: dashed outline
   if (isSelected) {
@@ -1107,14 +1148,19 @@ function renderDiagram(
   );
 
   // ---- Blocks ----
+  // Determine the "active" block (hovered or selected) for connected highlighting
+  const activeBlockId = hoveredBlockId || selectedBlockId || null;
+
   for (const lb of layoutBlocks) {
     const isHovered = lb.block.id === hoveredBlockId;
     const isSelected = lb.block.id === selectedBlockId;
-    const isConnHL = hoveredBlockId
-      ? isConnectedTo(lb.block.id, hoveredBlockId, data.blocks)
+
+    // Check if this block is connected to the active (hovered or selected) block
+    const isConnHL = activeBlockId && lb.block.id !== activeBlockId
+      ? isConnectedTo(lb.block.id, activeBlockId, data.blocks)
       : false;
 
-    drawBlockShape(ctx, lb, isHovered || isConnHL, isSelected);
+    drawBlockShape(ctx, lb, isHovered, isSelected, !!isConnHL);
     drawBlockContent(ctx, lb);
   }
 }
