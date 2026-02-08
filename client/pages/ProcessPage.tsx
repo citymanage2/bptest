@@ -2489,7 +2489,9 @@ function MetricsTab({
 
   // Role workload
   const roleWorkload = data.roles.map((role) => {
-    const roleBlocks = data.blocks.filter((b) => b.role === role.name);
+    const roleBlocks = data.blocks.filter(
+      (b) => b.role === role.name || b.role === role.id
+    );
     const totalMinutes = roleBlocks.reduce(
       (sum, b) => sum + parseTimeEstimate(b.timeEstimate),
       0
