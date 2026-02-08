@@ -1107,6 +1107,242 @@ export function ProcessPage() {
     ? computeProcessDiff(pendingChangeRequest.previousData, pendingChangeRequest.newData)
     : [];
 
+  // ---- Group 1 action buttons (shared across process tabs) ----
+  const processActionButtons = (
+    <div className="flex items-center gap-2 shrink-0">
+      {/* Change Request Dialog */}
+      <Dialog open={changeDialogOpen} onOpenChange={setChangeDialogOpen}>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Send className="w-4 h-4" />
+                  Запросить изменения во всём процессе
+                </Button>
+              </DialogTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Изменения затронут все вкладки процесса</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Запросить изменения процесса</DialogTitle>
+            <DialogDescription>
+              Опишите, какие изменения нужно внести. ИИ предложит обновленную
+              версию процесса. Изменения затронут диаграмму, этапы, метрики и другие
+              данные процесса. Стоимость: {TOKEN_COSTS.change_request} токенов.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!pendingChangeRequest ? (
+            <div className="space-y-4">
+              <Textarea
+                placeholder="Например: Добавить этап согласования с юридическим отделом перед подписанием договора..."
+                value={changeDescription}
+                onChange={(e) => setChangeDescription(e.target.value)}
+                rows={4}
+                disabled={requestChangeMutation.isPending}
+              />
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setChangeDialogOpen(false);
+                    setChangeDescription("");
+                  }}
+                  disabled={requestChangeMutation.isPending}
+                >
+                  Отмена
+                </Button>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        onClick={handleRequestChange}
+                        disabled={requestChangeMutation.isPending || !changeDescription.trim()}
+                      >
+                        {changeProgress.phase === "done" ? (
+                          <>
+                            <Check className="w-4 h-4" />
+                            Готово
+                          </>
+                        ) : requestChangeMutation.isPending ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Генерация... {changeProgress.progress}%
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4" />
+                            Сгенерировать изменения
+                          </>
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>Это может занять несколько минут</TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </DialogFooter>
+              {requestChangeMutation.isPending && (
+                <div className="space-y-2">
+                  <Progress value={changeProgress.progress} className="h-1.5" />
+                  <p className="text-xs text-amber-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Идет генерация. Пожалуйста, не покидайте страницу
+                  </p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="text-sm text-gray-600 font-medium mb-2">
+                Предлагаемые изменения:
+              </div>
+              <div className="max-h-80 overflow-y-auto space-y-2 rounded-lg border border-gray-200 p-3">
+                {diffItems.length === 0 ? (
+                  <p className="text-sm text-gray-400 italic">
+                    Изменений не обнаружено
+                  </p>
+                ) : (
+                  diffItems.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className={cn(
+                        "flex items-start gap-2 px-3 py-2 rounded-md text-sm",
+                        item.type === "added" && "bg-green-50 border border-green-200",
+                        item.type === "removed" && "bg-red-50 border border-red-200",
+                        item.type === "changed" && "bg-blue-50 border border-blue-200"
+                      )}
+                    >
+                      {item.type === "added" && (
+                        <Plus className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
+                      )}
+                      {item.type === "removed" && (
+                        <Minus className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
+                      )}
+                      {item.type === "changed" && (
+                        <ArrowRightLeft className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
+                      )}
+                      <div>
+                        <div
+                          className={cn(
+                            "font-medium",
+                            item.type === "added" && "text-green-700",
+                            item.type === "removed" && "text-red-700",
+                            item.type === "changed" && "text-blue-700"
+                          )}
+                        >
+                          {item.label}
+                        </div>
+                        {item.details && (
+                          <div className="text-gray-500 mt-0.5">{item.details}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={handleRejectChange}
+                  disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending}
+                >
+                  {rejectChangeMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <XCircle className="w-4 h-4" />
+                  )}
+                  Отменить
+                </Button>
+                <Button
+                  onClick={handleApplyChange}
+                  disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending}
+                >
+                  {applyChangeMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Применение...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      Применить
+                    </>
+                  )}
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Regenerate Button */}
+      <AlertDialog>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <RefreshCw className="w-4 h-4" />
+                  Сгенерировать заново
+                </Button>
+              </AlertDialogTrigger>
+            </TooltipTrigger>
+            <TooltipContent>Это может занять несколько минут</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Перегенерация процесса</AlertDialogTitle>
+            <AlertDialogDescription>
+              Все данные процесса будут перезаписаны. Текущая версия будет
+              заменена новой, сгенерированной ИИ на основе данных интервью.
+              Текущая версия сохранится в истории.
+              Стоимость: {TOKEN_COSTS.regeneration} токенов.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                regenerateProgress.start();
+                regenerateMutation.mutate({ id: processId });
+              }}
+              disabled={regenerateMutation.isPending}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {regenerateProgress.phase === "done" ? (
+                <>
+                  <Check className="w-4 h-4" />
+                  Готово
+                </>
+              ) : regenerateMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Генерация... {regenerateProgress.progress}%
+                </>
+              ) : (
+                "Перегенерировать"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+          {regenerateMutation.isPending && (
+            <div className="space-y-2">
+              <Progress value={regenerateProgress.progress} className="h-1.5" />
+              <p className="text-xs text-amber-600 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" />
+                Идет генерация. Пожалуйста, не покидайте страницу
+              </p>
+            </div>
+          )}
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -1121,230 +1357,6 @@ export function ProcessPage() {
             <ArrowLeft className="w-4 h-4" />
           </Button>
           <h1 className="text-2xl font-bold text-gray-900">{data.name}</h1>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Change Request Dialog */}
-          <Dialog open={changeDialogOpen} onOpenChange={setChangeDialogOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Send className="w-4 h-4" />
-                Запросить изменения
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Запросить изменения процесса</DialogTitle>
-                <DialogDescription>
-                  Опишите, какие изменения нужно внести. ИИ предложит обновленную
-                  версию процесса. Стоимость: {TOKEN_COSTS.change_request} токенов.
-                </DialogDescription>
-              </DialogHeader>
-
-              {!pendingChangeRequest ? (
-                <div className="space-y-4">
-                  <Textarea
-                    placeholder="Например: Добавить этап согласования с юридическим отделом перед подписанием договора..."
-                    value={changeDescription}
-                    onChange={(e) => setChangeDescription(e.target.value)}
-                    rows={4}
-                    disabled={requestChangeMutation.isPending}
-                  />
-                  <DialogFooter>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setChangeDialogOpen(false);
-                        setChangeDescription("");
-                      }}
-                      disabled={requestChangeMutation.isPending}
-                    >
-                      Отмена
-                    </Button>
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            onClick={handleRequestChange}
-                            disabled={requestChangeMutation.isPending || !changeDescription.trim()}
-                          >
-                            {changeProgress.phase === "done" ? (
-                              <>
-                                <Check className="w-4 h-4" />
-                                Готово
-                              </>
-                            ) : requestChangeMutation.isPending ? (
-                              <>
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                Генерация... {changeProgress.progress}%
-                              </>
-                            ) : (
-                              <>
-                                <Sparkles className="w-4 h-4" />
-                                Сгенерировать изменения
-                              </>
-                            )}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Это может занять несколько минут</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </DialogFooter>
-                  {requestChangeMutation.isPending && (
-                    <div className="space-y-2">
-                      <Progress value={changeProgress.progress} className="h-1.5" />
-                      <p className="text-xs text-amber-600 flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3" />
-                        Идет генерация. Пожалуйста, не покидайте страницу
-                      </p>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="text-sm text-gray-600 font-medium mb-2">
-                    Предлагаемые изменения:
-                  </div>
-                  <div className="max-h-80 overflow-y-auto space-y-2 rounded-lg border border-gray-200 p-3">
-                    {diffItems.length === 0 ? (
-                      <p className="text-sm text-gray-400 italic">
-                        Изменений не обнаружено
-                      </p>
-                    ) : (
-                      diffItems.map((item, idx) => (
-                        <div
-                          key={idx}
-                          className={cn(
-                            "flex items-start gap-2 px-3 py-2 rounded-md text-sm",
-                            item.type === "added" && "bg-green-50 border border-green-200",
-                            item.type === "removed" && "bg-red-50 border border-red-200",
-                            item.type === "changed" && "bg-blue-50 border border-blue-200"
-                          )}
-                        >
-                          {item.type === "added" && (
-                            <Plus className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
-                          )}
-                          {item.type === "removed" && (
-                            <Minus className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-                          )}
-                          {item.type === "changed" && (
-                            <ArrowRightLeft className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
-                          )}
-                          <div>
-                            <div
-                              className={cn(
-                                "font-medium",
-                                item.type === "added" && "text-green-700",
-                                item.type === "removed" && "text-red-700",
-                                item.type === "changed" && "text-blue-700"
-                              )}
-                            >
-                              {item.label}
-                            </div>
-                            {item.details && (
-                              <div className="text-gray-500 mt-0.5">{item.details}</div>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  <DialogFooter>
-                    <Button
-                      variant="outline"
-                      onClick={handleRejectChange}
-                      disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending}
-                    >
-                      {rejectChangeMutation.isPending ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <XCircle className="w-4 h-4" />
-                      )}
-                      Отменить
-                    </Button>
-                    <Button
-                      onClick={handleApplyChange}
-                      disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending}
-                    >
-                      {applyChangeMutation.isPending ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Применение...
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-4 h-4" />
-                          Применить
-                        </>
-                      )}
-                    </Button>
-                  </DialogFooter>
-                </div>
-              )}
-            </DialogContent>
-          </Dialog>
-
-          {/* Regenerate Button */}
-          <AlertDialog>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="outline" size="sm">
-                      <RefreshCw className="w-4 h-4" />
-                      Сгенерировать заново
-                    </Button>
-                  </AlertDialogTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Это может занять несколько минут</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Перегенерация процесса</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Текущая версия процесса будет заменена новой, сгенерированной
-                  ИИ на основе данных интервью. Текущая версия сохранится в
-                  истории. Стоимость: {TOKEN_COSTS.regeneration} токенов.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Отмена</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => {
-                    regenerateProgress.start();
-                    regenerateMutation.mutate({ id: processId });
-                  }}
-                  disabled={regenerateMutation.isPending}
-                  className="bg-red-600 hover:bg-red-700"
-                >
-                  {regenerateProgress.phase === "done" ? (
-                    <>
-                      <Check className="w-4 h-4" />
-                      Готово
-                    </>
-                  ) : regenerateMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Генерация... {regenerateProgress.progress}%
-                    </>
-                  ) : (
-                    "Перегенерировать"
-                  )}
-                </AlertDialogAction>
-              </AlertDialogFooter>
-              {regenerateMutation.isPending && (
-                <div className="space-y-2">
-                  <Progress value={regenerateProgress.progress} className="h-1.5" />
-                  <p className="text-xs text-amber-600 flex items-center gap-1">
-                    <AlertCircle className="w-3 h-3" />
-                    Идет генерация. Пожалуйста, не покидайте страницу
-                  </p>
-                </div>
-              )}
-            </AlertDialogContent>
-          </AlertDialog>
         </div>
       </div>
 
@@ -1362,94 +1374,115 @@ export function ProcessPage() {
           <TabsTrigger value="history">История</TabsTrigger>
         </TabsList>
 
-        {/* ======== Tab: Diagram ======== */}
+        {/* ======== Tab: Diagram (Group 1) ======== */}
         <TabsContent value="diagram">
-          <DiagramTab
-            data={data}
-            processId={processId}
-            selectedBlockId={selectedBlockId}
-            selectedBlock={selectedBlock}
-            editingBlock={editingBlock}
-            editName={editName}
-            editDescription={editDescription}
-            editType={editType}
-            editRole={editRole}
-            editStage={editStage}
-            editTimeEstimate={editTimeEstimate}
-            editInputDocuments={editInputDocuments}
-            editOutputDocuments={editOutputDocuments}
-            editInfoSystems={editInfoSystems}
-            editConditionLabel={editConditionLabel}
-            editIsDefault={editIsDefault}
-            editConnections={editConnections}
-            editConnectionLabels={editConnectionLabels}
-            canvasScale={canvasScale}
-            canvasContainerRef={canvasContainerRef}
-            canvasHandleRef={canvasHandleRef}
-            updateDataMutation={updateDataMutation}
-            onBlockClick={handleBlockClick}
-            onStartEdit={handleStartEdit}
-            onSaveEdit={handleSaveEdit}
-            onCancelEdit={handleCancelEdit}
-            onClosePanel={() => setSelectedBlockId(null)}
-            onSetEditName={setEditName}
-            onSetEditDescription={setEditDescription}
-            onSetEditType={setEditType}
-            onSetEditRole={setEditRole}
-            onSetEditStage={setEditStage}
-            onSetEditTimeEstimate={setEditTimeEstimate}
-            onSetEditInputDocuments={setEditInputDocuments}
-            onSetEditOutputDocuments={setEditOutputDocuments}
-            onSetEditInfoSystems={setEditInfoSystems}
-            onSetEditConditionLabel={setEditConditionLabel}
-            onSetEditIsDefault={setEditIsDefault}
-            onSetEditConnections={setEditConnections}
-            onSetEditConnectionLabels={setEditConnectionLabels}
-            onScaleChange={setCanvasScale}
-            onExportPNG={handleExportPNG}
-            onExportBPMN={handleExportBPMN}
-            onExportPDF={handleExportPDF}
-          />
+          <div className="space-y-4">
+            <div className="flex justify-end">{processActionButtons}</div>
+            <DiagramTab
+              data={data}
+              processId={processId}
+              selectedBlockId={selectedBlockId}
+              selectedBlock={selectedBlock}
+              editingBlock={editingBlock}
+              editName={editName}
+              editDescription={editDescription}
+              editType={editType}
+              editRole={editRole}
+              editStage={editStage}
+              editTimeEstimate={editTimeEstimate}
+              editInputDocuments={editInputDocuments}
+              editOutputDocuments={editOutputDocuments}
+              editInfoSystems={editInfoSystems}
+              editConditionLabel={editConditionLabel}
+              editIsDefault={editIsDefault}
+              editConnections={editConnections}
+              editConnectionLabels={editConnectionLabels}
+              canvasScale={canvasScale}
+              canvasContainerRef={canvasContainerRef}
+              canvasHandleRef={canvasHandleRef}
+              updateDataMutation={updateDataMutation}
+              onBlockClick={handleBlockClick}
+              onStartEdit={handleStartEdit}
+              onSaveEdit={handleSaveEdit}
+              onCancelEdit={handleCancelEdit}
+              onClosePanel={() => setSelectedBlockId(null)}
+              onSetEditName={setEditName}
+              onSetEditDescription={setEditDescription}
+              onSetEditType={setEditType}
+              onSetEditRole={setEditRole}
+              onSetEditStage={setEditStage}
+              onSetEditTimeEstimate={setEditTimeEstimate}
+              onSetEditInputDocuments={setEditInputDocuments}
+              onSetEditOutputDocuments={setEditOutputDocuments}
+              onSetEditInfoSystems={setEditInfoSystems}
+              onSetEditConditionLabel={setEditConditionLabel}
+              onSetEditIsDefault={setEditIsDefault}
+              onSetEditConnections={setEditConnections}
+              onSetEditConnectionLabels={setEditConnectionLabels}
+              onScaleChange={setCanvasScale}
+              onExportPNG={handleExportPNG}
+              onExportBPMN={handleExportBPMN}
+              onExportPDF={handleExportPDF}
+            />
+          </div>
         </TabsContent>
 
-        {/* ======== Tab: Stages ======== */}
+        {/* ======== Tab: Stages (Group 1) ======== */}
         <TabsContent value="stages">
-          <StagesTab data={data} />
+          <div className="space-y-4">
+            <div className="flex justify-end">{processActionButtons}</div>
+            <StagesTab data={data} />
+          </div>
         </TabsContent>
 
-        {/* ======== Tab: Metrics ======== */}
+        {/* ======== Tab: Metrics (Group 1) ======== */}
         <TabsContent value="metrics">
-          <MetricsTab metrics={metrics} data={data} />
+          <div className="space-y-4">
+            <div className="flex justify-end">{processActionButtons}</div>
+            <MetricsTab metrics={metrics} data={data} />
+          </div>
         </TabsContent>
 
-        {/* ======== Tab: CRM Funnels ======== */}
+        {/* ======== Tab: CRM Funnels (Group 2 — local buttons inside) ======== */}
         <TabsContent value="crm">
-          <CrmFunnelsTab funnels={crmFunnels} data={data} />
+          <CrmFunnelsTab funnels={crmFunnels} data={data} processId={processId} />
         </TabsContent>
 
-        {/* ======== Tab: Regulations ======== */}
+        {/* ======== Tab: Regulations (Group 1) ======== */}
         <TabsContent value="regulations">
-          <RegulationsTab processId={processId} data={data} companyName={(process as any)?.companyName || ""} />
+          <div className="space-y-4">
+            <div className="flex justify-end">{processActionButtons}</div>
+            <RegulationsTab processId={processId} data={data} companyName={(process as any)?.companyName || ""} />
+          </div>
         </TabsContent>
 
-        {/* ======== Tab: Passport ======== */}
+        {/* ======== Tab: Passport (Group 1) ======== */}
         <TabsContent value="passport">
-          <PassportTab processId={processId} />
+          <div className="space-y-4">
+            <div className="flex justify-end">{processActionButtons}</div>
+            <PassportTab processId={processId} />
+          </div>
         </TabsContent>
 
-        {/* ======== Tab: Quality ======== */}
+        {/* ======== Tab: Quality (Group 1) ======== */}
         <TabsContent value="quality">
-          <QualityTab processId={processId} />
+          <div className="space-y-4">
+            <div className="flex justify-end">{processActionButtons}</div>
+            <QualityTab processId={processId} />
+          </div>
         </TabsContent>
 
-        {/* ======== Tab: Recommendations ======== */}
+        {/* ======== Tab: Recommendations (Group 2 — local buttons inside) ======== */}
         <TabsContent value="recommendations">
           <RecommendationsTab processId={processId} data={data} />
         </TabsContent>
 
-        {/* ======== Tab: History ======== */}
+        {/* ======== Tab: History (Group 1) ======== */}
         <TabsContent value="history">
-          <HistoryTab processId={processId} />
+          <div className="space-y-4">
+            <div className="flex justify-end">{processActionButtons}</div>
+            <HistoryTab processId={processId} />
+          </div>
         </TabsContent>
       </Tabs>
     </div>
@@ -2629,12 +2662,52 @@ const STATUS_COLORS: Record<string, string> = {
 function CrmFunnelsTab({
   funnels,
   data,
+  processId,
 }: {
   funnels: CrmFunnel[];
   data: ProcessData;
+  processId: number;
 }) {
+  const utils = trpc.useUtils();
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set());
   const [showQuality, setShowQuality] = useState(false);
+  const [crmChangeOpen, setCrmChangeOpen] = useState(false);
+  const [crmChangeDesc, setCrmChangeDesc] = useState("");
+
+  const crmChangeProgress = useGenerationProgress({ duration: 60000 });
+
+  const crmChangeMutation = trpc.process.requestChange.useMutation({
+    onSuccess: () => {
+      crmChangeProgress.finish();
+      setCrmChangeOpen(false);
+      setCrmChangeDesc("");
+      utils.process.getById.invalidate({ id: processId });
+    },
+    onError: () => {
+      crmChangeProgress.reset();
+    },
+  });
+
+  const handleCrmChange = useCallback(() => {
+    if (!crmChangeDesc.trim()) return;
+    crmChangeProgress.start();
+    crmChangeMutation.mutate({
+      processId,
+      description: `[Изменения только в CRM-воронках] ${crmChangeDesc.trim()}`,
+    });
+  }, [crmChangeDesc, processId, crmChangeMutation, crmChangeProgress]);
+
+  const crmRegenProgress = useGenerationProgress({ duration: 90000 });
+
+  const crmRegenMutation = trpc.process.regenerate.useMutation({
+    onSuccess: () => {
+      crmRegenProgress.finish();
+      utils.process.getById.invalidate({ id: processId });
+    },
+    onError: () => {
+      crmRegenProgress.reset();
+    },
+  });
 
   const toggleStage = useCallback((stageId: string) => {
     setExpandedStages((prev) => {
@@ -2664,6 +2737,113 @@ function CrmFunnelsTab({
 
   return (
     <div className="space-y-6">
+      {/* CRM local action buttons */}
+      <div className="flex items-center justify-end gap-2">
+        <Dialog open={crmChangeOpen} onOpenChange={setCrmChangeOpen}>
+          <DialogTrigger asChild>
+            <Button variant="outline" size="sm">
+              <Send className="w-4 h-4" />
+              Запросить изменения в CRM
+            </Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Изменения CRM-воронок</DialogTitle>
+              <DialogDescription>
+                Опишите изменения для CRM-воронок. ИИ обновит структуру процесса
+                с учетом ваших пожеланий. Стоимость: {TOKEN_COSTS.change_request} токенов.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <Textarea
+                placeholder="Например: Добавить этап квалификации лида перед первичным контактом..."
+                value={crmChangeDesc}
+                onChange={(e) => setCrmChangeDesc(e.target.value)}
+                rows={4}
+                disabled={crmChangeMutation.isPending}
+              />
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setCrmChangeOpen(false)} disabled={crmChangeMutation.isPending}>
+                  Отмена
+                </Button>
+                <Button onClick={handleCrmChange} disabled={crmChangeMutation.isPending || !crmChangeDesc.trim()}>
+                  {crmChangeProgress.phase === "done" ? (
+                    <><Check className="w-4 h-4" /> Готово</>
+                  ) : crmChangeMutation.isPending ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Генерация... {crmChangeProgress.progress}%</>
+                  ) : (
+                    <><Sparkles className="w-4 h-4" /> Сгенерировать изменения</>
+                  )}
+                </Button>
+              </DialogFooter>
+              {crmChangeMutation.isPending && (
+                <div className="space-y-2">
+                  <Progress value={crmChangeProgress.progress} className="h-1.5" />
+                  <p className="text-xs text-amber-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Идет генерация. Пожалуйста, не покидайте страницу
+                  </p>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <AlertDialog>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <RefreshCw className="w-4 h-4" />
+                    Сгенерировать CRM заново
+                  </Button>
+                </AlertDialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Это может занять несколько минут</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Перегенерация CRM-воронок</AlertDialogTitle>
+              <AlertDialogDescription>
+                CRM-воронки формируются на основе данных процесса. Будет выполнена
+                полная регенерация процесса для обновления воронок.
+                Стоимость: {TOKEN_COSTS.regeneration} токенов.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Отмена</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  crmRegenProgress.start();
+                  crmRegenMutation.mutate({ id: processId });
+                }}
+                disabled={crmRegenMutation.isPending}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {crmRegenProgress.phase === "done" ? (
+                  <><Check className="w-4 h-4" /> Готово</>
+                ) : crmRegenMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Генерация... {crmRegenProgress.progress}%</>
+                ) : (
+                  "Перегенерировать"
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+            {crmRegenMutation.isPending && (
+              <div className="space-y-2">
+                <Progress value={crmRegenProgress.progress} className="h-1.5" />
+                <p className="text-xs text-amber-600 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3" />
+                  Идет генерация. Пожалуйста, не покидайте страницу
+                </p>
+              </div>
+            )}
+          </AlertDialogContent>
+        </AlertDialog>
+      </div>
+
       {funnels.map((funnel) => {
         const l0Stages = funnel.stages.filter((s) => s.level === 0);
         const l1Stages = funnel.stages.filter((s) => s.level === 1);
@@ -3071,6 +3251,8 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(["summary", "backlog"])
   );
+  const [recChangeOpen, setRecChangeOpen] = useState(false);
+  const [recChangeDesc, setRecChangeDesc] = useState("");
 
   const recommendationsQuery = trpc.process.getRecommendations.useQuery({
     processId,
@@ -3087,6 +3269,30 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
       recProgress.reset();
     },
   });
+
+  const recChangeProgress = useGenerationProgress({ duration: 60000 });
+
+  const recChangeMutation = trpc.process.requestChange.useMutation({
+    onSuccess: () => {
+      recChangeProgress.finish();
+      setRecChangeOpen(false);
+      setRecChangeDesc("");
+      utils.process.getRecommendations.invalidate({ processId });
+      utils.process.getById.invalidate({ id: processId });
+    },
+    onError: () => {
+      recChangeProgress.reset();
+    },
+  });
+
+  const handleRecChange = useCallback(() => {
+    if (!recChangeDesc.trim()) return;
+    recChangeProgress.start();
+    recChangeMutation.mutate({
+      processId,
+      description: `[Изменения только в Рекомендациях] ${recChangeDesc.trim()}`,
+    });
+  }, [recChangeDesc, processId, recChangeMutation, recChangeProgress]);
 
   const recommendations = (recommendationsQuery.data || []) as Recommendation[];
 
@@ -3136,7 +3342,7 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
             Lean-диагностика, рекомендации по оптимизации и план внедрения
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           {sortedSections.length > 0 && (
             <>
               <Button variant="outline" size="sm" onClick={expandAll}>
@@ -3147,6 +3353,55 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
               </Button>
             </>
           )}
+          <Dialog open={recChangeOpen} onOpenChange={setRecChangeOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm">
+                <Send className="w-4 h-4" />
+                Запросить изменения в Рекомендациях
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Изменения рекомендаций</DialogTitle>
+                <DialogDescription>
+                  Опишите, что хотите изменить в рекомендациях. ИИ обновит анализ
+                  с учётом ваших пожеланий. Стоимость: {TOKEN_COSTS.change_request} токенов.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <Textarea
+                  placeholder="Например: Добавить рекомендации по автоматизации отчётности..."
+                  value={recChangeDesc}
+                  onChange={(e) => setRecChangeDesc(e.target.value)}
+                  rows={4}
+                  disabled={recChangeMutation.isPending}
+                />
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setRecChangeOpen(false)} disabled={recChangeMutation.isPending}>
+                    Отмена
+                  </Button>
+                  <Button onClick={handleRecChange} disabled={recChangeMutation.isPending || !recChangeDesc.trim()}>
+                    {recChangeProgress.phase === "done" ? (
+                      <><Check className="w-4 h-4" /> Готово</>
+                    ) : recChangeMutation.isPending ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Генерация... {recChangeProgress.progress}%</>
+                    ) : (
+                      <><Sparkles className="w-4 h-4" /> Сгенерировать изменения</>
+                    )}
+                  </Button>
+                </DialogFooter>
+                {recChangeMutation.isPending && (
+                  <div className="space-y-2">
+                    <Progress value={recChangeProgress.progress} className="h-1.5" />
+                    <p className="text-xs text-amber-600 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3" />
+                      Идет генерация. Пожалуйста, не покидайте страницу
+                    </p>
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -3170,7 +3425,7 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4" />
-                      {recommendations.length > 0 ? "Обновить анализ" : "Сгенерировать анализ"}
+                      {recommendations.length > 0 ? "Сгенерировать Рекомендации заново" : "Сгенерировать анализ"}
                     </>
                   )}
                 </Button>
