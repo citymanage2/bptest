@@ -1779,22 +1779,35 @@ function DiagramTab({
                 /* Editing Mode */
                 <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
                   <div className={cn(
-                    "flex items-center gap-2 rounded-md border px-3 py-2",
+                    "flex items-center gap-3 rounded-md border px-3 py-2",
                     editIsActive ? "bg-green-50 border-green-200" : "bg-gray-100 border-gray-300"
                   )}>
-                    <input
-                      type="checkbox"
-                      id="blockIsActive"
-                      checked={editIsActive}
-                      onChange={(e) => onSetEditIsActive(e.target.checked)}
-                      className="h-4 w-4 rounded border-gray-300 accent-green-600"
-                    />
-                    <label htmlFor="blockIsActive" className={cn(
-                      "text-sm font-medium",
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={editIsActive}
+                      onClick={() => onSetEditIsActive(!editIsActive)}
+                      className={cn(
+                        "relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+                        editIsActive
+                          ? "bg-green-500 focus-visible:ring-green-500"
+                          : "bg-gray-300 focus-visible:ring-gray-400"
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "pointer-events-none inline-block h-6 w-6 rounded-full bg-white shadow-lg ring-0 transition-transform duration-200 ease-in-out",
+                          "absolute top-0.5",
+                          editIsActive ? "translate-x-[22px]" : "translate-x-0.5"
+                        )}
+                      />
+                    </button>
+                    <span className={cn(
+                      "text-sm font-medium select-none",
                       editIsActive ? "text-green-700" : "text-gray-500"
                     )}>
                       {editIsActive ? "Активен" : "Выключен"}
-                    </label>
+                    </span>
                     {!editIsActive && (
                       <span className="text-xs text-gray-400 ml-auto">Блок исключён из расчётов</span>
                     )}
