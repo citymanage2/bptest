@@ -5,15 +5,31 @@ export function validateProcess(data: ProcessData): QualityCheckResult {
   let checkId = 0;
   const id = () => `check_${++checkId}`;
 
-  const blockMap = new Map(data.blocks.map(b => [b.id, b]));
-  const allTargetIds = new Set(data.blocks.flatMap(b => b.connections));
+  // Use only active blocks for quality checks
+  const activeBlocks = data.blocks.filter(b => b.isActive !== false);
+  const inactiveCount = data.blocks.length - activeBlocks.length;
+
+  const blockMap = new Map(activeBlocks.map(b => [b.id, b]));
+  const allTargetIds = new Set(activeBlocks.flatMap(b => b.connections));
 
   // ═══════════════════════════════════
   // 1. LOGICAL COMPLETENESS
   // ═══════════════════════════════════
 
+  // Info: inactive blocks
+  if (inactiveCount > 0) {
+    items.push({
+      id: id(),
+      category: "Статус блоков",
+      rule: `Выключенные блоки (${inactiveCount})`,
+      passed: true,
+      details: `${inactiveCount} блоков выключены и исключены из проверки`,
+      severity: "info",
+    });
+  }
+
   // Check: has start block
-  const startBlocks = data.blocks.filter(b => b.type === "start");
+  const startBlocks = activeBlocks.filter(b => b.type === "start");
   items.push({
     id: id(),
     category: "Логическая завершённость",
@@ -24,7 +40,7 @@ export function validateProcess(data: ProcessData): QualityCheckResult {
   });
 
   // Check: has end block
-  const endBlocks = data.blocks.filter(b => b.type === "end");
+  const endBlocks = activeBlocks.filter(b => b.type === "end");
   items.push({
     id: id(),
     category: "Логическая завершённость",
@@ -44,7 +60,7 @@ export function validateProcess(data: ProcessData): QualityCheckResult {
   }
   startBlocks.forEach(s => traverse(s.id));
 
-  const unreachable = data.blocks.filter(b => !reachable.has(b.id));
+  const unreachable = activeBlocks.filter(b => !reachable.has(b.id));
   items.push({
     id: id(),
     category: "Логическая завершённость",
@@ -70,7 +86,7 @@ export function validateProcess(data: ProcessData): QualityCheckResult {
   });
 
   // Check: non-end blocks have connections (no dead ends)
-  const deadEnds = data.blocks.filter(b => b.type !== "end" && b.connections.length === 0);
+  const deadEnds = activeBlocks.filter(b => b.type !== "end" && b.connections.length === 0);
   items.push({
     id: id(),
     category: "Логическая завершённость",
@@ -84,7 +100,7 @@ export function validateProcess(data: ProcessData): QualityCheckResult {
 
   // Check: connections reference existing blocks
   const brokenConnections: string[] = [];
-  for (const block of data.blocks) {
+  for (const block of activeBlocks) {
     for (const targetId of block.connections) {
       if (!blockMap.has(targetId)) {
         brokenConnections.push(`${block.name} → ${targetId}`);
@@ -106,7 +122,7 @@ export function validateProcess(data: ProcessData): QualityCheckResult {
   // 2. GATEWAYS AND CONDITIONS
   // ═══════════════════════════════════
 
-  const decisionBlocks = data.blocks.filter(b => b.type === "decision");
+  const decisionBlocks = activeBlocks.filter(b => b.type === "decision");
 
   // Check: decisions have 2+ outgoing connections
   const badDecisions = decisionBlocks.filter(b => b.connections.length < 2);
@@ -156,7 +172,7 @@ export function validateProcess(data: ProcessData): QualityCheckResult {
   // ═══════════════════════════════════
 
   // Check: no empty lanes
-  const rolesWithBlocks = new Set(data.blocks.map(b => b.role));
+  const rolesWithBlocks = new Set(activeBlocks.map(b => b.role));
   const emptyRoles = data.roles.filter(r => !rolesWithBlocks.has(r.id));
   items.push({
     id: id(),
@@ -171,7 +187,7 @@ export function validateProcess(data: ProcessData): QualityCheckResult {
 
   // Check: handoffs between roles (connections crossing lanes)
   let handoffCount = 0;
-  for (const block of data.blocks) {
+  for (const block of activeBlocks) {
     for (const targetId of block.connections) {
       const target = blockMap.get(targetId);
       if (target && target.role !== block.role) handoffCount++;
@@ -204,8 +220,8 @@ export function validateProcess(data: ProcessData): QualityCheckResult {
     id: id(),
     category: "Читаемость",
     rule: "Количество блоков ≤ 50 на уровне (не перегружено)",
-    passed: data.blocks.length <= 50,
-    details: `Блоков: ${data.blocks.length}`,
+    passed: activeBlocks.length <= 50,
+    details: `Блоков: ${activeBlocks.length}`,
     severity: "info",
   });
 
@@ -219,7 +235,7 @@ export function validateProcess(data: ProcessData): QualityCheckResult {
   });
 
   // Check: blocks have descriptions
-  const noDesc = data.blocks.filter(b => !b.description || b.description.length < 5);
+  const noDesc = activeBlocks.filter(b => !b.description || b.description.length < 5);
   items.push({
     id: id(),
     category: "Читаемость",
@@ -235,7 +251,7 @@ export function validateProcess(data: ProcessData): QualityCheckResult {
   // 5. DATA AND DOCUMENTS
   // ═══════════════════════════════════
 
-  const actionBlocks = data.blocks.filter(b => b.type === "action");
+  const actionBlocks = activeBlocks.filter(b => b.type === "action");
 
   // Check: actions have documents
   const noInputDocs = actionBlocks.filter(b => !b.inputDocuments || b.inputDocuments.length === 0);
@@ -275,7 +291,7 @@ export function validateProcess(data: ProcessData): QualityCheckResult {
   // ═══════════════════════════════════
 
   // Check: has product blocks (intermediate results)
-  const productBlocks = data.blocks.filter(b => b.type === "product");
+  const productBlocks = activeBlocks.filter(b => b.type === "product");
   items.push({
     id: id(),
     category: "Соответствие ценности",
@@ -309,7 +325,7 @@ export function validateProcess(data: ProcessData): QualityCheckResult {
   // 7. AUTOMATION POTENTIAL
   // ═══════════════════════════════════
 
-  const allSystems = new Set(data.blocks.flatMap(b => b.infoSystems || []));
+  const allSystems = new Set(activeBlocks.flatMap(b => b.infoSystems || []));
   items.push({
     id: id(),
     category: "Потенциал автоматизации",

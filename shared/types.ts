@@ -71,6 +71,7 @@ export interface ProcessBlock {
   infoSystems?: string[];
   checklist?: string[];
   funnelStage?: string;
+  isActive?: boolean; // defaults to true when undefined
   connections: string[]; // IDs of next blocks
   conditionLabel?: string; // For decision branches
   isDefault?: boolean; // Default branch from decision

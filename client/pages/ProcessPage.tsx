@@ -187,30 +187,32 @@ function formatMinutes(totalMinutes: number): string {
  * Calculate process metrics from ProcessData.
  */
 function calculateMetrics(data: ProcessData): ProcessMetrics {
-  const steps = data.blocks.filter(
+  const active = data.blocks.filter((b) => b.isActive !== false);
+
+  const steps = active.filter(
     (b) => b.type !== "start" && b.type !== "end"
   ).length;
 
-  const decisionPoints = data.blocks.filter(
+  const decisionPoints = active.filter(
     (b) => b.type === "decision"
   ).length;
 
   const rolesCount = data.roles.length;
 
-  // Count handoffs: transitions between blocks belonging to different roles
+  // Count handoffs: transitions between active blocks belonging to different roles
   let handoffs = 0;
-  for (const block of data.blocks) {
+  for (const block of active) {
     for (const connId of block.connections) {
-      const target = data.blocks.find((b) => b.id === connId);
+      const target = active.find((b) => b.id === connId);
       if (target && target.role !== block.role) {
         handoffs++;
       }
     }
   }
 
-  // Total time
+  // Total time (active only)
   let totalMinutes = 0;
-  for (const block of data.blocks) {
+  for (const block of active) {
     totalMinutes += parseTimeEstimate(block.timeEstimate);
   }
 
@@ -231,7 +233,8 @@ function calculateMetrics(data: ProcessData): ProcessMetrics {
  * Compute the critical path duration using longest-path traversal from start blocks.
  */
 function computeCriticalPath(data: ProcessData): number {
-  const startBlocks = data.blocks.filter((b) => b.type === "start");
+  const activeOnly = data.blocks.filter((b) => b.isActive !== false);
+  const startBlocks = activeOnly.filter((b) => b.type === "start");
   const memo = new Map<string, number>();
 
   function longestFrom(blockId: string, visited: Set<string>): number {
@@ -239,7 +242,7 @@ function computeCriticalPath(data: ProcessData): number {
     if (memo.has(blockId)) return memo.get(blockId)!;
 
     visited.add(blockId);
-    const block = data.blocks.find((b) => b.id === blockId);
+    const block = activeOnly.find((b) => b.id === blockId);
     if (!block) return 0;
 
     const ownTime = parseTimeEstimate(block.timeEstimate);
@@ -642,19 +645,21 @@ function validateFunnel(stages: CrmFunnelStage[]): string[] {
  * Generate a single CRM funnel from ProcessData using two-pass gate extraction.
  */
 function generateCrmFunnels(data: ProcessData): CrmFunnel[] {
-  if (data.blocks.length < 3) return [];
+  // Use only active blocks for CRM funnel generation
+  const activeData: ProcessData = { ...data, blocks: data.blocks.filter(b => b.isActive !== false) };
+  if (activeData.blocks.length < 3) return [];
 
   // Pass 1: extract gates
-  const gates = extractGates(data);
+  const gates = extractGates(activeData);
 
   // Pass 2: aggregate into L0 stages
-  const l0Stages = aggregateToFunnelStages(data, gates);
+  const l0Stages = aggregateToFunnelStages(activeData, gates);
 
   // Build L0+L1 hierarchy
-  const allStages = buildSubStages(data, l0Stages);
+  const allStages = buildSubStages(activeData, l0Stages);
 
   // Statuses
-  const statuses = generateStatuses(data);
+  const statuses = generateStatuses(activeData);
 
   // Validate
   const qualityNotes = validateFunnel(allStages);
@@ -878,6 +883,8 @@ export function ProcessPage() {
   const [editChecklist, setEditChecklist] = useState("");
   const [editConditionLabel, setEditConditionLabel] = useState("");
   const [editIsDefault, setEditIsDefault] = useState(false);
+  const [editIsActive, setEditIsActive] = useState(true);
+  const [rebuildProgress, setRebuildProgress] = useState<{ open: boolean; progress: number; label: string }>({ open: false, progress: 0, label: "" });
   const [editConnections, setEditConnections] = useState<string[]>([]);
   const [editConnectionLabels, setEditConnectionLabels] = useState<Record<string, string>>({});
 
@@ -981,6 +988,7 @@ export function ProcessPage() {
       setEditChecklist(block.checklist?.join(", ") || "");
       setEditConditionLabel(block.conditionLabel || "");
       setEditIsDefault(block.isDefault || false);
+      setEditIsActive(block.isActive !== false);
       setEditConnections([...block.connections]);
       // Load connection labels from target blocks
       const labels: Record<string, string> = {};
@@ -1018,6 +1026,7 @@ export function ProcessPage() {
           outputDocuments: parseCommaSeparated(editOutputDocuments),
           infoSystems: parseCommaSeparated(editInfoSystems),
           checklist: parseCommaSeparated(editChecklist),
+          isActive: editIsActive,
           conditionLabel: editConditionLabel || undefined,
           isDefault: editIsDefault,
           connections: editConnections,
@@ -1034,12 +1043,35 @@ export function ProcessPage() {
       return b;
     });
 
+    // Check if isActive was toggled — show rebuild progress
+    const wasActive = editingBlock.isActive !== false;
+    const isActiveToggled = wasActive !== editIsActive;
+
+    if (isActiveToggled) {
+      setRebuildProgress({ open: true, progress: 0, label: editIsActive ? "Восстановление блока..." : "Перестроение процесса..." });
+      const steps = [
+        { p: 20, l: "Диаграмма" }, { p: 40, l: "Этапы" }, { p: 55, l: "Метрики" },
+        { p: 70, l: "CRM-воронки" }, { p: 80, l: "Паспорт" }, { p: 90, l: "Рекомендации" }, { p: 95, l: "Качество" },
+      ];
+      let i = 0;
+      const interval = setInterval(() => {
+        if (i < steps.length) {
+          setRebuildProgress({ open: true, progress: steps[i].p, label: steps[i].l });
+          i++;
+        } else {
+          clearInterval(interval);
+          setRebuildProgress({ open: true, progress: 100, label: "Процесс успешно обновлен" });
+          setTimeout(() => setRebuildProgress({ open: false, progress: 0, label: "" }), 1500);
+        }
+      }, 200);
+    }
+
     updateDataMutation.mutate({
       id: processId,
       data: { ...data, blocks: updatedBlocks },
     });
     setEditingBlock(null);
-  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editChecklist, editConditionLabel, editIsDefault, editConnections, editConnectionLabels, processId, updateDataMutation]);
+  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editChecklist, editIsActive, editConditionLabel, editIsDefault, editConnections, editConnectionLabels, processId, updateDataMutation]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingBlock(null);
@@ -1444,6 +1476,8 @@ export function ProcessPage() {
               onSetEditChecklist={setEditChecklist}
               onSetEditConditionLabel={setEditConditionLabel}
               onSetEditIsDefault={setEditIsDefault}
+              onSetEditIsActive={setEditIsActive}
+              editIsActive={editIsActive}
               onSetEditConnections={setEditConnections}
               onSetEditConnectionLabels={setEditConnectionLabels}
               onScaleChange={setCanvasScale}
@@ -1512,6 +1546,31 @@ export function ProcessPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Rebuild Progress Modal */}
+      {rebuildProgress.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-80 space-y-4">
+            <div className="flex items-center gap-3">
+              {rebuildProgress.progress < 100 ? (
+                <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+              ) : (
+                <CheckCircle2 className="w-6 h-6 text-green-600" />
+              )}
+              <div>
+                <p className="text-sm font-semibold text-gray-900">
+                  {rebuildProgress.progress < 100 ? "Перестроение процесса..." : "Процесс успешно обновлен"}
+                </p>
+                {rebuildProgress.progress < 100 && (
+                  <p className="text-xs text-gray-500 mt-0.5">{rebuildProgress.label}</p>
+                )}
+              </div>
+            </div>
+            <Progress value={rebuildProgress.progress} className="h-2" />
+            <p className="text-right text-xs text-gray-400">{rebuildProgress.progress}%</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1538,6 +1597,7 @@ interface DiagramTabProps {
   editChecklist: string;
   editConditionLabel: string;
   editIsDefault: boolean;
+  editIsActive: boolean;
   editConnections: string[];
   editConnectionLabels: Record<string, string>;
   canvasScale: number;
@@ -1561,6 +1621,7 @@ interface DiagramTabProps {
   onSetEditChecklist: (v: string) => void;
   onSetEditConditionLabel: (v: string) => void;
   onSetEditIsDefault: (v: boolean) => void;
+  onSetEditIsActive: (v: boolean) => void;
   onSetEditConnections: (v: string[]) => void;
   onSetEditConnectionLabels: (v: Record<string, string>) => void;
   onScaleChange: (scale: number) => void;
@@ -1609,6 +1670,8 @@ function DiagramTab({
   onSetEditChecklist,
   onSetEditConditionLabel,
   onSetEditIsDefault,
+  onSetEditIsActive,
+  editIsActive,
   onSetEditConnections,
   onSetEditConnectionLabels,
   onScaleChange,
@@ -1715,6 +1778,27 @@ function DiagramTab({
               {editingBlock?.id === selectedBlock.id ? (
                 /* Editing Mode */
                 <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+                  <div className={cn(
+                    "flex items-center gap-2 rounded-md border px-3 py-2",
+                    editIsActive ? "bg-green-50 border-green-200" : "bg-gray-100 border-gray-300"
+                  )}>
+                    <input
+                      type="checkbox"
+                      id="blockIsActive"
+                      checked={editIsActive}
+                      onChange={(e) => onSetEditIsActive(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 accent-green-600"
+                    />
+                    <label htmlFor="blockIsActive" className={cn(
+                      "text-sm font-medium",
+                      editIsActive ? "text-green-700" : "text-gray-500"
+                    )}>
+                      {editIsActive ? "Активен" : "Выключен"}
+                    </label>
+                    {!editIsActive && (
+                      <span className="text-xs text-gray-400 ml-auto">Блок исключён из расчётов</span>
+                    )}
+                  </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-gray-700">
                       Название
@@ -1971,15 +2055,21 @@ function DiagramTab({
               ) : (
                 /* View Mode */
                 <>
+                  {selectedBlock.isActive === false && (
+                    <div className="bg-gray-100 border border-gray-300 rounded-md px-3 py-1.5 text-sm text-gray-500 font-medium flex items-center gap-1.5">
+                      <div className="w-2 h-2 rounded-full bg-gray-400" />
+                      Блок выключен
+                    </div>
+                  )}
                   <div>
-                    <h3 className="font-semibold text-gray-900">
+                    <h3 className={cn("font-semibold", selectedBlock.isActive === false ? "text-gray-400" : "text-gray-900")}>
                       {selectedBlock.name}
                     </h3>
                     <Badge
                       variant="secondary"
                       className="mt-1"
                       style={{
-                        borderColor: BLOCK_CONFIG[selectedBlock.type]?.borderColor,
+                        borderColor: selectedBlock.isActive === false ? "#9ca3af" : BLOCK_CONFIG[selectedBlock.type]?.borderColor,
                         borderWidth: "1px",
                       }}
                     >
@@ -2317,12 +2407,18 @@ function StagesTab({ data }: { data: ProcessData }) {
                 <div>
                   <CardTitle className="text-base">{stage.name}</CardTitle>
                   <CardDescription>
-                    {blocks.length}{" "}
-                    {blocks.length === 1
-                      ? "блок"
-                      : blocks.length < 5
-                        ? "блока"
-                        : "блоков"}
+                    {(() => {
+                      const activeCount = blocks.filter((b) => b.isActive !== false).length;
+                      const inactiveCount = blocks.length - activeCount;
+                      return (
+                        <>
+                          {activeCount} {activeCount === 1 ? "блок" : activeCount < 5 ? "блока" : "блоков"}
+                          {inactiveCount > 0 && (
+                            <span className="text-gray-400"> ({inactiveCount} выкл.)</span>
+                          )}
+                        </>
+                      );
+                    })()}
                   </CardDescription>
                 </div>
               </div>
@@ -2334,22 +2430,26 @@ function StagesTab({ data }: { data: ProcessData }) {
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {blocks.map((block) => (
+                  {blocks.map((block) => {
+                    const inactive = block.isActive === false;
+                    return (
                     <div
                       key={block.id}
-                      className="rounded-lg border border-gray-100 bg-gray-50/50 p-3"
+                      className={cn(
+                        "rounded-lg border p-3",
+                        inactive ? "border-gray-200 bg-gray-100 opacity-60" : "border-gray-100 bg-gray-50/50"
+                      )}
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div
                           className="w-2 h-8 rounded-full shrink-0"
                           style={{
-                            backgroundColor:
-                              BLOCK_CONFIG[block.type]?.borderColor || "#6b7280",
+                            backgroundColor: inactive ? "#9ca3af" : (BLOCK_CONFIG[block.type]?.borderColor || "#6b7280"),
                           }}
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-900">
+                            <span className={cn("text-sm font-medium", inactive ? "text-gray-400 line-through" : "text-gray-900")}>
                               {block.name}
                             </span>
                             <Badge
@@ -2358,6 +2458,11 @@ function StagesTab({ data }: { data: ProcessData }) {
                             >
                               {BLOCK_CONFIG[block.type]?.label}
                             </Badge>
+                            {inactive && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0 border-gray-300 text-gray-400">
+                                Выключен
+                              </Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
                             <span className="flex items-center gap-1">
@@ -2403,7 +2508,8 @@ function StagesTab({ data }: { data: ProcessData }) {
                         </div>
                       ) : null}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -2573,8 +2679,11 @@ function MetricsTab({
     },
   ];
 
-  // Compute type distribution
-  const typeDistribution = data.blocks.reduce(
+  const activeBlocks = data.blocks.filter((b) => b.isActive !== false);
+  const inactiveCount = data.blocks.length - activeBlocks.length;
+
+  // Compute type distribution (active blocks only)
+  const typeDistribution = activeBlocks.reduce(
     (acc, block) => {
       acc[block.type] = (acc[block.type] || 0) + 1;
       return acc;
@@ -2582,9 +2691,9 @@ function MetricsTab({
     {} as Record<string, number>
   );
 
-  // Role workload
+  // Role workload (active blocks only)
   const roleWorkload = data.roles.map((role) => {
-    const roleBlocks = data.blocks.filter(
+    const roleBlocks = activeBlocks.filter(
       (b) => b.role === role.name || b.role === role.id
     );
     const totalMinutes = roleBlocks.reduce(
@@ -2601,6 +2710,13 @@ function MetricsTab({
 
   return (
     <div className="space-y-6">
+      {inactiveCount > 0 && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-2 text-sm text-gray-500 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          {inactiveCount} {inactiveCount === 1 ? "блок выключен" : inactiveCount < 5 ? "блока выключены" : "блоков выключены"} — метрики рассчитаны без них
+        </div>
+      )}
+
       {/* Metric Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {metricCards.map((metric) => (
@@ -2635,7 +2751,7 @@ function MetricsTab({
             {Object.entries(typeDistribution).map(([type, count]) => {
               const config = BLOCK_CONFIG[type as BlockType];
               const percentage = Math.round(
-                (count / data.blocks.length) * 100
+                (count / (activeBlocks.length || 1)) * 100
               );
               return (
                 <div key={type} className="flex items-center gap-3">

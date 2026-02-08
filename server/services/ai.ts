@@ -295,6 +295,8 @@ export async function generateRecommendations(
   }>
 > {
   try {
+    // Use only active blocks for recommendations
+    const activeProcessData = { ...processData, blocks: processData.blocks.filter(b => b.isActive !== false) };
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 16000,
@@ -304,7 +306,7 @@ export async function generateRecommendations(
           content: `Ты — консультант по операционной эффективности (Lean / BPM / BPMN 2.0) и автоматизации (CRM, ERP, RPA). Твоя задача: на основе бизнес-процесса выявить слабые зоны и дать рекомендации по улучшению.
 
 ВХОДНЫЕ ДАННЫЕ:
-${JSON.stringify(processData, null, 2)}
+${JSON.stringify(activeProcessData, null, 2)}
 
 ТРЕБОВАНИЯ:
 - Пиши на русском, максимально прикладно
@@ -437,16 +439,19 @@ ${JSON.stringify(processData, null, 2)}
 // ═══════════════════════════════════════════════════════════════════
 
 export function generatePassport(data: ProcessData): ProcessPassport {
+  // Use only active blocks for passport generation
+  const activeBlocks = data.blocks.filter(b => b.isActive !== false);
+
   // Extract unique documents
   const inputDocs = new Set<string>();
   const outputDocs = new Set<string>();
   const allSystems = new Set<string>();
   const triggers: string[] = [data.startEvent];
 
-  const actionBlocks = data.blocks.filter(b => b.type === "action");
-  const productBlocks = data.blocks.filter(b => b.type === "product");
+  const actionBlocks = activeBlocks.filter(b => b.type === "action");
+  const productBlocks = activeBlocks.filter(b => b.type === "product");
 
-  for (const block of data.blocks) {
+  for (const block of activeBlocks) {
     block.inputDocuments?.forEach(d => inputDocs.add(d));
     block.outputDocuments?.forEach(d => outputDocs.add(d));
     block.infoSystems?.forEach(s => allSystems.add(s));
@@ -465,9 +470,9 @@ export function generatePassport(data: ProcessData): ProcessPassport {
 
   // Extract exceptions from decision branches
   const exceptions: string[] = [];
-  for (const block of data.blocks) {
+  for (const block of activeBlocks) {
     if (block.type === "decision") {
-      const nonDefaultBranches = data.blocks.filter(
+      const nonDefaultBranches = activeBlocks.filter(
         b => block.connections.includes(b.id) && !b.isDefault && b.conditionLabel
       );
       for (const branch of nonDefaultBranches) {
@@ -509,7 +514,7 @@ export function generatePassport(data: ProcessData): ProcessPassport {
 
   // Risks from decision points and exceptions
   const risks: ProcessPassport["risks"] = [];
-  const decisionBlocks = data.blocks.filter(b => b.type === "decision");
+  const decisionBlocks = activeBlocks.filter(b => b.type === "decision");
   for (const d of decisionBlocks) {
     risks.push({
       description: `Точка принятия решения: ${d.name}`,
@@ -526,7 +531,7 @@ export function generatePassport(data: ProcessData): ProcessPassport {
     boundaries: {
       start: data.startEvent,
       end: data.endEvent,
-      scope: `${data.blocks.length} блоков, ${data.roles.length} ролей, ${data.stages.length} этапов`,
+      scope: `${activeBlocks.length} блоков, ${data.roles.length} ролей, ${data.stages.length} этапов`,
     },
     triggers,
     inputs: Array.from(inputDocs),
@@ -704,6 +709,7 @@ export async function generateRegulationDocument(
   companyName: string,
 ): Promise<string> {
   const roleBlocks = processData.blocks.filter((b) => {
+    if (b.isActive === false) return false;
     const role = processData.roles.find((r) => r.id === b.role);
     return role?.name === roleName;
   });
@@ -847,9 +853,10 @@ export async function generateCrmFunnelVariants(
   data: ProcessData,
   variantCount: number = 3
 ): Promise<CrmFunnel[]> {
+  const activeBlocks = data.blocks.filter(b => b.isActive !== false);
   const stagesInfo = data.stages.map((s) => `- ${s.name} (порядок: ${s.order})`).join("\n");
   const rolesInfo = data.roles.map((r) => `- ${r.name}`).join("\n");
-  const blocksInfo = data.blocks
+  const blocksInfo = activeBlocks
     .map((b) => {
       const role = data.roles.find((r) => r.id === b.role)?.name || b.role;
       const stage = data.stages.find((s) => s.id === b.stage)?.name || b.stage;

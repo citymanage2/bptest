@@ -844,6 +844,21 @@ function nudgeParallelSegments(routes: RoutedConnection[]): void {
 
 // ---- Main routing entry point -----------------------------------------------
 
+// Resolve the next active target by following connections through inactive blocks
+function resolveActiveTargets(blockId: string, allBlocks: ProcessBlock[], visited: Set<string> = new Set()): string[] {
+  if (visited.has(blockId)) return [];
+  visited.add(blockId);
+  const block = allBlocks.find((b) => b.id === blockId);
+  if (!block) return [];
+  if (block.isActive !== false) return [blockId];
+  // Block is inactive — follow its connections to find the next active
+  const results: string[] = [];
+  for (const connId of block.connections) {
+    results.push(...resolveActiveTargets(connId, allBlocks, visited));
+  }
+  return results;
+}
+
 function routeAllConnections(
   allBlocks: ProcessBlock[],
   blockMap: Record<string, LayoutBlock>,
@@ -856,19 +871,42 @@ function routeAllConnections(
     allObstacles.push({ blockId: lb.block.id, obs: blockToObstacle(lb, ROUTE_GAP) });
   }
 
+  // Build effective connections that bypass inactive blocks
+  type EffConn = { sourceId: string; targetId: string; connIndex: number };
+  const effectiveConnections: EffConn[] = [];
+
   for (const block of allBlocks) {
-    const source = blockMap[block.id];
+    if (block.isActive === false) continue; // Skip inactive sources
+    for (let ci = 0; ci < block.connections.length; ci++) {
+      const rawTargetId = block.connections[ci];
+      const rawTarget = allBlocks.find((b) => b.id === rawTargetId);
+      if (rawTarget && rawTarget.isActive === false) {
+        // Bypass through inactive block
+        const activeTargets = resolveActiveTargets(rawTargetId, allBlocks);
+        for (const at of activeTargets) {
+          effectiveConnections.push({ sourceId: block.id, targetId: at, connIndex: ci });
+        }
+      } else {
+        effectiveConnections.push({ sourceId: block.id, targetId: rawTargetId, connIndex: ci });
+      }
+    }
+  }
+
+  for (const { sourceId, targetId, connIndex: ci } of effectiveConnections) {
+    const block = allBlocks.find((b) => b.id === sourceId);
+    if (!block) continue;
+    const source = blockMap[sourceId];
     if (!source) continue;
 
-    const totalConns = block.connections.length;
+    const totalConns = effectiveConnections.filter((c) => c.sourceId === sourceId).length;
 
     // Pre-compute all target LayoutBlocks for decision blocks (needed for pair divergence)
-    const allTargets: LayoutBlock[] = block.connections
-      .map((cid) => blockMap[cid])
+    const allTargets: LayoutBlock[] = effectiveConnections
+      .filter((c) => c.sourceId === sourceId)
+      .map((c) => blockMap[c.targetId])
       .filter(Boolean);
 
-    for (let ci = 0; ci < totalConns; ci++) {
-      const targetId = block.connections[ci];
+    {
       const target = blockMap[targetId];
       if (!target) continue;
 
@@ -927,7 +965,7 @@ function routeAllConnections(
       );
 
       routes.push({
-        sourceId: block.id,
+        sourceId: sourceId,
         targetId,
         connIndex: ci,
         points,
@@ -1190,13 +1228,19 @@ function drawBlockShape(
 ) {
   const { block, x, y, w, h } = lb;
   const config = BLOCK_CONFIG[block.type];
-  const fill = getBlockFill(block.type);
-  const border = config.borderColor;
+  const isInactive = block.isActive === false;
+  const fill = isInactive ? "#E5E7EB" : getBlockFill(block.type);
+  const border = isInactive ? "#9ca3af" : config.borderColor;
   const lw = isHighlighted || isSelected ? 3 : isConnectedHighlight ? 2.5 : 2;
 
   // Shadow
   ctx.save();
-  if (isHighlighted || isSelected) {
+  if (isInactive) {
+    ctx.shadowColor = "rgba(0, 0, 0, 0.04)";
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 2;
+  } else if (isHighlighted || isSelected) {
     ctx.shadowColor = hexToRgba(border, 0.35);
     ctx.shadowBlur = 18;
     ctx.shadowOffsetX = 0;
@@ -1289,6 +1333,13 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
   const { block, x, y, w, h } = lb;
   const config = BLOCK_CONFIG[block.type];
   const cx = x + w / 2;
+  const isInactive = block.isActive === false;
+
+  // Reduce opacity for inactive blocks
+  if (isInactive) {
+    ctx.save();
+    ctx.globalAlpha = 0.45;
+  }
 
   // Calculate text area constraints based on shape
   let textMaxW: number;
@@ -1409,6 +1460,30 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
     }
+  }
+
+  // Restore opacity for inactive blocks
+  if (isInactive) {
+    ctx.restore();
+
+    // Draw "ВЫКЛ" badge at top-right
+    const badgeText = "ВЫКЛ";
+    ctx.save();
+    ctx.font = "bold 9px Inter, system-ui, sans-serif";
+    const tw = ctx.measureText(badgeText).width;
+    const bw = tw + 8;
+    const bh = 16;
+    const bx = x + w - bw - 4;
+    const by = y + 4;
+    ctx.fillStyle = "#6b7280";
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, 4);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(badgeText, bx + bw / 2, by + bh / 2);
+    ctx.restore();
   }
 }
 
