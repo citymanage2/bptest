@@ -865,7 +865,14 @@ export function ProcessPage() {
   const [canvasScale, setCanvasScale] = useState(1);
   const [changeDialogOpen, setChangeDialogOpen] = useState(false);
   const [changeDescription, setChangeDescription] = useState("");
-  const [pendingChangeRequest, setPendingChangeRequest] = useState<ChangeRequest | null>(null);
+  const [previewState, setPreviewState] = useState<{
+    previousData: ProcessData;
+    newData: ProcessData;
+    description: string;
+    changeRequestId?: number;
+    isRegeneration?: boolean;
+    retryFn: () => void;
+  } | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const canvasHandleRef = useRef<SwimlaneCanvasHandle>(null);
 
@@ -900,9 +907,18 @@ export function ProcessPage() {
   });
 
   const regenerateMutation = trpc.process.regenerate.useMutation({
-    onSuccess: () => {
+    onSuccess: (result) => {
       regenerateProgress.finish();
-      utils.process.getById.invalidate({ id: processId });
+      setPreviewState({
+        previousData: data!,
+        newData: result.data as ProcessData,
+        description: "Полная регенерация процесса",
+        isRegeneration: true,
+        retryFn: () => {
+          regenerateProgress.start();
+          regenerateMutation.mutate({ id: processId });
+        },
+      });
     },
     onError: () => {
       regenerateProgress.reset();
@@ -912,7 +928,19 @@ export function ProcessPage() {
   const requestChangeMutation = trpc.process.requestChange.useMutation({
     onSuccess: (changeRequest) => {
       changeProgress.finish();
-      setPendingChangeRequest(changeRequest as ChangeRequest);
+      const cr = changeRequest as ChangeRequest;
+      const desc = changeDescription.trim();
+      setChangeDialogOpen(false);
+      setPreviewState({
+        previousData: cr.previousData,
+        newData: cr.newData,
+        description: cr.description,
+        changeRequestId: cr.id,
+        retryFn: () => {
+          changeProgress.start();
+          requestChangeMutation.mutate({ processId, description: desc });
+        },
+      });
     },
     onError: () => {
       changeProgress.reset();
@@ -921,16 +949,17 @@ export function ProcessPage() {
 
   const applyChangeMutation = trpc.process.applyChange.useMutation({
     onSuccess: () => {
-      setPendingChangeRequest(null);
+      setPreviewState(null);
       setChangeDialogOpen(false);
       setChangeDescription("");
       utils.process.getById.invalidate({ id: processId });
+      utils.process.getRecommendations.invalidate({ processId });
     },
   });
 
   const rejectChangeMutation = trpc.process.rejectChange.useMutation({
     onSuccess: () => {
-      setPendingChangeRequest(null);
+      setPreviewState(null);
     },
   });
 
@@ -1104,15 +1133,33 @@ export function ProcessPage() {
     });
   }, [changeDescription, processId, requestChangeMutation, changeProgress]);
 
-  const handleApplyChange = useCallback(() => {
-    if (!pendingChangeRequest) return;
-    applyChangeMutation.mutate({ changeRequestId: pendingChangeRequest.id });
-  }, [pendingChangeRequest, applyChangeMutation]);
+  const handlePreviewAccept = useCallback(() => {
+    if (!previewState) return;
+    if (previewState.isRegeneration) {
+      utils.process.getById.invalidate({ id: processId });
+      utils.process.getRecommendations.invalidate({ processId });
+      setPreviewState(null);
+    } else if (previewState.changeRequestId) {
+      applyChangeMutation.mutate({ changeRequestId: previewState.changeRequestId });
+    }
+  }, [previewState, processId, applyChangeMutation, utils]);
 
-  const handleRejectChange = useCallback(() => {
-    if (!pendingChangeRequest) return;
-    rejectChangeMutation.mutate({ changeRequestId: pendingChangeRequest.id });
-  }, [pendingChangeRequest, rejectChangeMutation]);
+  const handlePreviewReject = useCallback(() => {
+    if (!previewState) return;
+    if (previewState.isRegeneration) {
+      updateDataMutation.mutate({ id: processId, data: previewState.previousData });
+      setPreviewState(null);
+    } else if (previewState.changeRequestId) {
+      rejectChangeMutation.mutate({ changeRequestId: previewState.changeRequestId });
+    }
+  }, [previewState, processId, updateDataMutation, rejectChangeMutation]);
+
+  const handlePreviewRetry = useCallback(() => {
+    if (!previewState) return;
+    const retryFn = previewState.retryFn;
+    setPreviewState(null);
+    retryFn();
+  }, [previewState]);
 
   // ---- Loading State ----
   if (processQuery.isLoading) {
@@ -1142,8 +1189,8 @@ export function ProcessPage() {
   }
 
   // ---- Diff view for pending change request ----
-  const diffItems = pendingChangeRequest
-    ? computeProcessDiff(pendingChangeRequest.previousData, pendingChangeRequest.newData)
+  const previewDiffItems = previewState
+    ? computeProcessDiff(previewState.previousData, previewState.newData)
     : [];
 
   // ---- Group 1 action buttons (shared across process tabs) ----
@@ -1180,8 +1227,7 @@ export function ProcessPage() {
             </DialogDescription>
           </DialogHeader>
 
-          {!pendingChangeRequest ? (
-            <div className="space-y-4">
+          <div className="space-y-4">
               <Textarea
                 placeholder="Например: Добавить этап согласования с юридическим отделом перед подписанием договора..."
                 value={changeDescription}
@@ -1239,88 +1285,6 @@ export function ProcessPage() {
                 </div>
               )}
             </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="text-sm text-gray-600 font-medium mb-2">
-                Предлагаемые изменения:
-              </div>
-              <div className="max-h-80 overflow-y-auto space-y-2 rounded-lg border border-gray-200 p-3">
-                {diffItems.length === 0 ? (
-                  <p className="text-sm text-gray-400 italic">
-                    Изменений не обнаружено
-                  </p>
-                ) : (
-                  diffItems.map((item, idx) => (
-                    <div
-                      key={idx}
-                      className={cn(
-                        "flex items-start gap-2 px-3 py-2 rounded-md text-sm",
-                        item.type === "added" && "bg-green-50 border border-green-200",
-                        item.type === "removed" && "bg-red-50 border border-red-200",
-                        item.type === "changed" && "bg-blue-50 border border-blue-200"
-                      )}
-                    >
-                      {item.type === "added" && (
-                        <Plus className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
-                      )}
-                      {item.type === "removed" && (
-                        <Minus className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-                      )}
-                      {item.type === "changed" && (
-                        <ArrowRightLeft className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
-                      )}
-                      <div>
-                        <div
-                          className={cn(
-                            "font-medium",
-                            item.type === "added" && "text-green-700",
-                            item.type === "removed" && "text-red-700",
-                            item.type === "changed" && "text-blue-700"
-                          )}
-                        >
-                          {item.label}
-                        </div>
-                        {item.details && (
-                          <div className="text-gray-500 mt-0.5">{item.details}</div>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <DialogFooter>
-                <Button
-                  variant="outline"
-                  onClick={handleRejectChange}
-                  disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending}
-                >
-                  {rejectChangeMutation.isPending ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <XCircle className="w-4 h-4" />
-                  )}
-                  Отменить
-                </Button>
-                <Button
-                  onClick={handleApplyChange}
-                  disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending}
-                >
-                  {applyChangeMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Применение...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4" />
-                      Применить
-                    </>
-                  )}
-                </Button>
-              </DialogFooter>
-            </div>
-          )}
         </DialogContent>
       </Dialog>
 
@@ -1506,7 +1470,7 @@ export function ProcessPage() {
 
         {/* ======== Tab: CRM Funnels (Group 2 — local buttons inside) ======== */}
         <TabsContent value="crm">
-          <CrmFunnelsTab funnels={crmFunnels} data={data} processId={processId} hasSavedFunnels={hasSavedCrmFunnels} />
+          <CrmFunnelsTab funnels={crmFunnels} data={data} processId={processId} hasSavedFunnels={hasSavedCrmFunnels} onChangePreview={(cr, retryFn) => setPreviewState({ previousData: cr.previousData, newData: cr.newData, description: cr.description, changeRequestId: cr.id, retryFn })} />
         </TabsContent>
 
         {/* ======== Tab: Regulations (Group 1) ======== */}
@@ -1535,7 +1499,7 @@ export function ProcessPage() {
 
         {/* ======== Tab: Recommendations (Group 2 — local buttons inside) ======== */}
         <TabsContent value="recommendations">
-          <RecommendationsTab processId={processId} data={data} />
+          <RecommendationsTab processId={processId} data={data} onChangePreview={(cr, retryFn) => setPreviewState({ previousData: cr.previousData, newData: cr.newData, description: cr.description, changeRequestId: cr.id, retryFn })} />
         </TabsContent>
 
         {/* ======== Tab: History (Group 1) ======== */}
@@ -1548,6 +1512,105 @@ export function ProcessPage() {
       </Tabs>
 
       {/* Rebuild Progress Modal */}
+      {/* ── Preview Modal ── */}
+      {previewState && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+            <div className="px-6 pt-6 pb-4 border-b border-gray-100">
+              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                <Eye className="w-5 h-5 text-purple-600" />
+                Предпросмотр изменений
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">{previewState.description}</p>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
+              {previewDiffItems.length === 0 ? (
+                <p className="text-sm text-gray-400 italic py-4 text-center">
+                  Структурных изменений не обнаружено (изменения могут касаться содержания блоков)
+                </p>
+              ) : (
+                <>
+                  <div className="flex items-center gap-4 text-xs text-gray-400 mb-3">
+                    <span className="flex items-center gap-1"><Plus className="w-3 h-3 text-green-500" /> Добавлено: {previewDiffItems.filter(i => i.type === "added").length}</span>
+                    <span className="flex items-center gap-1"><Minus className="w-3 h-3 text-red-500" /> Удалено: {previewDiffItems.filter(i => i.type === "removed").length}</span>
+                    <span className="flex items-center gap-1"><ArrowRightLeft className="w-3 h-3 text-blue-500" /> Изменено: {previewDiffItems.filter(i => i.type === "changed").length}</span>
+                  </div>
+                  {previewDiffItems.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className={cn(
+                        "flex items-start gap-2 px-3 py-2 rounded-lg text-sm",
+                        item.type === "added" && "bg-green-50 border border-green-200",
+                        item.type === "removed" && "bg-red-50 border border-red-200",
+                        item.type === "changed" && "bg-blue-50 border border-blue-200"
+                      )}
+                    >
+                      {item.type === "added" && <Plus className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />}
+                      {item.type === "removed" && <Minus className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />}
+                      {item.type === "changed" && <ArrowRightLeft className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />}
+                      <div>
+                        <div className={cn(
+                          "font-medium",
+                          item.type === "added" && "text-green-700",
+                          item.type === "removed" && "text-red-700",
+                          item.type === "changed" && "text-blue-700"
+                        )}>
+                          {item.label}
+                        </div>
+                        {item.details && <div className="text-gray-500 mt-0.5">{item.details}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-100 flex items-center gap-3 justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePreviewRetry}
+                disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending || regenerateMutation.isPending}
+              >
+                <RefreshCw className="w-4 h-4" />
+                Запросить заново
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handlePreviewReject}
+                disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending || updateDataMutation.isPending}
+              >
+                {rejectChangeMutation.isPending || updateDataMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <XCircle className="w-4 h-4" />
+                )}
+                Отменить
+              </Button>
+              <Button
+                size="sm"
+                onClick={handlePreviewAccept}
+                disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending || updateDataMutation.isPending}
+              >
+                {applyChangeMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Сохранение...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    Сохранить изменения
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {rebuildProgress.open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
           <div className="bg-white rounded-xl shadow-2xl p-6 w-80 space-y-4">
@@ -2855,11 +2918,13 @@ function CrmFunnelsTab({
   data,
   processId,
   hasSavedFunnels,
+  onChangePreview,
 }: {
   funnels: CrmFunnel[];
   data: ProcessData;
   processId: number;
   hasSavedFunnels: boolean;
+  onChangePreview: (cr: ChangeRequest, retryFn: () => void) => void;
 }) {
   const utils = trpc.useUtils();
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set());
@@ -2872,11 +2937,15 @@ function CrmFunnelsTab({
   const crmChangeProgress = useGenerationProgress({ duration: 60000 });
 
   const crmChangeMutation = trpc.process.requestChange.useMutation({
-    onSuccess: () => {
+    onSuccess: (changeRequest) => {
       crmChangeProgress.finish();
+      const desc = `[Изменения только в CRM-воронках] ${crmChangeDesc.trim()}`;
       setCrmChangeOpen(false);
       setCrmChangeDesc("");
-      utils.process.getById.invalidate({ id: processId });
+      onChangePreview(changeRequest as ChangeRequest, () => {
+        crmChangeProgress.start();
+        crmChangeMutation.mutate({ processId, description: desc });
+      });
     },
     onError: () => {
       crmChangeProgress.reset();
@@ -3571,7 +3640,7 @@ function normalizeMarkdownTables(raw: string): string {
   return result.trim();
 }
 
-function RecommendationsTab({ processId, data }: { processId: number; data?: ProcessData }) {
+function RecommendationsTab({ processId, data, onChangePreview }: { processId: number; data?: ProcessData; onChangePreview: (cr: ChangeRequest, retryFn: () => void) => void }) {
   const utils = trpc.useUtils();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(["summary", "backlog"])
@@ -3598,12 +3667,15 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
   const recChangeProgress = useGenerationProgress({ duration: 60000 });
 
   const recChangeMutation = trpc.process.requestChange.useMutation({
-    onSuccess: () => {
+    onSuccess: (changeRequest) => {
       recChangeProgress.finish();
+      const desc = `[Изменения только в Рекомендациях] ${recChangeDesc.trim()}`;
       setRecChangeOpen(false);
       setRecChangeDesc("");
-      utils.process.getRecommendations.invalidate({ processId });
-      utils.process.getById.invalidate({ id: processId });
+      onChangePreview(changeRequest as ChangeRequest, () => {
+        recChangeProgress.start();
+        recChangeMutation.mutate({ processId, description: desc });
+      });
     },
     onError: () => {
       recChangeProgress.reset();
