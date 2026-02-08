@@ -2747,6 +2747,88 @@ function CrmFunnelsTab({
 // Tab: Recommendations
 // ============================================
 
+/**
+ * Normalize recommendation description text so markdown tables render correctly.
+ * The AI sometimes returns pipe-delimited tables as a single continuous string
+ * without newlines. This function detects the separator row (|---|---|...)
+ * and reconstructs proper markdown table rows.
+ */
+function normalizeMarkdownTables(raw: string): string {
+  // Step 1: replace literal \n with real newlines
+  let text = raw.replace(/\\n/g, "\n").replace(/\\t/g, "\t");
+
+  // If the text already has newlines before pipes, it's likely already formatted
+  if (/\n\s*\|/.test(text)) return text;
+
+  // Step 2: detect pipe-table separator pattern |---|---|...|
+  const sepRegex = /(\|\s*-{2,}\s*(?:\|\s*-{2,}\s*)+\|)/;
+  const sepMatch = text.match(sepRegex);
+  if (!sepMatch) return text;
+
+  // Count columns from separator
+  const sepPipes = sepMatch[1].match(/\|/g);
+  if (!sepPipes || sepPipes.length < 3) return text;
+  const colCount = sepPipes.length - 1; // N pipes = N-1 columns
+
+  // Find where the table starts (everything up to separator is prefix + header)
+  const sepIndex = text.indexOf(sepMatch[1]);
+  const beforeSep = text.substring(0, sepIndex);
+  const separator = sepMatch[1];
+  const afterSep = text.substring(sepIndex + separator.length);
+
+  // Extract prefix text (non-table text before the header row)
+  // The header row is the last pipe-group in beforeSep
+  // Find header: count backwards from sepIndex to find pipe-row start
+  let headerStart = -1;
+  let pipesFound = 0;
+  for (let i = beforeSep.length - 1; i >= 0; i--) {
+    if (beforeSep[i] === "|") {
+      pipesFound++;
+      if (pipesFound === colCount + 1) {
+        headerStart = i;
+        break;
+      }
+    }
+  }
+
+  let prefix = "";
+  let headerRow = beforeSep.trim();
+  if (headerStart >= 0) {
+    prefix = beforeSep.substring(0, headerStart).trim();
+    headerRow = beforeSep.substring(headerStart).trim();
+  }
+
+  // Build result with prefix
+  let result = prefix ? prefix + "\n\n" : "";
+  result += headerRow + "\n" + separator + "\n";
+
+  // Parse afterSep into rows by counting pipes
+  let remaining = afterSep.trim();
+  while (remaining.length > 0) {
+    let pipeCount = 0;
+    let rowEnd = -1;
+    for (let i = 0; i < remaining.length; i++) {
+      if (remaining[i] === "|") {
+        pipeCount++;
+        if (pipeCount === colCount + 1) {
+          rowEnd = i;
+          break;
+        }
+      }
+    }
+    if (rowEnd === -1) {
+      // Remaining doesn't form a complete row — append as-is
+      const leftover = remaining.trim();
+      if (leftover) result += leftover + "\n";
+      break;
+    }
+    result += remaining.substring(0, rowEnd + 1).trim() + "\n";
+    remaining = remaining.substring(rowEnd + 1).trim();
+  }
+
+  return result.trim();
+}
+
 function RecommendationsTab({ processId, data }: { processId: number; data?: ProcessData }) {
   const utils = trpc.useUtils();
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
@@ -2993,9 +3075,7 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
                           ),
                         }}
                       >
-                        {(rec.description || "")
-                          .replace(/\\n/g, "\n")
-                          .replace(/\\t/g, "\t")}
+                        {normalizeMarkdownTables(rec.description || "")}
                       </ReactMarkdown>
                     </div>
                     {rec.relatedSteps.length > 0 && (
