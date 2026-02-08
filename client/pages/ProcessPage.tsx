@@ -128,6 +128,8 @@ import {
   BookOpen,
   Briefcase,
   Check,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -895,6 +897,11 @@ export function ProcessPage() {
   const [editConnections, setEditConnections] = useState<string[]>([]);
   const [editConnectionLabels, setEditConnectionLabels] = useState<Record<string, string>>({});
 
+  // Undo/Redo stacks (max 50 entries)
+  const MAX_HISTORY = 50;
+  const [undoStack, setUndoStack] = useState<ProcessBlock[][]>([]);
+  const [redoStack, setRedoStack] = useState<ProcessBlock[][]>([]);
+
   // ---- Generation Progress ----
   const regenerateProgress = useGenerationProgress({ duration: 90000 });
   const changeProgress = useGenerationProgress({ duration: 60000 });
@@ -1095,6 +1102,10 @@ export function ProcessPage() {
       }, 200);
     }
 
+    // Push current state to undo stack before applying edit
+    setUndoStack((prev) => [...prev.slice(-(MAX_HISTORY - 1)), data.blocks]);
+    setRedoStack([]);
+
     updateDataMutation.mutate({
       id: processId,
       data: { ...data, blocks: updatedBlocks },
@@ -1124,6 +1135,24 @@ export function ProcessPage() {
     }
   }, [data]);
 
+  const handleUndo = useCallback(() => {
+    if (!data || undoStack.length === 0) return;
+    const newUndoStack = [...undoStack];
+    const previousBlocks = newUndoStack.pop()!;
+    setUndoStack(newUndoStack);
+    setRedoStack((prev) => [...prev.slice(-(MAX_HISTORY - 1)), data.blocks]);
+    updateDataMutation.mutate({ id: processId, data: { ...data, blocks: previousBlocks } });
+  }, [data, undoStack, processId, updateDataMutation]);
+
+  const handleRedo = useCallback(() => {
+    if (!data || redoStack.length === 0) return;
+    const newRedoStack = [...redoStack];
+    const nextBlocks = newRedoStack.pop()!;
+    setRedoStack(newRedoStack);
+    setUndoStack((prev) => [...prev.slice(-(MAX_HISTORY - 1)), data.blocks]);
+    updateDataMutation.mutate({ id: processId, data: { ...data, blocks: nextBlocks } });
+  }, [data, redoStack, processId, updateDataMutation]);
+
   const handleRequestChange = useCallback(() => {
     if (!changeDescription.trim()) return;
     changeProgress.start();
@@ -1135,6 +1164,9 @@ export function ProcessPage() {
 
   const handlePreviewAccept = useCallback(() => {
     if (!previewState) return;
+    // Clear undo/redo stacks on major data changes
+    setUndoStack([]);
+    setRedoStack([]);
     if (previewState.isRegeneration) {
       utils.process.getById.invalidate({ id: processId });
       utils.process.getRecommendations.invalidate({ processId });
@@ -1160,6 +1192,31 @@ export function ProcessPage() {
     setPreviewState(null);
     retryFn();
   }, [previewState]);
+
+  // ---- Undo/Redo Keyboard Shortcuts ----
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Only active on diagram tab
+      if (activeTab !== "diagram") return;
+      // Don't trigger when typing in inputs/textareas
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === "z") {
+        e.preventDefault();
+        handleUndo();
+      } else if (
+        ((e.ctrlKey || e.metaKey) && e.key === "y") ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "z") ||
+        ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "Z")
+      ) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [activeTab, handleUndo, handleRedo]);
 
   // ---- Loading State ----
   if (processQuery.isLoading) {
@@ -1448,6 +1505,10 @@ export function ProcessPage() {
               onExportPNG={handleExportPNG}
               onExportBPMN={handleExportBPMN}
               onExportPDF={handleExportPDF}
+              canUndo={undoStack.length > 0}
+              canRedo={redoStack.length > 0}
+              onUndo={handleUndo}
+              onRedo={handleRedo}
             />
           </div>
         </TabsContent>
@@ -1691,6 +1752,10 @@ interface DiagramTabProps {
   onExportPNG: () => void;
   onExportBPMN: () => void;
   onExportPDF: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
 function DiagramTab({
@@ -1741,6 +1806,10 @@ function DiagramTab({
   onExportPNG,
   onExportBPMN,
   onExportPDF,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
 }: DiagramTabProps) {
   return (
     <div className="flex gap-4">
@@ -1783,6 +1852,27 @@ function DiagramTab({
               title="На весь экран"
             >
               <Fullscreen className="w-4 h-4" />
+            </Button>
+
+            <div className="w-px h-6 bg-gray-200 mx-1" />
+
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onUndo}
+              disabled={!canUndo}
+              title="Назад (Ctrl+Z)"
+            >
+              <Undo2 className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onRedo}
+              disabled={!canRedo}
+              title="Вперёд (Ctrl+Y)"
+            >
+              <Redo2 className="w-4 h-4" />
             </Button>
           </div>
 
