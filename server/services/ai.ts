@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ProcessData, ProcessBlock, ProcessRole, ProcessStage, ProcessPassport } from "../../shared/types";
+import type { ProcessData, ProcessBlock, ProcessRole, ProcessStage, ProcessPassport, CrmFunnel } from "../../shared/types";
 import { SWIMLANE_COLORS } from "../../shared/types";
 import { logger } from "./logger";
 
@@ -835,5 +835,92 @@ ${JSON.stringify(roleActions, null, 2)}
   } catch (error) {
     logger.error("AI", `Failed to generate ${docType} for "${roleName}"`, error);
     throw new Error(`Ошибка генерации документа: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CRM Funnel Variants Generation
+// ═══════════════════════════════════════════════════════════════════
+
+export async function generateCrmFunnelVariants(
+  data: ProcessData,
+  variantCount: number = 3
+): Promise<CrmFunnel[]> {
+  const stagesInfo = data.stages.map((s) => `- ${s.name} (порядок: ${s.order})`).join("\n");
+  const rolesInfo = data.roles.map((r) => `- ${r.name}`).join("\n");
+  const blocksInfo = data.blocks
+    .map((b) => {
+      const role = data.roles.find((r) => r.id === b.role)?.name || b.role;
+      const stage = data.stages.find((s) => s.id === b.stage)?.name || b.stage;
+      return `- [${b.type}] "${b.name}" (роль: ${role}, этап: ${stage}${b.timeEstimate ? `, время: ${b.timeEstimate}` : ""})`;
+    })
+    .join("\n");
+
+  const prompt = `Ты — эксперт по CRM-системам и воронкам продаж.
+
+ЗАДАЧА: На основе бизнес-процесса сгенерируй ${variantCount} РАЗЛИЧНЫХ варианта CRM-воронки.
+Каждый вариант должен предлагать РАЗНЫЙ подход к структуре воронки.
+
+ПРОЦЕСС:
+Название: ${data.name}
+Цель: ${data.goal}
+Владелец: ${data.owner}
+
+ЭТАПЫ ПРОЦЕССА:
+${stagesInfo}
+
+РОЛИ:
+${rolesInfo}
+
+БЛОКИ ПРОЦЕССА:
+${blocksInfo}
+
+ТРЕБОВАНИЯ К КАЖДОМУ ВАРИАНТУ:
+1. Вариант 1 — "Классическая воронка": Стандартная линейная воронка с 5-8 этапами L0, следующая логике процесса
+2. Вариант 2 — "Детализированная воронка": Более подробная с 8-12 L0 этапами, с акцентом на промежуточные контрольные точки
+3. Вариант 3 — "Упрощённая воронка": Компактная с 3-5 L0 этапами, ориентированная на ключевые решения клиента
+
+ДЛЯ КАЖДОГО ВАРИАНТА УКАЖИ:
+- id: уникальный id ("funnel-variant-1", "funnel-variant-2", "funnel-variant-3")
+- name: название варианта (краткое)
+- description: описание подхода (1-2 предложения)
+- stages: массив этапов (CrmFunnelStage[]), каждый со структурой:
+  - id: строка (например "stage-1-1")
+  - name: название этапа
+  - level: 0 для L0, 1 для L1 (подэтапы)
+  - order: порядковый номер
+  - parentId?: id родительского L0 этапа (для L1)
+  - exitCriteria: критерий выхода из этапа
+  - ownerRole: ответственная роль
+  - slaDays: SLA в днях (опционально)
+  - checklist: массив пунктов чек-листа
+  - relatedBlockIds: связанные блоки процесса (id из blocks)
+  - automations: массив автоматизаций
+  - conversionTarget: целевая конверсия в % (опционально)
+- statuses: 3 статуса [Pause, Lost, Won]:
+  - { id, name, type: "pause"|"lost"|"won", description }
+- qualityNotes: массив замечаний по качеству воронки
+
+Ответ — ТОЛЬКО JSON-массив из ${variantCount} объектов CrmFunnel. Без пояснений.`;
+
+  try {
+    logger.info("AI", `Generating ${variantCount} CRM funnel variants`);
+
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 12000,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error("Не удалось извлечь JSON из ответа");
+
+    const variants = JSON.parse(jsonMatch[0]) as CrmFunnel[];
+    logger.info("AI", `Generated ${variants.length} CRM funnel variants`);
+    return variants;
+  } catch (error) {
+    logger.error("AI", "Failed to generate CRM funnel variants", error);
+    throw new Error(`Ошибка генерации CRM-воронок: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

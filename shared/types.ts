@@ -99,6 +99,7 @@ export interface ProcessData {
   roles: ProcessRole[];
   stages: ProcessStage[];
   blocks: ProcessBlock[];
+  crmFunnels?: CrmFunnel[];
 }
 
 export interface Process {
@@ -337,6 +338,7 @@ export const TOKEN_COSTS = {
   recommendations: 200,
   transcription_per_minute: 10,
   regulation_document: 100,
+  crm_generation: 300,
 } as const;
 
 // Block visual config

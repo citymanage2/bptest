@@ -13,7 +13,7 @@ import {
   users,
   tokenOperations,
 } from "../db/schema";
-import { generateProcess, applyChanges, generateRecommendations, generatePassport, generateRegulationDocument } from "../services/ai";
+import { generateProcess, applyChanges, generateRecommendations, generatePassport, generateRegulationDocument, generateCrmFunnelVariants } from "../services/ai";
 import type { AttachedFileMeta } from "../services/ai";
 import fs from "fs";
 import path from "path";
@@ -583,6 +583,52 @@ export const processRouter = router({
         docType: saved.docType,
         content: saved.content,
         createdAt: saved.createdAt.toISOString(),
+      };
+    }),
+
+  // ── CRM Funnel Variants ──────────────────────────────────
+  generateCrmVariants: protectedProcedure
+    .input(z.object({ processId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      await deductTokens(ctx.userId, TOKEN_COSTS.crm_generation, "crm_generation", "Генерация вариантов CRM-воронок");
+
+      const data = process.data as ProcessData;
+      const variants = await generateCrmFunnelVariants(data);
+      return variants;
+    }),
+
+  selectCrmVariant: protectedProcedure
+    .input(z.object({
+      processId: z.number(),
+      funnel: z.any(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      const data = process.data as ProcessData;
+      data.crmFunnels = [input.funnel];
+
+      const [updated] = await db
+        .update(processes)
+        .set({ data, updatedAt: new Date() })
+        .where(eq(processes.id, input.processId))
+        .returning();
+
+      return {
+        id: updated.id,
+        data: updated.data as ProcessData,
       };
     }),
 });

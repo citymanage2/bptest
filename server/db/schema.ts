@@ -28,6 +28,7 @@ export const tokenOperationTypeEnum = pgEnum("token_operation_type", [
   "recommendations",
   "transcription",
   "topup",
+  "crm_generation",
 ]);
 
 // Users

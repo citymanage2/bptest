@@ -953,8 +953,12 @@ export function ProcessPage() {
 
   const crmFunnels = useMemo(() => {
     if (!data) return [];
+    // Use saved AI-generated funnels if available, else fall back to client-side generation
+    if (data.crmFunnels && data.crmFunnels.length > 0) return data.crmFunnels;
     return generateCrmFunnels(data);
   }, [data]);
+
+  const hasSavedCrmFunnels = !!(data?.crmFunnels && data.crmFunnels.length > 0);
 
   // ---- Handlers ----
   const handleBlockClick = useCallback((blockId: string) => {
@@ -1463,7 +1467,7 @@ export function ProcessPage() {
 
         {/* ======== Tab: CRM Funnels (Group 2 — local buttons inside) ======== */}
         <TabsContent value="crm">
-          <CrmFunnelsTab funnels={crmFunnels} data={data} processId={processId} />
+          <CrmFunnelsTab funnels={crmFunnels} data={data} processId={processId} hasSavedFunnels={hasSavedCrmFunnels} />
         </TabsContent>
 
         {/* ======== Tab: Regulations (Group 1) ======== */}
@@ -2681,16 +2685,20 @@ function CrmFunnelsTab({
   funnels,
   data,
   processId,
+  hasSavedFunnels,
 }: {
   funnels: CrmFunnel[];
   data: ProcessData;
   processId: number;
+  hasSavedFunnels: boolean;
 }) {
   const utils = trpc.useUtils();
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set());
   const [showQuality, setShowQuality] = useState(false);
   const [crmChangeOpen, setCrmChangeOpen] = useState(false);
   const [crmChangeDesc, setCrmChangeDesc] = useState("");
+  const [variants, setVariants] = useState<CrmFunnel[] | null>(null);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
 
   const crmChangeProgress = useGenerationProgress({ duration: 60000 });
 
@@ -2715,17 +2723,35 @@ function CrmFunnelsTab({
     });
   }, [crmChangeDesc, processId, crmChangeMutation, crmChangeProgress]);
 
-  const crmRegenProgress = useGenerationProgress({ duration: 90000 });
+  const crmGenProgress = useGenerationProgress({ duration: 90000 });
 
-  const crmRegenMutation = trpc.process.regenerate.useMutation({
-    onSuccess: () => {
-      crmRegenProgress.finish();
-      utils.process.getById.invalidate({ id: processId });
+  const generateVariantsMutation = trpc.process.generateCrmVariants.useMutation({
+    onSuccess: (data) => {
+      crmGenProgress.finish();
+      setVariants(data);
     },
     onError: () => {
-      crmRegenProgress.reset();
+      crmGenProgress.reset();
     },
   });
+
+  const selectVariantMutation = trpc.process.selectCrmVariant.useMutation({
+    onSuccess: () => {
+      setVariants(null);
+      setSelectedVariantId(null);
+      utils.process.getById.invalidate({ id: processId });
+    },
+  });
+
+  const handleGenerateVariants = useCallback(() => {
+    crmGenProgress.start();
+    generateVariantsMutation.mutate({ processId });
+  }, [processId, generateVariantsMutation, crmGenProgress]);
+
+  const handleSelectVariant = useCallback((funnel: CrmFunnel) => {
+    setSelectedVariantId(funnel.id);
+    selectVariantMutation.mutate({ processId, funnel });
+  }, [processId, selectVariantMutation]);
 
   const toggleStage = useCallback((stageId: string) => {
     setExpandedStages((prev) => {
@@ -2739,16 +2765,167 @@ function CrmFunnelsTab({
     });
   }, []);
 
-  if (funnels.length === 0) {
+  // --- Variant selection view ---
+  if (variants && variants.length > 0) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Выберите вариант CRM-воронки</h2>
+            <p className="text-sm text-gray-500 mt-0.5">
+              ИИ сгенерировал {variants.length} варианта. Сравните и выберите подходящий.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setVariants(null)}>
+            Отмена
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {variants.map((variant, idx) => {
+            const l0Count = variant.stages.filter((s) => s.level === 0).length;
+            const l1Count = variant.stages.filter((s) => s.level === 1).length;
+            const isSelecting = selectVariantMutation.isPending && selectedVariantId === variant.id;
+            return (
+              <Card
+                key={variant.id}
+                className={cn(
+                  "relative transition-all cursor-pointer hover:shadow-md",
+                  selectedVariantId === variant.id && "ring-2 ring-purple-500"
+                )}
+                onClick={() => !selectVariantMutation.isPending && setSelectedVariantId(variant.id)}
+              >
+                <CardHeader className="pb-3">
+                  <div className="flex items-center gap-2">
+                    <div className={cn(
+                      "w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold",
+                      idx === 0 && "bg-blue-100 text-blue-700",
+                      idx === 1 && "bg-purple-100 text-purple-700",
+                      idx === 2 && "bg-amber-100 text-amber-700",
+                    )}>
+                      {idx + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <CardTitle className="text-sm">{variant.name}</CardTitle>
+                      <CardDescription className="text-xs mt-0.5 line-clamp-2">
+                        {variant.description}
+                      </CardDescription>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {/* Stats */}
+                  <div className="flex gap-2">
+                    <Badge variant="secondary" className="text-xs">
+                      {l0Count} L0-этапов
+                    </Badge>
+                    <Badge variant="secondary" className="text-xs">
+                      {l1Count} L1-подэтапов
+                    </Badge>
+                  </div>
+
+                  {/* Mini funnel preview */}
+                  <div className="space-y-1">
+                    {variant.stages
+                      .filter((s) => s.level === 0)
+                      .slice(0, 6)
+                      .map((stage, sIdx) => {
+                        const widthPercent = 100 - (sIdx / Math.max(l0Count - 1, 1)) * 35;
+                        return (
+                          <div
+                            key={stage.id}
+                            className="bg-purple-50 border border-purple-200 rounded px-2 py-1 mx-auto text-xs text-purple-800 truncate"
+                            style={{ width: `${widthPercent}%` }}
+                          >
+                            {stage.name}
+                          </div>
+                        );
+                      })}
+                    {l0Count > 6 && (
+                      <p className="text-xs text-gray-400 text-center">+{l0Count - 6} этапов</p>
+                    )}
+                  </div>
+
+                  {/* Statuses */}
+                  <div className="flex gap-1 flex-wrap">
+                    {variant.statuses.map((s) => {
+                      const colorCls = STATUS_COLORS[s.type] || "";
+                      return (
+                        <Badge key={s.id} variant="outline" className={cn("text-[10px]", colorCls)}>
+                          {s.name}
+                        </Badge>
+                      );
+                    })}
+                  </div>
+
+                  {/* Quality notes summary */}
+                  {variant.qualityNotes.length > 0 && (
+                    <p className="text-[11px] text-gray-400">
+                      Замечаний: {variant.qualityNotes.length}
+                    </p>
+                  )}
+                </CardContent>
+                <div className="px-4 pb-4">
+                  <Button
+                    className="w-full"
+                    size="sm"
+                    disabled={selectVariantMutation.isPending}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSelectVariant(variant);
+                    }}
+                  >
+                    {isSelecting ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Сохранение...</>
+                    ) : (
+                      <><Check className="w-4 h-4" /> Выбрать этот вариант</>
+                    )}
+                  </Button>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // --- Empty state: no funnels at all ---
+  if (funnels.length === 0 && !hasSavedFunnels) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-center">
         <Filter className="w-12 h-12 text-gray-300 mb-4" />
         <h3 className="text-lg font-semibold text-gray-900 mb-1">
-          Воронки недоступны
+          CRM-воронки не сгенерированы
         </h3>
-        <p className="text-gray-500">
-          Недостаточно данных для генерации CRM-воронок
+        <p className="text-gray-500 mb-4">
+          Сгенерируйте 2-3 варианта CRM-воронок с помощью ИИ и выберите подходящий
         </p>
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button onClick={handleGenerateVariants} disabled={generateVariantsMutation.isPending}>
+                {crmGenProgress.phase === "done" ? (
+                  <><Check className="w-4 h-4" /> Готово</>
+                ) : generateVariantsMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Генерация... {crmGenProgress.progress}%</>
+                ) : (
+                  <><Sparkles className="w-4 h-4" /> Сгенерировать варианты CRM-воронок</>
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Стоимость: {TOKEN_COSTS.crm_generation} токенов. Это может занять несколько минут.</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        {generateVariantsMutation.isPending && (
+          <div className="w-full max-w-sm mt-4 space-y-2">
+            <Progress value={crmGenProgress.progress} className="h-1.5" />
+            <p className="text-xs text-amber-600 flex items-center justify-center gap-1">
+              <AlertCircle className="w-3 h-3" />
+              Идет генерация. Пожалуйста, не покидайте страницу
+            </p>
+          </div>
+        )}
       </div>
     );
   }
@@ -2813,68 +2990,31 @@ function CrmFunnelsTab({
           </DialogContent>
         </Dialog>
 
-        <AlertDialog>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <AlertDialogTrigger asChild>
-                  <Button variant="outline" size="sm" disabled={crmRegenMutation.isPending}>
-                    {crmRegenProgress.phase === "done" ? (
-                      <><Check className="w-4 h-4" /> Готово</>
-                    ) : crmRegenMutation.isPending ? (
-                      <><Loader2 className="w-4 h-4 animate-spin" /> Генерация... {crmRegenProgress.progress}%</>
-                    ) : (
-                      <><RefreshCw className="w-4 h-4" /> Сгенерировать CRM заново</>
-                    )}
-                  </Button>
-                </AlertDialogTrigger>
-              </TooltipTrigger>
-              <TooltipContent>Это может занять несколько минут</TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Перегенерация CRM-воронок</AlertDialogTitle>
-              <AlertDialogDescription>
-                CRM-воронки формируются на основе данных процесса. Будет выполнена
-                полная регенерация процесса для обновления воронок.
-                Стоимость: {TOKEN_COSTS.regeneration} токенов.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Отмена</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() => {
-                  crmRegenProgress.start();
-                  crmRegenMutation.mutate({ id: processId });
-                }}
-                disabled={crmRegenMutation.isPending}
-                className="bg-red-600 hover:bg-red-700"
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleGenerateVariants}
+                disabled={generateVariantsMutation.isPending}
               >
-                {crmRegenProgress.phase === "done" ? (
+                {crmGenProgress.phase === "done" ? (
                   <><Check className="w-4 h-4" /> Готово</>
-                ) : crmRegenMutation.isPending ? (
-                  <><Loader2 className="w-4 h-4 animate-spin" /> Генерация... {crmRegenProgress.progress}%</>
+                ) : generateVariantsMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Генерация... {crmGenProgress.progress}%</>
                 ) : (
-                  "Перегенерировать"
+                  <><RefreshCw className="w-4 h-4" /> Сгенерировать варианты заново</>
                 )}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-            {crmRegenMutation.isPending && (
-              <div className="space-y-2">
-                <Progress value={crmRegenProgress.progress} className="h-1.5" />
-                <p className="text-xs text-amber-600 flex items-center gap-1">
-                  <AlertCircle className="w-3 h-3" />
-                  Идет генерация. Пожалуйста, не покидайте страницу
-                </p>
-              </div>
-            )}
-          </AlertDialogContent>
-        </AlertDialog>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Стоимость: {TOKEN_COSTS.crm_generation} токенов</TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </div>
-      {(crmChangeMutation.isPending || crmRegenMutation.isPending) && (
+      {(crmChangeMutation.isPending || generateVariantsMutation.isPending) && (
         <Progress
-          value={crmChangeMutation.isPending ? crmChangeProgress.progress : crmRegenProgress.progress}
+          value={crmChangeMutation.isPending ? crmChangeProgress.progress : crmGenProgress.progress}
           className="h-1.5"
         />
       )}
