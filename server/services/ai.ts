@@ -691,3 +691,149 @@ function generateFallbackProcess(
     blocks,
   };
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Regulation / Job Description Generation
+// ═══════════════════════════════════════════════════════════════════
+
+export async function generateRegulationDocument(
+  processData: ProcessData,
+  roleName: string,
+  docType: "regulation" | "job_description",
+  companyName: string,
+): Promise<string> {
+  const roleBlocks = processData.blocks.filter((b) => {
+    const role = processData.roles.find((r) => r.id === b.role);
+    return role?.name === roleName;
+  });
+
+  const roleStages = [...new Set(roleBlocks.map((b) => {
+    const stage = processData.stages.find((s) => s.id === b.stage);
+    return stage?.name || b.stage;
+  }))];
+
+  const roleActions = roleBlocks
+    .filter((b) => b.type === "action")
+    .map((b) => ({
+      name: b.name,
+      description: b.description,
+      timeEstimate: b.timeEstimate,
+      inputDocuments: b.inputDocuments,
+      outputDocuments: b.outputDocuments,
+      infoSystems: b.infoSystems,
+    }));
+
+  const prompt = docType === "regulation"
+    ? `Ты — эксперт по организационному проектированию и стандартизации бизнес-процессов.
+
+Сгенерируй РЕГЛАМЕНТ для должности "${roleName}" в компании "${companyName}".
+
+Процесс: "${processData.name}"
+Цель процесса: ${processData.goal}
+Владелец процесса: ${processData.owner}
+
+Этапы, в которых участвует ${roleName}: ${roleStages.join(", ")}
+
+Действия сотрудника в процессе:
+${JSON.stringify(roleActions, null, 2)}
+
+Структура регламента (используй markdown-форматирование):
+
+# Регламент: ${roleName}
+## Компания: ${companyName}
+## Процесс: ${processData.name}
+
+### 1. Общие положения
+- Назначение регламента
+- Область применения
+- Нормативные ссылки
+
+### 2. Термины и определения
+- Ключевые термины процесса
+
+### 3. Описание процедур
+Для каждого действия сотрудника:
+- Название процедуры
+- Входные данные/документы
+- Порядок выполнения (пошагово)
+- Выходные данные/документы
+- Используемые информационные системы
+- Нормативное время выполнения
+
+### 4. Взаимодействие с другими ролями
+- С кем взаимодействует и по каким вопросам
+
+### 5. Ответственность и контроль
+- Зона ответственности
+- Критерии качества выполнения
+- Контрольные точки
+
+### 6. Порядок внесения изменений
+
+Пиши подробно, профессионально, на русском языке. Используй markdown.`
+    : `Ты — HR-эксперт и специалист по организационному проектированию.
+
+Сгенерируй ДОЛЖНОСТНУЮ ИНСТРУКЦИЮ для должности "${roleName}" в компании "${companyName}".
+
+Процесс: "${processData.name}"
+Цель процесса: ${processData.goal}
+Владелец процесса: ${processData.owner}
+
+Этапы, в которых участвует ${roleName}: ${roleStages.join(", ")}
+
+Действия сотрудника в процессе:
+${JSON.stringify(roleActions, null, 2)}
+
+Структура должностной инструкции (используй markdown):
+
+# Должностная инструкция: ${roleName}
+## Компания: ${companyName}
+
+### 1. Общие положения
+- Полное наименование должности
+- Подразделение
+- Подчинённость
+- Порядок назначения и освобождения
+
+### 2. Квалификационные требования
+- Образование
+- Опыт работы
+- Знания и навыки
+- Владение ПО и системами
+
+### 3. Должностные обязанности
+На основе действий в процессе — детальный список обязанностей
+
+### 4. Права
+- Права в рамках выполнения обязанностей
+
+### 5. Ответственность
+- За что несёт ответственность
+
+### 6. Взаимодействие
+- С кем и по каким вопросам взаимодействует
+
+### 7. Критерии оценки эффективности (KPI)
+На основе действий и метрик процесса
+
+### 8. Заключительные положения
+
+Пиши подробно, профессионально, на русском языке. Используй markdown.`;
+
+  try {
+    logger.info("AI", `Generating ${docType} for role "${roleName}"`);
+
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 8000,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    logger.info("AI", `${docType} generated for "${roleName}"`, { length: text.length });
+    return text;
+  } catch (error) {
+    logger.error("AI", `Failed to generate ${docType} for "${roleName}"`, error);
+    throw new Error(`Ошибка генерации документа: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}

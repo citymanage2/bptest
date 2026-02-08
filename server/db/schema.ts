@@ -303,3 +303,24 @@ export const cookieConsents = pgTable("cookie_consents", {
 export const cookieConsentsRelations = relations(cookieConsents, ({ one }) => ({
   user: one(users, { fields: [cookieConsents.userId], references: [users.id] }),
 }));
+
+// Regulations (Регламенты и Должностные инструкции)
+export const regulationDocTypeEnum = pgEnum("regulation_doc_type", [
+  "regulation",
+  "job_description",
+]);
+
+export const regulations = pgTable("regulations", {
+  id: serial("id").primaryKey(),
+  processId: integer("process_id")
+    .notNull()
+    .references(() => processes.id, { onDelete: "cascade" }),
+  roleName: varchar("role_name", { length: 255 }).notNull(),
+  docType: regulationDocTypeEnum("doc_type").notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const regulationsRelations = relations(regulations, ({ one }) => ({
+  process: one(processes, { fields: [regulations.processId], references: [processes.id] }),
+}));

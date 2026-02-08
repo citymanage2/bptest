@@ -115,9 +115,14 @@ import {
   Copy,
   Zap,
   GitBranch,
+  Download,
+  FileArchive,
+  BookOpen,
+  Briefcase,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { saveAs } from "file-saver";
 
 // ============================================
 // Helper Functions
@@ -1272,6 +1277,7 @@ export function ProcessPage() {
           <TabsTrigger value="stages">Этапы</TabsTrigger>
           <TabsTrigger value="metrics">Метрики</TabsTrigger>
           <TabsTrigger value="crm">CRM-воронки</TabsTrigger>
+          <TabsTrigger value="regulations">Регламенты</TabsTrigger>
           <TabsTrigger value="passport">Паспорт</TabsTrigger>
           <TabsTrigger value="quality">Качество</TabsTrigger>
           <TabsTrigger value="recommendations">Рекомендации</TabsTrigger>
@@ -1341,6 +1347,11 @@ export function ProcessPage() {
         {/* ======== Tab: CRM Funnels ======== */}
         <TabsContent value="crm">
           <CrmFunnelsTab funnels={crmFunnels} data={data} />
+        </TabsContent>
+
+        {/* ======== Tab: Regulations ======== */}
+        <TabsContent value="regulations">
+          <RegulationsTab processId={processId} data={data} companyName={(process as any)?.companyName || ""} />
         </TabsContent>
 
         {/* ======== Tab: Passport ======== */}
@@ -3109,6 +3120,486 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
             );
           })}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// Tab: Regulations
+// ============================================
+
+interface RegulationDoc {
+  id: number;
+  processId: number;
+  roleName: string;
+  docType: "regulation" | "job_description";
+  content: string;
+  createdAt: string;
+}
+
+function RegulationsTab({
+  processId,
+  data,
+  companyName,
+}: {
+  processId: number;
+  data?: ProcessData;
+  companyName: string;
+}) {
+  const utils = trpc.useUtils();
+  const [previewDoc, setPreviewDoc] = useState<RegulationDoc | null>(null);
+  const [generatingKey, setGeneratingKey] = useState<string | null>(null);
+
+  const regulationsQuery = trpc.process.getRegulations.useQuery({ processId });
+
+  const generateMutation = trpc.process.generateRegulation.useMutation({
+    onSuccess: () => {
+      utils.process.getRegulations.invalidate({ processId });
+      setGeneratingKey(null);
+    },
+    onError: () => {
+      setGeneratingKey(null);
+    },
+  });
+
+  const regulations = (regulationsQuery.data || []) as RegulationDoc[];
+
+  const roles = useMemo(() => {
+    if (!data) return [];
+    return data.roles.map((r) => r.name);
+  }, [data]);
+
+  const getDoc = useCallback(
+    (roleName: string, docType: "regulation" | "job_description") => {
+      return regulations.find(
+        (r) => r.roleName === roleName && r.docType === docType
+      );
+    },
+    [regulations]
+  );
+
+  const handleGenerate = useCallback(
+    (roleName: string, docType: "regulation" | "job_description") => {
+      const key = `${roleName}:${docType}`;
+      setGeneratingKey(key);
+      generateMutation.mutate({ processId, roleName, docType });
+    },
+    [generateMutation, processId]
+  );
+
+  const docTypeLabel = (docType: "regulation" | "job_description") =>
+    docType === "regulation" ? "Регламент" : "Должностная инструкция";
+
+  const buildDocxBlob = useCallback(async (doc: RegulationDoc): Promise<Blob> => {
+    const { Document: DocxDocument, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } =
+      await import("docx");
+
+    const lines = doc.content.split("\n");
+    const paragraphs: InstanceType<typeof Paragraph>[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        paragraphs.push(new Paragraph({ text: "" }));
+        continue;
+      }
+      // Headings
+      if (trimmed.startsWith("# ")) {
+        paragraphs.push(
+          new Paragraph({
+            text: trimmed.slice(2),
+            heading: HeadingLevel.HEADING_1,
+            spacing: { before: 240, after: 120 },
+          })
+        );
+      } else if (trimmed.startsWith("## ")) {
+        paragraphs.push(
+          new Paragraph({
+            text: trimmed.slice(3),
+            heading: HeadingLevel.HEADING_2,
+            spacing: { before: 200, after: 100 },
+          })
+        );
+      } else if (trimmed.startsWith("### ")) {
+        paragraphs.push(
+          new Paragraph({
+            text: trimmed.slice(4),
+            heading: HeadingLevel.HEADING_3,
+            spacing: { before: 160, after: 80 },
+          })
+        );
+      } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+        paragraphs.push(
+          new Paragraph({
+            children: [new TextRun({ text: trimmed.slice(2) })],
+            bullet: { level: 0 },
+          })
+        );
+      } else if (/^\d+\.\s/.test(trimmed)) {
+        const text = trimmed.replace(/^\d+\.\s/, "");
+        paragraphs.push(
+          new Paragraph({
+            children: [new TextRun({ text })],
+            numbering: { reference: "default-numbering", level: 0 },
+          })
+        );
+      } else {
+        // Parse bold **text** in normal paragraphs
+        const runs: InstanceType<typeof TextRun>[] = [];
+        const parts = trimmed.split(/(\*\*[^*]+\*\*)/g);
+        for (const part of parts) {
+          if (part.startsWith("**") && part.endsWith("**")) {
+            runs.push(new TextRun({ text: part.slice(2, -2), bold: true }));
+          } else if (part) {
+            runs.push(new TextRun({ text: part }));
+          }
+        }
+        paragraphs.push(
+          new Paragraph({
+            children: runs,
+            alignment: AlignmentType.JUSTIFIED,
+          })
+        );
+      }
+    }
+
+    const docx = new DocxDocument({
+      numbering: {
+        config: [
+          {
+            reference: "default-numbering",
+            levels: [
+              {
+                level: 0,
+                format: "decimal" as any,
+                text: "%1.",
+                alignment: AlignmentType.LEFT,
+              },
+            ],
+          },
+        ],
+      },
+      sections: [{ children: paragraphs }],
+    });
+
+    return await Packer.toBlob(docx);
+  }, []);
+
+  const handleDownload = useCallback(
+    async (doc: RegulationDoc) => {
+      const blob = await buildDocxBlob(doc);
+      const fileName = `${docTypeLabel(doc.docType)} ${doc.roleName} ${companyName}.docx`;
+      saveAs(blob, fileName);
+    },
+    [buildDocxBlob, companyName]
+  );
+
+  const handleDownloadAll = useCallback(async () => {
+    if (regulations.length === 0) return;
+    const JSZip = (await import("jszip")).default;
+    const zip = new JSZip();
+
+    for (const doc of regulations) {
+      const blob = await buildDocxBlob(doc);
+      const fileName = `${docTypeLabel(doc.docType)} ${doc.roleName} ${companyName}.docx`;
+      zip.file(fileName, blob);
+    }
+
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+    saveAs(zipBlob, `Регламенты ${companyName}.zip`);
+  }, [regulations, buildDocxBlob, companyName]);
+
+  if (previewDoc) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setPreviewDoc(null)}>
+              <ArrowLeft className="w-4 h-4" />
+              Назад
+            </Button>
+            <h2 className="text-lg font-semibold text-gray-900">
+              {docTypeLabel(previewDoc.docType)}: {previewDoc.roleName}
+            </h2>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => handleDownload(previewDoc)}>
+            <Download className="w-4 h-4" />
+            Скачать .docx
+          </Button>
+        </div>
+
+        <Card>
+          <CardContent className="py-6">
+            <div className="prose prose-sm prose-gray max-w-none">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  h1: ({ children }) => (
+                    <h2 className="text-xl font-bold text-gray-900 mt-6 mb-3 first:mt-0">{children}</h2>
+                  ),
+                  h2: ({ children }) => (
+                    <h3 className="text-lg font-semibold text-gray-900 mt-5 mb-2">{children}</h3>
+                  ),
+                  h3: ({ children }) => (
+                    <h4 className="text-base font-medium text-gray-800 mt-4 mb-2">{children}</h4>
+                  ),
+                  p: ({ children }) => (
+                    <p className="text-sm text-gray-700 mb-2 leading-relaxed">{children}</p>
+                  ),
+                  ul: ({ children }) => (
+                    <ul className="text-sm text-gray-700 list-disc list-inside mb-2 space-y-1">{children}</ul>
+                  ),
+                  ol: ({ children }) => (
+                    <ol className="text-sm text-gray-700 list-decimal list-inside mb-2 space-y-1">{children}</ol>
+                  ),
+                  li: ({ children }) => <li className="text-sm text-gray-700">{children}</li>,
+                  strong: ({ children }) => (
+                    <strong className="font-semibold text-gray-900">{children}</strong>
+                  ),
+                  table: ({ children }) => (
+                    <div className="overflow-x-auto my-3 border border-gray-200 rounded-lg">
+                      <table className="min-w-full text-sm border-collapse">{children}</table>
+                    </div>
+                  ),
+                  thead: ({ children }) => <thead className="bg-gray-50">{children}</thead>,
+                  tbody: ({ children }) => (
+                    <tbody className="divide-y divide-gray-100">{children}</tbody>
+                  ),
+                  tr: ({ children }) => <tr className="hover:bg-gray-50">{children}</tr>,
+                  th: ({ children }) => (
+                    <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase border-b-2 border-gray-200">
+                      {children}
+                    </th>
+                  ),
+                  td: ({ children }) => (
+                    <td className="px-3 py-2 text-sm text-gray-700 border-b border-gray-100">{children}</td>
+                  ),
+                }}
+              >
+                {previewDoc.content}
+              </ReactMarkdown>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Регламенты и должностные инструкции</h2>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Генерация документов для каждой роли процесса
+          </p>
+        </div>
+        {regulations.length > 0 && (
+          <Button variant="outline" size="sm" onClick={handleDownloadAll}>
+            <FileArchive className="w-4 h-4" />
+            Скачать все архивом
+          </Button>
+        )}
+      </div>
+
+      {regulationsQuery.isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+        </div>
+      ) : roles.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+            <Users className="w-12 h-12 text-gray-300 mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 mb-1">Роли не найдены</h3>
+            <p className="text-gray-500 text-sm max-w-md">
+              В процессе не определены роли. Добавьте роли на диаграмме процесса.
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-3">
+          {roles.map((roleName) => {
+            const regDoc = getDoc(roleName, "regulation");
+            const jobDoc = getDoc(roleName, "job_description");
+            const isGeneratingReg = generatingKey === `${roleName}:regulation`;
+            const isGeneratingJob = generatingKey === `${roleName}:job_description`;
+
+            return (
+              <Card key={roleName}>
+                <CardContent className="py-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-indigo-100 flex items-center justify-center">
+                        <UserCircle className="w-5 h-5 text-indigo-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900">{roleName}</h3>
+                        <p className="text-xs text-gray-500">
+                          {regDoc && jobDoc
+                            ? "Оба документа готовы"
+                            : regDoc || jobDoc
+                              ? "1 из 2 документов готов"
+                              : "Документы не сгенерированы"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {/* Regulation */}
+                    <div
+                      className={cn(
+                        "border rounded-lg p-3",
+                        regDoc ? "border-green-200 bg-green-50/50" : "border-gray-200"
+                      )}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <BookOpen className="w-4 h-4 text-gray-600" />
+                        <span className="text-sm font-medium text-gray-900">Регламент</span>
+                        {regDoc && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-700 border-green-300">
+                            Готов
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {regDoc ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1"
+                              onClick={() => setPreviewDoc(regDoc)}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              Просмотр
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDownload(regDoc)}
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={isGeneratingReg}
+                              onClick={() => handleGenerate(roleName, "regulation")}
+                            >
+                              {isGeneratingReg ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              )}
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            disabled={isGeneratingReg}
+                            onClick={() => handleGenerate(roleName, "regulation")}
+                          >
+                            {isGeneratingReg ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                Генерация...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3.5 h-3.5" />
+                                Сгенерировать ({TOKEN_COSTS.regulation_document} токенов)
+                              </>
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Job Description */}
+                    <div
+                      className={cn(
+                        "border rounded-lg p-3",
+                        jobDoc ? "border-green-200 bg-green-50/50" : "border-gray-200"
+                      )}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <Briefcase className="w-4 h-4 text-gray-600" />
+                        <span className="text-sm font-medium text-gray-900">Должностная инструкция</span>
+                        {jobDoc && (
+                          <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-green-700 border-green-300">
+                            Готов
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {jobDoc ? (
+                          <>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="flex-1"
+                              onClick={() => setPreviewDoc(jobDoc)}
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              Просмотр
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDownload(jobDoc)}
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={isGeneratingJob}
+                              onClick={() => handleGenerate(roleName, "job_description")}
+                            >
+                              {isGeneratingJob ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : (
+                                <RefreshCw className="w-3.5 h-3.5" />
+                              )}
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            disabled={isGeneratingJob}
+                            onClick={() => handleGenerate(roleName, "job_description")}
+                          >
+                            {isGeneratingJob ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                Генерация...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-3.5 h-3.5" />
+                                Сгенерировать ({TOKEN_COSTS.regulation_document} токенов)
+                              </>
+                            )}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      {regulations.length > 0 && (
+        <p className="text-xs text-gray-400 text-center">
+          Стоимость генерации: {TOKEN_COSTS.regulation_document} токенов за документ
+        </p>
       )}
     </div>
   );

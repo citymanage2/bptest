@@ -7,12 +7,13 @@ import {
   processVersions,
   changeRequests,
   recommendations,
+  regulations,
   interviews,
   companies,
   users,
   tokenOperations,
 } from "../db/schema";
-import { generateProcess, applyChanges, generateRecommendations, generatePassport } from "../services/ai";
+import { generateProcess, applyChanges, generateRecommendations, generatePassport, generateRegulationDocument } from "../services/ai";
 import type { AttachedFileMeta } from "../services/ai";
 import fs from "fs";
 import path from "path";
@@ -135,6 +136,7 @@ export const processRouter = router({
         id: process.id,
         interviewId: process.interviewId,
         companyId: process.companyId,
+        companyName: process.company.name,
         status: process.status,
         data: process.data as ProcessData,
         createdAt: process.createdAt.toISOString(),
@@ -494,5 +496,93 @@ export const processRouter = router({
 
       await db.delete(processes).where(eq(processes.id, input.id));
       return { success: true };
+    }),
+
+  // ============ Regulations (Регламенты) ============
+
+  getRegulations: protectedProcedure
+    .input(z.object({ processId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      const result = await db.query.regulations.findMany({
+        where: eq(regulations.processId, input.processId),
+        orderBy: [regulations.roleName, regulations.docType],
+      });
+
+      return result.map((r) => ({
+        id: r.id,
+        processId: r.processId,
+        roleName: r.roleName,
+        docType: r.docType,
+        content: r.content,
+        createdAt: r.createdAt.toISOString(),
+      }));
+    }),
+
+  generateRegulation: protectedProcedure
+    .input(z.object({
+      processId: z.number(),
+      roleName: z.string(),
+      docType: z.enum(["regulation", "job_description"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      await deductTokens(
+        ctx.userId,
+        TOKEN_COSTS.regulation_document,
+        "recommendations" as any,
+        `Генерация ${input.docType === "regulation" ? "регламента" : "должностной инструкции"} для "${input.roleName}"`,
+      );
+
+      const processData = process.data as ProcessData;
+      const content = await generateRegulationDocument(
+        processData,
+        input.roleName,
+        input.docType,
+        process.company.name,
+      );
+
+      // Delete old version if exists
+      const existing = await db.query.regulations.findFirst({
+        where: and(
+          eq(regulations.processId, input.processId),
+          eq(regulations.roleName, input.roleName),
+          eq(regulations.docType, input.docType),
+        ),
+      });
+      if (existing) {
+        await db.delete(regulations).where(eq(regulations.id, existing.id));
+      }
+
+      const [saved] = await db
+        .insert(regulations)
+        .values({
+          processId: input.processId,
+          roleName: input.roleName,
+          docType: input.docType,
+          content,
+        })
+        .returning();
+
+      return {
+        id: saved.id,
+        processId: saved.processId,
+        roleName: saved.roleName,
+        docType: saved.docType,
+        content: saved.content,
+        createdAt: saved.createdAt.toISOString(),
+      };
     }),
 });
