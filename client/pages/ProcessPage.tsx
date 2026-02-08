@@ -2964,14 +2964,14 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
                             </strong>
                           ),
                           table: ({ children }) => (
-                            <div className="overflow-x-auto my-3">
-                              <table className="min-w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
+                            <div className="overflow-x-auto my-3 -mx-2 px-2 border border-gray-200 rounded-lg">
+                              <table className="min-w-full text-sm border-collapse">
                                 {children}
                               </table>
                             </div>
                           ),
                           thead: ({ children }) => (
-                            <thead className="bg-gray-50">{children}</thead>
+                            <thead className="bg-gray-50 sticky top-0">{children}</thead>
                           ),
                           tbody: ({ children }) => (
                             <tbody className="divide-y divide-gray-100">
@@ -2979,21 +2979,23 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
                             </tbody>
                           ),
                           tr: ({ children }) => (
-                            <tr className="hover:bg-gray-50">{children}</tr>
+                            <tr className="hover:bg-gray-50 transition-colors">{children}</tr>
                           ),
                           th: ({ children }) => (
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200">
+                            <th className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider border-b-2 border-gray-200 whitespace-nowrap">
                               {children}
                             </th>
                           ),
                           td: ({ children }) => (
-                            <td className="px-3 py-2 text-sm text-gray-700">
+                            <td className="px-3 py-2 text-sm text-gray-700 border-b border-gray-100 whitespace-nowrap">
                               {children}
                             </td>
                           ),
                         }}
                       >
-                        {rec.description}
+                        {(rec.description || "")
+                          .replace(/\\n/g, "\n")
+                          .replace(/\\t/g, "\t")}
                       </ReactMarkdown>
                     </div>
                     {rec.relatedSteps.length > 0 && (

@@ -407,6 +407,14 @@ ${JSON.stringify(processData, null, 2)}
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
+    // Normalize escaped newlines in description fields (AI may return \\n as literal text)
+    for (const item of parsed) {
+      if (typeof item.description === "string") {
+        item.description = item.description
+          .replace(/\\n/g, "\n")
+          .replace(/\\t/g, "\t");
+      }
+    }
     logger.info("AI", "Recommendations parsed successfully", { count: parsed.length });
     return parsed;
   } catch (error) {
