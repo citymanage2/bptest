@@ -117,6 +117,7 @@ import {
   GitBranch,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 // ============================================
 // Helper Functions
@@ -3013,6 +3014,7 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
                   <CardContent className="pt-0 pb-4 px-4">
                     <div className="pl-12 prose prose-sm prose-gray max-w-none">
                       <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
                         components={{
                           h2: ({ children }) => (
                             <h4 className="text-sm font-semibold text-gray-900 mt-4 mb-2 first:mt-0">
