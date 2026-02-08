@@ -2058,20 +2058,6 @@ function DiagramTab({
 // ============================================
 
 function StagesTab({ data }: { data: ProcessData }) {
-  const [expandedBlocks, setExpandedBlocks] = useState<Set<string>>(new Set());
-
-  const toggleBlock = useCallback((blockId: string) => {
-    setExpandedBlocks((prev) => {
-      const next = new Set(prev);
-      if (next.has(blockId)) {
-        next.delete(blockId);
-      } else {
-        next.add(blockId);
-      }
-      return next;
-    });
-  }, []);
-
   const roleMap = useMemo(() => {
     const m = new Map<string, string>();
     for (const r of data.roles) {
@@ -2134,95 +2120,76 @@ function StagesTab({ data }: { data: ProcessData }) {
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {blocks.map((block) => {
-                    const isExpanded = expandedBlocks.has(block.id);
-                    return (
-                      <div
-                        key={block.id}
-                        className="rounded-lg border border-gray-100 hover:border-gray-200 transition-colors bg-gray-50/50 overflow-hidden"
-                      >
-                        <button
-                          onClick={() => toggleBlock(block.id)}
-                          className="w-full flex items-center justify-between p-3 text-left"
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div
-                              className="w-2 h-8 rounded-full shrink-0"
-                              style={{
-                                backgroundColor:
-                                  BLOCK_CONFIG[block.type]?.borderColor || "#6b7280",
-                              }}
-                            />
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <span className="text-sm font-medium text-gray-900 truncate">
-                                  {block.name}
-                                </span>
-                                <Badge
-                                  variant="secondary"
-                                  className="text-[10px] px-1.5 py-0 shrink-0"
-                                >
-                                  {BLOCK_CONFIG[block.type]?.label}
-                                </Badge>
-                              </div>
-                              <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
-                                <span className="flex items-center gap-1">
-                                  <Users className="w-3 h-3" />
-                                  {roleName(block.role)}
-                                </span>
-                                {block.timeEstimate && (
-                                  <span className="flex items-center gap-1">
-                                    <Clock className="w-3 h-3" />
-                                    {block.timeEstimate}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
+                  {blocks.map((block) => (
+                    <div
+                      key={block.id}
+                      className="rounded-lg border border-gray-100 bg-gray-50/50 p-3"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className="w-2 h-8 rounded-full shrink-0"
+                          style={{
+                            backgroundColor:
+                              BLOCK_CONFIG[block.type]?.borderColor || "#6b7280",
+                          }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-medium text-gray-900">
+                              {block.name}
+                            </span>
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] px-1.5 py-0 shrink-0"
+                            >
+                              {BLOCK_CONFIG[block.type]?.label}
+                            </Badge>
                           </div>
-                          {isExpanded ? (
-                            <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
-                          ) : (
-                            <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />
-                          )}
-                        </button>
-                        {isExpanded && (
-                          <div className="px-3 pb-3 pl-[2.75rem]">
-                            {block.description ? (
-                              <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">
-                                {block.description}
-                              </p>
-                            ) : (
-                              <p className="text-sm text-gray-400 italic">
-                                Описание отсутствует
-                              </p>
-                            )}
-                            {(block.inputDocuments?.length || block.outputDocuments?.length || block.infoSystems?.length) && (
-                              <div className="mt-2 flex flex-wrap gap-3 text-xs text-gray-500">
-                                {block.inputDocuments && block.inputDocuments.length > 0 && (
-                                  <span>
-                                    <span className="font-medium text-gray-600">Входные документы:</span>{" "}
-                                    {block.inputDocuments.join(", ")}
-                                  </span>
-                                )}
-                                {block.outputDocuments && block.outputDocuments.length > 0 && (
-                                  <span>
-                                    <span className="font-medium text-gray-600">Выходные документы:</span>{" "}
-                                    {block.outputDocuments.join(", ")}
-                                  </span>
-                                )}
-                                {block.infoSystems && block.infoSystems.length > 0 && (
-                                  <span>
-                                    <span className="font-medium text-gray-600">Информационные системы:</span>{" "}
-                                    {block.infoSystems.join(", ")}
-                                  </span>
-                                )}
-                              </div>
+                          <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
+                            <span className="flex items-center gap-1">
+                              <Users className="w-3 h-3" />
+                              {roleName(block.role)}
+                            </span>
+                            {block.timeEstimate && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                {block.timeEstimate}
+                              </span>
                             )}
                           </div>
-                        )}
+                        </div>
                       </div>
-                    );
-                  })}
+                      {block.description && (
+                        <div className="mt-2 ml-5 pl-[0.25rem] border-l-2 border-gray-200">
+                          <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line pl-2">
+                            {block.description}
+                          </p>
+                        </div>
+                      )}
+                      {(block.inputDocuments?.length || block.outputDocuments?.length || block.infoSystems?.length) ? (
+                        <div className="mt-2 ml-5 pl-2 flex flex-col gap-1 text-xs text-gray-500">
+                          {block.inputDocuments && block.inputDocuments.length > 0 && (
+                            <span>
+                              <span className="font-medium text-gray-600">Вход:</span>{" "}
+                              {block.inputDocuments.join(", ")}
+                            </span>
+                          )}
+                          {block.outputDocuments && block.outputDocuments.length > 0 && (
+                            <span>
+                              <span className="font-medium text-gray-600">Выход:</span>{" "}
+                              {block.outputDocuments.join(", ")}
+                            </span>
+                          )}
+                          {block.infoSystems && block.infoSystems.length > 0 && (
+                            <span>
+                              <span className="font-medium text-gray-600">ИС:</span>{" "}
+                              {block.infoSystems.join(", ")}
+                            </span>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
                 </div>
               )}
             </CardContent>
