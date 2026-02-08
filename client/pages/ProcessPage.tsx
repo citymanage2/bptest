@@ -1,9 +1,10 @@
-import { useState, useRef, useMemo, useCallback } from "react";
+import { useState, useRef, useMemo, useCallback, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/lib/auth";
 import { cn, formatDateTime } from "@/lib/utils";
 import { exportToPNG, exportToBPMN, exportToPDF } from "@/lib/export";
+import { useGenerationProgress } from "@/hooks/useGenerationProgress";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +39,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Progress } from "@/components/ui/progress";
 import {
   SwimlaneCanvas,
   type SwimlaneCanvasHandle,
@@ -119,6 +127,7 @@ import {
   FileArchive,
   BookOpen,
   Briefcase,
+  Check,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -871,6 +880,10 @@ export function ProcessPage() {
   const [editConnections, setEditConnections] = useState<string[]>([]);
   const [editConnectionLabels, setEditConnectionLabels] = useState<Record<string, string>>({});
 
+  // ---- Generation Progress ----
+  const regenerateProgress = useGenerationProgress({ duration: 90000 });
+  const changeProgress = useGenerationProgress({ duration: 60000 });
+
   // ---- Mutations ----
   const updateDataMutation = trpc.process.updateData.useMutation({
     onSuccess: () => {
@@ -880,13 +893,21 @@ export function ProcessPage() {
 
   const regenerateMutation = trpc.process.regenerate.useMutation({
     onSuccess: () => {
+      regenerateProgress.finish();
       utils.process.getById.invalidate({ id: processId });
+    },
+    onError: () => {
+      regenerateProgress.reset();
     },
   });
 
   const requestChangeMutation = trpc.process.requestChange.useMutation({
     onSuccess: (changeRequest) => {
+      changeProgress.finish();
       setPendingChangeRequest(changeRequest as ChangeRequest);
+    },
+    onError: () => {
+      changeProgress.reset();
     },
   });
 
@@ -904,6 +925,17 @@ export function ProcessPage() {
       setPendingChangeRequest(null);
     },
   });
+
+  // ---- Beforeunload warning during generation ----
+  const isAnyGenerating = regenerateMutation.isPending || requestChangeMutation.isPending;
+  useEffect(() => {
+    if (!isAnyGenerating) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isAnyGenerating]);
 
   // ---- Computed ----
   const process = processQuery.data;
@@ -1026,11 +1058,12 @@ export function ProcessPage() {
 
   const handleRequestChange = useCallback(() => {
     if (!changeDescription.trim()) return;
+    changeProgress.start();
     requestChangeMutation.mutate({
       processId,
       description: changeDescription.trim(),
     });
-  }, [changeDescription, processId, requestChangeMutation]);
+  }, [changeDescription, processId, requestChangeMutation, changeProgress]);
 
   const handleApplyChange = useCallback(() => {
     if (!pendingChangeRequest) return;
@@ -1128,23 +1161,44 @@ export function ProcessPage() {
                     >
                       Отмена
                     </Button>
-                    <Button
-                      onClick={handleRequestChange}
-                      disabled={requestChangeMutation.isPending || !changeDescription.trim()}
-                    >
-                      {requestChangeMutation.isPending ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Генерация...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          Сгенерировать изменения
-                        </>
-                      )}
-                    </Button>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            onClick={handleRequestChange}
+                            disabled={requestChangeMutation.isPending || !changeDescription.trim()}
+                          >
+                            {changeProgress.phase === "done" ? (
+                              <>
+                                <Check className="w-4 h-4" />
+                                Готово
+                              </>
+                            ) : requestChangeMutation.isPending ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Генерация... {changeProgress.progress}%
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles className="w-4 h-4" />
+                                Сгенерировать изменения
+                              </>
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Это может занять несколько минут</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </DialogFooter>
+                  {requestChangeMutation.isPending && (
+                    <div className="space-y-2">
+                      <Progress value={changeProgress.progress} className="h-1.5" />
+                      <p className="text-xs text-amber-600 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" />
+                        Идет генерация. Пожалуйста, не покидайте страницу
+                      </p>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
@@ -1233,12 +1287,19 @@ export function ProcessPage() {
 
           {/* Regenerate Button */}
           <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <RefreshCw className="w-4 h-4" />
-                Сгенерировать заново
-              </Button>
-            </AlertDialogTrigger>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      <RefreshCw className="w-4 h-4" />
+                      Сгенерировать заново
+                    </Button>
+                  </AlertDialogTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Это может занять несколько минут</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>Перегенерация процесса</AlertDialogTitle>
@@ -1251,20 +1312,37 @@ export function ProcessPage() {
               <AlertDialogFooter>
                 <AlertDialogCancel>Отмена</AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={() => regenerateMutation.mutate({ id: processId })}
+                  onClick={() => {
+                    regenerateProgress.start();
+                    regenerateMutation.mutate({ id: processId });
+                  }}
                   disabled={regenerateMutation.isPending}
                   className="bg-red-600 hover:bg-red-700"
                 >
-                  {regenerateMutation.isPending ? (
+                  {regenerateProgress.phase === "done" ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Готово
+                    </>
+                  ) : regenerateMutation.isPending ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Генерация...
+                      Генерация... {regenerateProgress.progress}%
                     </>
                   ) : (
                     "Перегенерировать"
                   )}
                 </AlertDialogAction>
               </AlertDialogFooter>
+              {regenerateMutation.isPending && (
+                <div className="space-y-2">
+                  <Progress value={regenerateProgress.progress} className="h-1.5" />
+                  <p className="text-xs text-amber-600 flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" />
+                    Идет генерация. Пожалуйста, не покидайте страницу
+                  </p>
+                </div>
+              )}
             </AlertDialogContent>
           </AlertDialog>
         </div>
@@ -2851,9 +2929,15 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
     processId,
   });
 
+  const recProgress = useGenerationProgress({ duration: 120000 });
+
   const generateMutation = trpc.process.generateRecommendations.useMutation({
     onSuccess: () => {
+      recProgress.finish();
       utils.process.getRecommendations.invalidate({ processId });
+    },
+    onError: () => {
+      recProgress.reset();
     },
   });
 
@@ -2916,24 +3000,49 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
               </Button>
             </>
           )}
-          <Button
-            onClick={() => generateMutation.mutate({ processId })}
-            disabled={generateMutation.isPending}
-          >
-            {generateMutation.isPending ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Генерация...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                {recommendations.length > 0 ? "Обновить анализ" : "Сгенерировать анализ"}
-              </>
-            )}
-          </Button>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => {
+                    recProgress.start();
+                    generateMutation.mutate({ processId });
+                  }}
+                  disabled={generateMutation.isPending}
+                >
+                  {recProgress.phase === "done" ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Готово
+                    </>
+                  ) : generateMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Генерация... {recProgress.progress}%
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      {recommendations.length > 0 ? "Обновить анализ" : "Сгенерировать анализ"}
+                    </>
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Это может занять несколько минут</TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </div>
+
+      {generateMutation.isPending && (
+        <div className="space-y-2">
+          <Progress value={recProgress.progress} className="h-1.5" />
+          <p className="text-xs text-amber-600 flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" />
+            Идет генерация. Пожалуйста, не покидайте страницу
+          </p>
+        </div>
+      )}
 
       {recommendationsQuery.isLoading ? (
         <div className="flex items-center justify-center py-12">
@@ -3150,15 +3259,18 @@ function RegulationsTab({
   const utils = trpc.useUtils();
   const [previewDoc, setPreviewDoc] = useState<RegulationDoc | null>(null);
   const [generatingKey, setGeneratingKey] = useState<string | null>(null);
+  const regDocProgress = useGenerationProgress({ duration: 60000 });
 
   const regulationsQuery = trpc.process.getRegulations.useQuery({ processId });
 
   const generateMutation = trpc.process.generateRegulation.useMutation({
     onSuccess: () => {
+      regDocProgress.finish();
       utils.process.getRegulations.invalidate({ processId });
       setGeneratingKey(null);
     },
     onError: () => {
+      regDocProgress.reset();
       setGeneratingKey(null);
     },
   });
@@ -3183,9 +3295,10 @@ function RegulationsTab({
     (roleName: string, docType: "regulation" | "job_description") => {
       const key = `${roleName}:${docType}`;
       setGeneratingKey(key);
+      regDocProgress.start();
       generateMutation.mutate({ processId, roleName, docType });
     },
-    [generateMutation, processId]
+    [generateMutation, processId, regDocProgress]
   );
 
   const docTypeLabel = (docType: "regulation" | "job_description") =>
@@ -3482,40 +3595,70 @@ function RegulationsTab({
                             >
                               <Download className="w-3.5 h-3.5" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={isGeneratingReg}
-                              onClick={() => handleGenerate(roleName, "regulation")}
-                            >
-                              {isGeneratingReg ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <RefreshCw className="w-3.5 h-3.5" />
-                              )}
-                            </Button>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={isGeneratingReg}
+                                    onClick={() => handleGenerate(roleName, "regulation")}
+                                  >
+                                    {isGeneratingReg && regDocProgress.phase === "done" ? (
+                                      <Check className="w-3.5 h-3.5 text-green-600" />
+                                    ) : isGeneratingReg ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <RefreshCw className="w-3.5 h-3.5" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Это может занять несколько минут</TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           </>
                         ) : (
-                          <Button
-                            size="sm"
-                            className="w-full"
-                            disabled={isGeneratingReg}
-                            onClick={() => handleGenerate(roleName, "regulation")}
-                          >
-                            {isGeneratingReg ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                Генерация...
-                              </>
-                            ) : (
-                              <>
-                                <Sparkles className="w-3.5 h-3.5" />
-                                Сгенерировать ({TOKEN_COSTS.regulation_document} токенов)
-                              </>
-                            )}
-                          </Button>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  className="w-full"
+                                  disabled={isGeneratingReg}
+                                  onClick={() => handleGenerate(roleName, "regulation")}
+                                >
+                                  {isGeneratingReg && regDocProgress.phase === "done" ? (
+                                    <>
+                                      <Check className="w-3.5 h-3.5" />
+                                      Готово
+                                    </>
+                                  ) : isGeneratingReg ? (
+                                    <>
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      Генерация... {regDocProgress.progress}%
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Sparkles className="w-3.5 h-3.5" />
+                                      Сгенерировать ({TOKEN_COSTS.regulation_document} токенов)
+                                    </>
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Это может занять несколько минут</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         )}
                       </div>
+                      {isGeneratingReg && regDocProgress.phase === "generating" && (
+                        <div className="mt-2 space-y-1">
+                          <Progress value={regDocProgress.progress} className="h-1" />
+                          <p className="text-[10px] text-amber-600 flex items-center gap-1">
+                            <AlertCircle className="w-2.5 h-2.5" />
+                            Не покидайте страницу
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     {/* Job Description */}
@@ -3553,40 +3696,70 @@ function RegulationsTab({
                             >
                               <Download className="w-3.5 h-3.5" />
                             </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={isGeneratingJob}
-                              onClick={() => handleGenerate(roleName, "job_description")}
-                            >
-                              {isGeneratingJob ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : (
-                                <RefreshCw className="w-3.5 h-3.5" />
-                              )}
-                            </Button>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={isGeneratingJob}
+                                    onClick={() => handleGenerate(roleName, "job_description")}
+                                  >
+                                    {isGeneratingJob && regDocProgress.phase === "done" ? (
+                                      <Check className="w-3.5 h-3.5 text-green-600" />
+                                    ) : isGeneratingJob ? (
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                      <RefreshCw className="w-3.5 h-3.5" />
+                                    )}
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Это может занять несколько минут</TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           </>
                         ) : (
-                          <Button
-                            size="sm"
-                            className="w-full"
-                            disabled={isGeneratingJob}
-                            onClick={() => handleGenerate(roleName, "job_description")}
-                          >
-                            {isGeneratingJob ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                Генерация...
-                              </>
-                            ) : (
-                              <>
-                                <Sparkles className="w-3.5 h-3.5" />
-                                Сгенерировать ({TOKEN_COSTS.regulation_document} токенов)
-                              </>
-                            )}
-                          </Button>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  size="sm"
+                                  className="w-full"
+                                  disabled={isGeneratingJob}
+                                  onClick={() => handleGenerate(roleName, "job_description")}
+                                >
+                                  {isGeneratingJob && regDocProgress.phase === "done" ? (
+                                    <>
+                                      <Check className="w-3.5 h-3.5" />
+                                      Готово
+                                    </>
+                                  ) : isGeneratingJob ? (
+                                    <>
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      Генерация... {regDocProgress.progress}%
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Sparkles className="w-3.5 h-3.5" />
+                                      Сгенерировать ({TOKEN_COSTS.regulation_document} токенов)
+                                    </>
+                                  )}
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>Это может занять несколько минут</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         )}
                       </div>
+                      {isGeneratingJob && regDocProgress.phase === "generating" && (
+                        <div className="mt-2 space-y-1">
+                          <Progress value={regDocProgress.progress} className="h-1" />
+                          <p className="text-[10px] text-amber-600 flex items-center gap-1">
+                            <AlertCircle className="w-2.5 h-2.5" />
+                            Не покидайте страницу
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </CardContent>

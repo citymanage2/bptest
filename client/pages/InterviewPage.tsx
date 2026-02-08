@@ -8,7 +8,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useGenerationProgress } from "@/hooks/useGenerationProgress";
 import {
   ChevronLeft,
   ChevronRight,
@@ -26,6 +33,7 @@ import {
   Trash2,
   AlertCircle,
   Upload,
+  Check,
 } from "lucide-react";
 
 interface UploadedFile {
@@ -55,6 +63,7 @@ export function InterviewPage() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [currentBlockIndex, setCurrentBlockIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
+  const genProgress = useGenerationProgress({ duration: 120000 });
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [recordingQuestionId, setRecordingQuestionId] = useState<string | null>(null);
@@ -300,6 +309,7 @@ export function InterviewPage() {
   const handleComplete = useCallback(async () => {
     try {
       setIsGenerating(true);
+      genProgress.start();
 
       // Save current answers first
       if (pendingSaveRef.current && saveTimerRef.current) {
@@ -312,12 +322,24 @@ export function InterviewPage() {
 
       // Generate process
       const process = await generateMutation.mutateAsync({ interviewId });
+      genProgress.finish();
       navigate(`/process/${process.id}`);
     } catch (error) {
       console.error("Ошибка при генерации:", error);
+      genProgress.reset();
       setIsGenerating(false);
     }
-  }, [interviewId, answers, saveAnswersMutation, completeMutation, generateMutation, navigate]);
+  }, [interviewId, answers, saveAnswersMutation, completeMutation, generateMutation, navigate, genProgress]);
+
+  // Warn before leaving during generation
+  useEffect(() => {
+    if (!isGenerating) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isGenerating]);
 
   // Count answered questions
   const answeredCount = useMemo(
@@ -361,19 +383,35 @@ export function InterviewPage() {
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
         <div className="relative">
           <div className="w-20 h-20 rounded-full bg-purple-100 flex items-center justify-center">
-            <Sparkles className="w-10 h-10 text-purple-600 animate-pulse" />
+            {genProgress.phase === "done" ? (
+              <Check className="w-10 h-10 text-green-600" />
+            ) : (
+              <Sparkles className="w-10 h-10 text-purple-600 animate-pulse" />
+            )}
           </div>
-          <div className="absolute inset-0 rounded-full border-4 border-purple-200 border-t-purple-600 animate-spin" />
+          {genProgress.phase !== "done" && (
+            <div className="absolute inset-0 rounded-full border-4 border-purple-200 border-t-purple-600 animate-spin" />
+          )}
         </div>
         <div className="text-center space-y-2">
           <h2 className="text-xl font-semibold text-gray-900">
-            Генерация бизнес-процесса...
+            {genProgress.phase === "done"
+              ? "Готово!"
+              : `Генерация бизнес-процесса... ${genProgress.progress}%`}
           </h2>
           <p className="text-gray-500">
-            ИИ анализирует ваши ответы и формирует структуру процесса. Это может занять 1-2 минуты.
+            {genProgress.phase === "done"
+              ? "Перенаправление на страницу процесса..."
+              : "ИИ анализирует ваши ответы и формирует структуру процесса."}
           </p>
         </div>
-        <Progress value={undefined} className="w-64" />
+        <div className="w-64 space-y-2">
+          <Progress value={genProgress.progress} className="w-full" />
+          <p className="text-xs text-amber-600 text-center flex items-center justify-center gap-1">
+            <AlertCircle className="w-3 h-3" />
+            Пожалуйста, не покидайте страницу
+          </p>
+        </div>
       </div>
     );
   }
@@ -662,14 +700,21 @@ export function InterviewPage() {
 
         <div className="flex items-center gap-3">
           {currentBlockIndex === blocks.length - 1 ? (
-            <Button
-              onClick={handleComplete}
-              disabled={requiredUnanswered.length > 0 || isGenerating}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              <Sparkles className="w-4 h-4 mr-1" />
-              Завершить и сгенерировать
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={handleComplete}
+                    disabled={requiredUnanswered.length > 0 || isGenerating}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <Sparkles className="w-4 h-4 mr-1" />
+                    Завершить и сгенерировать
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Это может занять несколько минут</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           ) : (
             <Button onClick={() => handleNavigateBlock("next")}>
               Следующий блок
