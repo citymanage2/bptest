@@ -1109,20 +1109,26 @@ export function ProcessPage() {
 
   // ---- Group 1 action buttons (shared across process tabs) ----
   const processActionButtons = (
-    <div className="flex items-center gap-2 shrink-0">
-      {/* Change Request Dialog */}
-      <Dialog open={changeDialogOpen} onOpenChange={setChangeDialogOpen}>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DialogTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Send className="w-4 h-4" />
-                  Запросить изменения во всём процессе
-                </Button>
-              </DialogTrigger>
-            </TooltipTrigger>
-            <TooltipContent>Изменения затронут все вкладки процесса</TooltipContent>
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 shrink-0">
+        {/* Change Request Dialog */}
+        <Dialog open={changeDialogOpen} onOpenChange={setChangeDialogOpen}>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={requestChangeMutation.isPending}>
+                    {changeProgress.phase === "done" ? (
+                      <><Check className="w-4 h-4" /> Готово</>
+                    ) : requestChangeMutation.isPending ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Генерация... {changeProgress.progress}%</>
+                    ) : (
+                      <><Send className="w-4 h-4" /> Запросить изменения во всём процессе</>
+                    )}
+                  </Button>
+                </DialogTrigger>
+              </TooltipTrigger>
+              <TooltipContent>Изменения затронут все вкладки процесса</TooltipContent>
           </Tooltip>
         </TooltipProvider>
         <DialogContent className="max-w-2xl">
@@ -1285,9 +1291,14 @@ export function ProcessPage() {
           <Tooltip>
             <TooltipTrigger asChild>
               <AlertDialogTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <RefreshCw className="w-4 h-4" />
-                  Сгенерировать заново
+                <Button variant="outline" size="sm" disabled={regenerateMutation.isPending}>
+                  {regenerateProgress.phase === "done" ? (
+                    <><Check className="w-4 h-4" /> Готово</>
+                  ) : regenerateMutation.isPending ? (
+                    <><Loader2 className="w-4 h-4 animate-spin" /> Генерация... {regenerateProgress.progress}%</>
+                  ) : (
+                    <><RefreshCw className="w-4 h-4" /> Сгенерировать заново</>
+                  )}
                 </Button>
               </AlertDialogTrigger>
             </TooltipTrigger>
@@ -1340,6 +1351,13 @@ export function ProcessPage() {
           )}
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+    {(requestChangeMutation.isPending || regenerateMutation.isPending) && (
+      <Progress
+        value={requestChangeMutation.isPending ? changeProgress.progress : regenerateProgress.progress}
+        className="h-1.5"
+      />
+    )}
     </div>
   );
 
@@ -2738,12 +2756,18 @@ function CrmFunnelsTab({
   return (
     <div className="space-y-6">
       {/* CRM local action buttons */}
+      <div className="space-y-2">
       <div className="flex items-center justify-end gap-2">
         <Dialog open={crmChangeOpen} onOpenChange={setCrmChangeOpen}>
           <DialogTrigger asChild>
-            <Button variant="outline" size="sm">
-              <Send className="w-4 h-4" />
-              Запросить изменения в CRM
+            <Button variant="outline" size="sm" disabled={crmChangeMutation.isPending}>
+              {crmChangeProgress.phase === "done" ? (
+                <><Check className="w-4 h-4" /> Готово</>
+              ) : crmChangeMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Генерация... {crmChangeProgress.progress}%</>
+              ) : (
+                <><Send className="w-4 h-4" /> Запросить изменения в CRM</>
+              )}
             </Button>
           </DialogTrigger>
           <DialogContent>
@@ -2794,9 +2818,14 @@ function CrmFunnelsTab({
             <Tooltip>
               <TooltipTrigger asChild>
                 <AlertDialogTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <RefreshCw className="w-4 h-4" />
-                    Сгенерировать CRM заново
+                  <Button variant="outline" size="sm" disabled={crmRegenMutation.isPending}>
+                    {crmRegenProgress.phase === "done" ? (
+                      <><Check className="w-4 h-4" /> Готово</>
+                    ) : crmRegenMutation.isPending ? (
+                      <><Loader2 className="w-4 h-4 animate-spin" /> Генерация... {crmRegenProgress.progress}%</>
+                    ) : (
+                      <><RefreshCw className="w-4 h-4" /> Сгенерировать CRM заново</>
+                    )}
                   </Button>
                 </AlertDialogTrigger>
               </TooltipTrigger>
@@ -2842,6 +2871,13 @@ function CrmFunnelsTab({
             )}
           </AlertDialogContent>
         </AlertDialog>
+      </div>
+      {(crmChangeMutation.isPending || crmRegenMutation.isPending) && (
+        <Progress
+          value={crmChangeMutation.isPending ? crmChangeProgress.progress : crmRegenProgress.progress}
+          className="h-1.5"
+        />
+      )}
       </div>
 
       {funnels.map((funnel) => {
@@ -3355,9 +3391,14 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
           )}
           <Dialog open={recChangeOpen} onOpenChange={setRecChangeOpen}>
             <DialogTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Send className="w-4 h-4" />
-                Запросить изменения в Рекомендациях
+              <Button variant="outline" size="sm" disabled={recChangeMutation.isPending}>
+                {recChangeProgress.phase === "done" ? (
+                  <><Check className="w-4 h-4" /> Готово</>
+                ) : recChangeMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Генерация... {recChangeProgress.progress}%</>
+                ) : (
+                  <><Send className="w-4 h-4" /> Запросить изменения в Рекомендациях</>
+                )}
               </Button>
             </DialogTrigger>
             <DialogContent>
@@ -3436,9 +3477,12 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
         </div>
       </div>
 
-      {generateMutation.isPending && (
+      {(generateMutation.isPending || recChangeMutation.isPending) && (
         <div className="space-y-2">
-          <Progress value={recProgress.progress} className="h-1.5" />
+          <Progress
+            value={generateMutation.isPending ? recProgress.progress : recChangeProgress.progress}
+            className="h-1.5"
+          />
           <p className="text-xs text-amber-600 flex items-center gap-1">
             <AlertCircle className="w-3 h-3" />
             Идет генерация. Пожалуйста, не покидайте страницу
