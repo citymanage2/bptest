@@ -141,6 +141,7 @@ const PROCESS_GENERATION_PROMPT = `Ты — эксперт-аналитик по
       "inputDocuments": ["Заявка"],
       "outputDocuments": ["Зарегистрированная заявка"],
       "infoSystems": ["CRM"],
+      "checklist": ["Проверить полноту данных", "Присвоить номер заявки", "Уведомить ответственного"],
       "connections": ["block_2"],
       "conditionLabel": "",
       "isDefault": false
@@ -157,7 +158,7 @@ const PROCESS_GENERATION_PROMPT = `Ты — эксперт-аналитик по
 6. 3-5 product-блоков (промежуточные результаты)
 7. Минимум 8-10 handoffs между ролями
 8. Паттерн согласования: Подготовить → Проверить → Gateway → Утвердить/Вернуть
-9. Каждый action: timeEstimate + inputDocuments + infoSystems
+9. Каждый action: timeEstimate + inputDocuments + infoSystems + checklist (2-5 конкретных шагов)
 10. Ответ — ТОЛЬКО валидный JSON, без markdown, без пояснений`;
 
 export interface AttachedFileMeta {

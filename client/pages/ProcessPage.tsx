@@ -875,6 +875,7 @@ export function ProcessPage() {
   const [editInputDocuments, setEditInputDocuments] = useState("");
   const [editOutputDocuments, setEditOutputDocuments] = useState("");
   const [editInfoSystems, setEditInfoSystems] = useState("");
+  const [editChecklist, setEditChecklist] = useState("");
   const [editConditionLabel, setEditConditionLabel] = useState("");
   const [editIsDefault, setEditIsDefault] = useState(false);
   const [editConnections, setEditConnections] = useState<string[]>([]);
@@ -977,6 +978,7 @@ export function ProcessPage() {
       setEditInputDocuments(block.inputDocuments?.join(", ") || "");
       setEditOutputDocuments(block.outputDocuments?.join(", ") || "");
       setEditInfoSystems(block.infoSystems?.join(", ") || "");
+      setEditChecklist(block.checklist?.join(", ") || "");
       setEditConditionLabel(block.conditionLabel || "");
       setEditIsDefault(block.isDefault || false);
       setEditConnections([...block.connections]);
@@ -1015,6 +1017,7 @@ export function ProcessPage() {
           inputDocuments: parseCommaSeparated(editInputDocuments),
           outputDocuments: parseCommaSeparated(editOutputDocuments),
           infoSystems: parseCommaSeparated(editInfoSystems),
+          checklist: parseCommaSeparated(editChecklist),
           conditionLabel: editConditionLabel || undefined,
           isDefault: editIsDefault,
           connections: editConnections,
@@ -1036,7 +1039,7 @@ export function ProcessPage() {
       data: { ...data, blocks: updatedBlocks },
     });
     setEditingBlock(null);
-  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editConditionLabel, editIsDefault, editConnections, editConnectionLabels, processId, updateDataMutation]);
+  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editChecklist, editConditionLabel, editIsDefault, editConnections, editConnectionLabels, processId, updateDataMutation]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingBlock(null);
@@ -1415,6 +1418,7 @@ export function ProcessPage() {
               editInputDocuments={editInputDocuments}
               editOutputDocuments={editOutputDocuments}
               editInfoSystems={editInfoSystems}
+              editChecklist={editChecklist}
               editConditionLabel={editConditionLabel}
               editIsDefault={editIsDefault}
               editConnections={editConnections}
@@ -1437,6 +1441,7 @@ export function ProcessPage() {
               onSetEditInputDocuments={setEditInputDocuments}
               onSetEditOutputDocuments={setEditOutputDocuments}
               onSetEditInfoSystems={setEditInfoSystems}
+              onSetEditChecklist={setEditChecklist}
               onSetEditConditionLabel={setEditConditionLabel}
               onSetEditIsDefault={setEditIsDefault}
               onSetEditConnections={setEditConnections}
@@ -1530,6 +1535,7 @@ interface DiagramTabProps {
   editInputDocuments: string;
   editOutputDocuments: string;
   editInfoSystems: string;
+  editChecklist: string;
   editConditionLabel: string;
   editIsDefault: boolean;
   editConnections: string[];
@@ -1552,6 +1558,7 @@ interface DiagramTabProps {
   onSetEditInputDocuments: (v: string) => void;
   onSetEditOutputDocuments: (v: string) => void;
   onSetEditInfoSystems: (v: string) => void;
+  onSetEditChecklist: (v: string) => void;
   onSetEditConditionLabel: (v: string) => void;
   onSetEditIsDefault: (v: boolean) => void;
   onSetEditConnections: (v: string[]) => void;
@@ -1576,6 +1583,7 @@ function DiagramTab({
   editInputDocuments,
   editOutputDocuments,
   editInfoSystems,
+  editChecklist,
   editConditionLabel,
   editIsDefault,
   editConnections,
@@ -1598,6 +1606,7 @@ function DiagramTab({
   onSetEditInputDocuments,
   onSetEditOutputDocuments,
   onSetEditInfoSystems,
+  onSetEditChecklist,
   onSetEditConditionLabel,
   onSetEditIsDefault,
   onSetEditConnections,
@@ -1821,6 +1830,18 @@ function DiagramTab({
                       onChange={(e) => onSetEditInfoSystems(e.target.value)}
                       placeholder="через запятую"
                       className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-700">
+                      Чек-лист
+                    </label>
+                    <Textarea
+                      value={editChecklist}
+                      onChange={(e) => onSetEditChecklist(e.target.value)}
+                      placeholder="через запятую: Проверить данные, Уведомить клиента..."
+                      rows={2}
+                      className="text-sm"
                     />
                   </div>
                   {(editType === "decision" || editingBlock.conditionLabel) && (
@@ -2051,6 +2072,25 @@ function DiagramTab({
                           <Badge key={i} variant="secondary" className="text-xs">
                             {sys}
                           </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedBlock.checklist && selectedBlock.checklist.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium text-gray-500 mb-1 flex items-center gap-1">
+                        <ListChecks className="w-3 h-3" />
+                        Чек-лист ({selectedBlock.checklist.length})
+                      </div>
+                      <div className="space-y-1">
+                        {selectedBlock.checklist.map((item, i) => (
+                          <div key={i} className="flex items-start gap-1.5 text-sm text-gray-700">
+                            <div className="w-4 h-4 rounded border border-gray-300 shrink-0 mt-0.5 flex items-center justify-center">
+                              <span className="text-[9px] text-gray-400">{i + 1}</span>
+                            </div>
+                            <span>{item}</span>
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -3226,26 +3266,6 @@ function CrmFunnelsTab({
                                     </span>
                                   </div>
                                 )}
-                              </div>
-                            )}
-
-                            {/* Checklist */}
-                            {stage.checklist.length > 0 && (
-                              <div className="text-xs text-gray-600 bg-white rounded border border-gray-100 p-2">
-                                <div className="font-medium text-gray-700 mb-1 flex items-center gap-1">
-                                  <ListChecks className="w-3 h-3" />
-                                  Чек-лист ({stage.checklist.length})
-                                </div>
-                                <div className="space-y-0.5">
-                                  {stage.checklist.map((item, i) => (
-                                    <div key={i} className="flex items-start gap-1.5">
-                                      <div className="w-3.5 h-3.5 rounded border border-gray-300 shrink-0 mt-0.5 flex items-center justify-center">
-                                        <span className="text-[8px] text-gray-400">{i + 1}</span>
-                                      </div>
-                                      <span>{item}</span>
-                                    </div>
-                                  ))}
-                                </div>
                               </div>
                             )}
 

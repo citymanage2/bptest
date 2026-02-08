@@ -69,6 +69,7 @@ export interface ProcessBlock {
   inputDocuments?: string[];
   outputDocuments?: string[];
   infoSystems?: string[];
+  checklist?: string[];
   funnelStage?: string;
   connections: string[]; // IDs of next blocks
   conditionLabel?: string; // For decision branches
