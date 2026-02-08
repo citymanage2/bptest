@@ -2089,8 +2089,127 @@ function StagesTab({ data }: { data: ProcessData }) {
     return map;
   }, [data.blocks, sortedStages, data]);
 
+  const handleDownloadWord = useCallback(async () => {
+    const { Document: DocxDocument, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } =
+      await import("docx");
+
+    const children: InstanceType<typeof Paragraph>[] = [];
+
+    // Title
+    children.push(
+      new Paragraph({
+        children: [new TextRun({ text: data.name, bold: true, size: 32 })],
+        heading: HeadingLevel.TITLE,
+        spacing: { after: 200 },
+      })
+    );
+
+    for (let i = 0; i < sortedStages.length; i++) {
+      const stage = sortedStages[i];
+      const blocks = blocksByStage.get(stage.id) || [];
+
+      // Stage heading: "1. Название этапа"
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: `${i + 1}. ${stage.name}`, bold: true, size: 26 })],
+          heading: HeadingLevel.HEADING_1,
+          spacing: { before: 300, after: 120 },
+        })
+      );
+
+      for (const block of blocks) {
+        const typeLabel = BLOCK_CONFIG[block.type]?.label || block.type;
+        const role = roleMap.get(block.role) || block.role;
+
+        // Block name as bullet
+        const headerRuns: InstanceType<typeof TextRun>[] = [
+          new TextRun({ text: block.name, bold: true }),
+          new TextRun({ text: `  [${typeLabel}]`, italics: true, color: "666666" }),
+        ];
+        children.push(
+          new Paragraph({
+            children: headerRuns,
+            bullet: { level: 0 },
+            spacing: { before: 100 },
+          })
+        );
+
+        // Role + time
+        const metaParts: string[] = [`Роль: ${role}`];
+        if (block.timeEstimate) metaParts.push(`Время: ${block.timeEstimate}`);
+        children.push(
+          new Paragraph({
+            children: [new TextRun({ text: metaParts.join("  |  "), color: "888888", size: 20 })],
+            indent: { left: 720 },
+          })
+        );
+
+        // Description
+        if (block.description) {
+          children.push(
+            new Paragraph({
+              children: [new TextRun({ text: block.description })],
+              indent: { left: 720 },
+              spacing: { before: 40, after: 40 },
+            })
+          );
+        }
+
+        // Documents / IS
+        if (block.inputDocuments?.length) {
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({ text: "Входные документы: ", bold: true, size: 20 }),
+                new TextRun({ text: block.inputDocuments.join(", "), size: 20 }),
+              ],
+              indent: { left: 720 },
+            })
+          );
+        }
+        if (block.outputDocuments?.length) {
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({ text: "Выходные документы: ", bold: true, size: 20 }),
+                new TextRun({ text: block.outputDocuments.join(", "), size: 20 }),
+              ],
+              indent: { left: 720 },
+            })
+          );
+        }
+        if (block.infoSystems?.length) {
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({ text: "Информационные системы: ", bold: true, size: 20 }),
+                new TextRun({ text: block.infoSystems.join(", "), size: 20 }),
+              ],
+              indent: { left: 720 },
+            })
+          );
+        }
+      }
+    }
+
+    const doc = new DocxDocument({
+      sections: [{ children }],
+    });
+
+    const blob = await Packer.toBlob(doc);
+    saveAs(blob, `Этапы процесса ${data.name}.docx`);
+  }, [data, sortedStages, blocksByStage, roleMap]);
+
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-gray-900">Этапы процесса</h2>
+        <Button variant="outline" size="sm" onClick={handleDownloadWord}>
+          <Download className="w-4 h-4" />
+          Скачать Word
+        </Button>
+      </div>
+
       {sortedStages.map((stage, stageIdx) => {
         const blocks = blocksByStage.get(stage.id) || [];
         return (
