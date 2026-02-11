@@ -77,7 +77,7 @@ export interface SwimlaneCanvasProps {
 // ============================================================
 // Helper: Block Heights
 // ============================================================
-function getBlockHeight(type: BlockType): number {
+function getMinBlockHeight(type: BlockType): number {
   switch (type) {
     case "start":
       return 80;
@@ -94,6 +94,77 @@ function getBlockHeight(type: BlockType): number {
     default:
       return 100;
   }
+}
+
+// Offscreen canvas for text measurement in layout
+let _measureCtx: CanvasRenderingContext2D | null = null;
+function getMeasureCtx(): CanvasRenderingContext2D {
+  if (!_measureCtx) {
+    const c = document.createElement("canvas");
+    _measureCtx = c.getContext("2d")!;
+  }
+  return _measureCtx;
+}
+
+const MAX_NAME_LINES = 3;
+
+function computeBlockHeight(block: ProcessBlock, blockWidth: number): number {
+  const minH = getMinBlockHeight(block.type);
+  const config = BLOCK_CONFIG[block.type];
+  const ctx = getMeasureCtx();
+
+  // Determine text max width (same logic as drawBlockContent)
+  let textMaxW: number;
+  switch (config.shape) {
+    case "diamond":
+      textMaxW = blockWidth * 0.45;
+      break;
+    case "hexagon":
+      textMaxW = blockWidth - 72;
+      break;
+    case "triangle":
+      textMaxW = blockWidth * 0.55;
+      break;
+    default:
+      textMaxW = blockWidth - 32;
+      break;
+  }
+
+  // Measure name lines
+  ctx.font = `bold 13px ${FONT_FAMILY}`;
+  const nameLines = wrapText(ctx, block.name, textMaxW, MAX_NAME_LINES);
+  const nameLinesCount = Math.max(nameLines.length, 1);
+
+  // For simple block types (start, end, split), just ensure name fits
+  if (block.type === "start" || block.type === "end" || block.type === "split") {
+    // type label (10+15) + name lines * 17 + padding 12
+    const needed = 12 + 15 + nameLinesCount * 17 + 12;
+    return Math.max(minH, needed);
+  }
+
+  // Decision: type label + "?" icon + name
+  if (block.type === "decision") {
+    const needed = 12 + 15 + 26 + nameLinesCount * 15 + 12;
+    return Math.max(minH, needed);
+  }
+
+  // Action / product: type label + name + description + badges
+  let needed = 12 + 15; // top padding + type label
+  needed += nameLinesCount * 17; // name
+
+  if ((block.type === "action" || block.type === "product") && block.description) {
+    ctx.font = `12px ${FONT_FAMILY}`;
+    const descLines = wrapText(ctx, block.description, textMaxW, 2);
+    needed += 3 + descLines.length * 15; // gap + description
+  }
+
+  if (block.type === "action") {
+    needed += 8 + 22 + 8; // gap + badge height + bottom padding
+  } else {
+    needed += 12; // bottom padding
+  }
+
+  return Math.max(minH, needed);
 }
 
 // ============================================================
@@ -202,6 +273,12 @@ function computeLayout(data: ProcessData): LayoutInfo {
     cellBlocks[key].push(block);
   }
 
+  // Pre-compute actual block heights based on text content
+  const blockHeightMap = new Map<string, number>();
+  for (const block of data.blocks) {
+    blockHeightMap.set(block.id, computeBlockHeight(block, BLOCK_WIDTH));
+  }
+
   // Calculate stage heights based on tallest cell in each stage row
   const stageHeights: number[] = stageOrder.map((stageId) => {
     let maxCellH = 0;
@@ -210,7 +287,7 @@ function computeLayout(data: ProcessData): LayoutInfo {
       const blocks = cellBlocks[key] || [];
       let h = BLOCK_PADDING;
       for (const b of blocks) {
-        h += getBlockHeight(b.type) + BLOCK_PADDING;
+        h += (blockHeightMap.get(b.id) || getMinBlockHeight(b.type)) + BLOCK_PADDING;
       }
       maxCellH = Math.max(maxCellH, h);
     }
@@ -242,7 +319,7 @@ function computeLayout(data: ProcessData): LayoutInfo {
 
       // Calculate total height for vertical centering
       let totalH = 0;
-      for (const b of blocks) totalH += getBlockHeight(b.type);
+      for (const b of blocks) totalH += blockHeightMap.get(b.id) || getMinBlockHeight(b.type);
       totalH += (blocks.length - 1) * BLOCK_PADDING;
 
       const cellTop = stagePositions[si];
@@ -250,7 +327,7 @@ function computeLayout(data: ProcessData): LayoutInfo {
       let yStart = cellTop + (cellHeight - totalH) / 2;
 
       for (const block of blocks) {
-        const bh = getBlockHeight(block.type);
+        const bh = blockHeightMap.get(block.id) || getMinBlockHeight(block.type);
         const bx = lanePositions[ri] + (LANE_WIDTH - BLOCK_WIDTH) / 2;
         layoutBlocks.push({ block, x: bx, y: yStart, w: BLOCK_WIDTH, h: bh });
         yStart += bh + BLOCK_PADDING;
@@ -1382,7 +1459,7 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
 
     ctx.font = `bold 12px ${FONT_FAMILY}`;
     ctx.fillStyle = "#1e3a5f";
-    const nameLines = wrapText(ctx, block.name, textMaxW, 2);
+    const nameLines = wrapText(ctx, block.name, textMaxW, MAX_NAME_LINES);
     for (const line of nameLines) {
       ctx.fillText(line, cx, curY);
       curY += 15;
@@ -1393,7 +1470,7 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
   // Block name
   ctx.fillStyle = "#111827";
   ctx.font = `bold 13px ${FONT_FAMILY}`;
-  const nameLines = wrapText(ctx, block.name, textMaxW, 2);
+  const nameLines = wrapText(ctx, block.name, textMaxW, MAX_NAME_LINES);
   for (const line of nameLines) {
     ctx.fillText(line, cx, curY);
     curY += 17;
