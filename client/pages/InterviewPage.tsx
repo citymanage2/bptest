@@ -55,6 +55,20 @@ function formatFileSize(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1) + " МБ";
 }
 
+// Average monthly salaries for role suggestions (question e1)
+const ROLE_SALARIES: Record<string, number> = {
+  "Менеджер": 75000,
+  "Аналитик": 95000,
+  "Руководитель": 150000,
+  "Бухгалтер": 60000,
+  "Юрист": 85000,
+  "Технический специалист": 90000,
+};
+
+function formatSalary(value: number): string {
+  return value.toLocaleString("ru-RU") + " ₽";
+}
+
 export function InterviewPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -530,7 +544,7 @@ export function InterviewPage() {
                         <p className="text-sm font-medium text-gray-900">
                           {question.question}
                         </p>
-                        {question.hint && (
+                        {question.hint && question.id !== "e1" && (
                           <p className="text-xs text-gray-400 mt-0.5 italic">{question.hint}</p>
                         )}
                         <div className="flex items-center gap-2 mt-1">
@@ -548,6 +562,44 @@ export function InterviewPage() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Role chips with salaries for question e1 */}
+                  {question.id === "e1" && (
+                    <div className="ml-10 flex flex-wrap gap-2 mt-1">
+                      {Object.entries(ROLE_SALARIES).map(([role, salary]) => {
+                        const currentAnswer = answers[question.id] || "";
+                        const roles = currentAnswer.split(",").map((s) => s.trim()).filter(Boolean);
+                        const isSelected = roles.includes(role);
+                        return (
+                          <button
+                            key={role}
+                            type="button"
+                            onClick={() => {
+                              const updated = isSelected
+                                ? roles.filter((r) => r !== role)
+                                : [...roles, role];
+                              handleAnswerChange(question.id, updated.join(", "));
+                            }}
+                            className={cn(
+                              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
+                              isSelected
+                                ? "bg-purple-100 text-purple-700 border-purple-300"
+                                : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
+                            )}
+                          >
+                            {isSelected && <Check className="w-3 h-3" />}
+                            {role}
+                            <span className={cn(
+                              "font-normal",
+                              isSelected ? "text-purple-500" : "text-gray-400"
+                            )}>
+                              — {formatSalary(salary)}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   <div className="ml-10">
                     <div className="relative">
