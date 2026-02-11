@@ -66,8 +66,8 @@ export function PrivacyPolicyPage() {
                 </li>
                 <li>
                   <strong>Email для обращений:</strong>{" "}
-                  <a href="mailto:privacy@bpbuilder.ru" className="text-purple-600 hover:underline">
-                    privacy@bpbuilder.ru
+                  <a href="mailto:citymanage@yandex.ru" className="text-purple-600 hover:underline">
+                    citymanage@yandex.ru
                   </a>
                 </li>
               </ul>
@@ -188,8 +188,8 @@ export function PrivacyPolicyPage() {
               <ul className="list-disc pl-6 space-y-1">
                 <li>
                   По электронной почте:{" "}
-                  <a href="mailto:privacy@bpbuilder.ru" className="text-purple-600 hover:underline">
-                    privacy@bpbuilder.ru
+                  <a href="mailto:citymanage@yandex.ru" className="text-purple-600 hover:underline">
+                    citymanage@yandex.ru
                   </a>
                 </li>
                 <li>Через форму отзыва согласия в личном кабинете Сервиса;</li>
@@ -262,8 +262,8 @@ export function PrivacyPolicyPage() {
               <ul className="list-disc pl-6 space-y-1">
                 <li>
                   <strong>Email:</strong>{" "}
-                  <a href="mailto:privacy@bpbuilder.ru" className="text-purple-600 hover:underline">
-                    privacy@bpbuilder.ru
+                  <a href="mailto:citymanage@yandex.ru" className="text-purple-600 hover:underline">
+                    citymanage@yandex.ru
                   </a>
                 </li>
                 <li>
