@@ -250,6 +250,10 @@ export interface QualityCheckItem {
   passed: boolean;
   details: string;
   severity: "error" | "warning" | "info";
+  location?: string;
+  blockIds?: string[];
+  consequence?: string;
+  recommendation?: string;
 }
 
 export interface QualityCheckResult {

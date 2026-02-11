@@ -1554,7 +1554,7 @@ export function ProcessPage() {
         <TabsContent value="quality">
           <div className="space-y-4">
             <div className="flex justify-end">{processActionButtons}</div>
-            <QualityTab processId={processId} />
+            <QualityTab processId={processId} onNavigateToBlock={(blockId) => { setActiveTab("diagram"); setTimeout(() => setSelectedBlockId(blockId), 100); }} />
           </div>
         </TabsContent>
 
@@ -5329,8 +5329,18 @@ function PassportTab({ processId }: { processId: number }) {
 // Tab: Quality (Checklist)
 // ============================================
 
-function QualityTab({ processId }: { processId: number }) {
+function QualityTab({ processId, onNavigateToBlock }: { processId: number; onNavigateToBlock?: (blockId: string) => void }) {
   const qualityQuery = trpc.process.validateQuality.useQuery({ processId });
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+
+  const toggleExpand = useCallback((itemId: string) => {
+    setExpandedItems((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  }, []);
 
   if (qualityQuery.isLoading) {
     return (
@@ -5353,12 +5363,17 @@ function QualityTab({ processId }: { processId: number }) {
 
   const result = qualityQuery.data!;
   const categories = [...new Set(result.items.map(i => i.category))];
+  const errorCount = result.items.filter(i => !i.passed && i.severity === "error").length;
+  const warningCount = result.items.filter(i => !i.passed && i.severity === "warning").length;
+  const passedCount = result.items.filter(i => i.passed).length;
   const scoreColor = result.score >= 80 ? "text-green-600" : result.score >= 60 ? "text-yellow-600" : "text-red-600";
-  const scoreBg = result.score >= 80 ? "bg-green-50" : result.score >= 60 ? "bg-yellow-50" : "bg-red-50";
+  const scoreBg = result.score >= 80 ? "bg-green-100" : result.score >= 60 ? "bg-yellow-100" : "bg-red-100";
+  const scoreRing = result.score >= 80 ? "border-green-300" : result.score >= 60 ? "border-yellow-300" : "border-red-300";
+  const barColor = result.score >= 80 ? "bg-green-500" : result.score >= 60 ? "bg-yellow-500" : "bg-red-500";
 
   return (
     <div className="space-y-4">
-      {/* Score Card */}
+      {/* Summary Card */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
@@ -5369,27 +5384,37 @@ function QualityTab({ processId }: { processId: number }) {
             Автоматическая проверка диаграммы по стандартам BPMN 2.0
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
           <div className="flex items-center gap-6">
-            <div className={cn("w-24 h-24 rounded-full flex items-center justify-center", scoreBg)}>
-              <span className={cn("text-3xl font-bold", scoreColor)}>{result.score}</span>
+            <div className={cn("w-20 h-20 rounded-full flex items-center justify-center border-4 shrink-0", scoreBg, scoreRing)}>
+              <span className={cn("text-2xl font-bold", scoreColor)}>{result.score}</span>
             </div>
-            <div className="flex-1">
-              <p className="text-lg font-medium mb-1">{result.summary}</p>
-              <div className="flex gap-4 text-sm">
-                <span className="flex items-center gap-1 text-green-600">
-                  <CheckCircle2 className="w-4 h-4" />
-                  {result.items.filter(i => i.passed).length} пройдено
+            <div className="flex-1 space-y-3">
+              <p className="text-base font-medium text-gray-900">{result.summary}</p>
+              <div className="flex flex-wrap gap-3 text-sm">
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-50 text-red-700 border border-red-200">
+                  <XCircle className="w-3.5 h-3.5" />
+                  {errorCount} {errorCount === 1 ? "ошибка" : errorCount < 5 ? "ошибки" : "ошибок"}
                 </span>
-                <span className="flex items-center gap-1 text-red-600">
-                  <XCircle className="w-4 h-4" />
-                  {result.items.filter(i => !i.passed && i.severity === "error").length} ошибок
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200">
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  {warningCount} {warningCount === 1 ? "предупреждение" : warningCount < 5 ? "предупреждения" : "предупреждений"}
                 </span>
-                <span className="flex items-center gap-1 text-yellow-600">
-                  <AlertCircle className="w-4 h-4" />
-                  {result.items.filter(i => !i.passed && i.severity === "warning").length} предупреждений
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-50 text-green-700 border border-green-200">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {passedCount} пройдено
                 </span>
               </div>
+            </div>
+          </div>
+          {/* Progress bar */}
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>Оценка качества</span>
+              <span>{result.score} / 100</span>
+            </div>
+            <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+              <div className={cn("h-full rounded-full transition-all", barColor)} style={{ width: `${result.score}%` }} />
             </div>
           </div>
         </CardContent>
@@ -5399,6 +5424,8 @@ function QualityTab({ processId }: { processId: number }) {
       {categories.map((category) => {
         const catItems = result.items.filter(i => i.category === category);
         const catPassed = catItems.filter(i => i.passed).length;
+        const catErrors = catItems.filter(i => !i.passed && i.severity === "error").length;
+        const catWarnings = catItems.filter(i => !i.passed && i.severity === "warning").length;
         return (
           <Card key={category}>
             <CardHeader className="pb-2">
@@ -5407,40 +5434,119 @@ function QualityTab({ processId }: { processId: number }) {
                   <FileCheck className="w-4 h-4" />
                   {category}
                 </CardTitle>
-                <Badge variant={catPassed === catItems.length ? "default" : "secondary"}>
-                  {catPassed}/{catItems.length}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  {catErrors > 0 && <Badge variant="destructive" className="text-[10px] px-1.5 py-0">{catErrors} ош.</Badge>}
+                  {catWarnings > 0 && <Badge className="bg-yellow-100 text-yellow-800 border-yellow-200 text-[10px] px-1.5 py-0">{catWarnings} пр.</Badge>}
+                  <Badge variant={catPassed === catItems.length ? "default" : "secondary"}>
+                    {catPassed}/{catItems.length}
+                  </Badge>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                {catItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className={cn(
-                      "flex items-start gap-3 py-2 px-3 rounded-lg text-sm",
-                      item.passed ? "bg-green-50" : item.severity === "error" ? "bg-red-50" : item.severity === "warning" ? "bg-yellow-50" : "bg-gray-50"
-                    )}
-                  >
-                    <div className="mt-0.5">
-                      {item.passed ? (
-                        <CheckCircle2 className="w-4 h-4 text-green-600" />
-                      ) : item.severity === "error" ? (
-                        <XCircle className="w-4 h-4 text-red-600" />
-                      ) : item.severity === "warning" ? (
-                        <AlertCircle className="w-4 h-4 text-yellow-600" />
-                      ) : (
-                        <AlertCircle className="w-4 h-4 text-gray-400" />
+                {catItems.map((item) => {
+                  const isExpanded = expandedItems.has(item.id);
+                  const hasExtra = !item.passed && (item.consequence || item.recommendation || item.location);
+                  const hasBlockNav = item.blockIds && item.blockIds.length > 0 && onNavigateToBlock;
+                  return (
+                    <div
+                      key={item.id}
+                      className={cn(
+                        "rounded-lg text-sm border transition-colors",
+                        item.passed
+                          ? "bg-green-50/60 border-green-200"
+                          : item.severity === "error"
+                            ? "bg-red-50/60 border-red-200"
+                            : item.severity === "warning"
+                              ? "bg-yellow-50/60 border-yellow-200"
+                              : "bg-gray-50 border-gray-200"
+                      )}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => hasExtra && toggleExpand(item.id)}
+                        className={cn(
+                          "flex items-start gap-3 w-full text-left py-2.5 px-3",
+                          hasExtra && "cursor-pointer"
+                        )}
+                      >
+                        <div className="mt-0.5 shrink-0">
+                          {item.passed ? (
+                            <CheckCircle2 className="w-4 h-4 text-green-600" />
+                          ) : item.severity === "error" ? (
+                            <XCircle className="w-4 h-4 text-red-600" />
+                          ) : item.severity === "warning" ? (
+                            <AlertCircle className="w-4 h-4 text-yellow-600" />
+                          ) : (
+                            <CheckCircle2 className="w-4 h-4 text-blue-500" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={cn(
+                            "font-medium",
+                            item.passed ? "text-green-800" : item.severity === "error" ? "text-red-800" : item.severity === "warning" ? "text-yellow-800" : "text-gray-800"
+                          )}>
+                            {item.rule}
+                          </p>
+                          <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">{item.details}</p>
+                          {item.passed && item.location && (
+                            <p className="text-xs text-green-600 mt-1">{item.location}</p>
+                          )}
+                        </div>
+                        {hasExtra && (
+                          <div className="mt-0.5 shrink-0">
+                            {isExpanded
+                              ? <ChevronDown className="w-4 h-4 text-gray-400" />
+                              : <ChevronRight className="w-4 h-4 text-gray-400" />
+                            }
+                          </div>
+                        )}
+                      </button>
+                      {isExpanded && hasExtra && (
+                        <div className={cn(
+                          "px-3 pb-3 pt-0 ml-7 space-y-2 text-xs border-t",
+                          item.severity === "error" ? "border-red-200" : "border-yellow-200"
+                        )}>
+                          {item.location && (
+                            <div className="pt-2">
+                              <span className="font-medium text-gray-700">Расположение: </span>
+                              <span className="text-gray-600">{item.location}</span>
+                            </div>
+                          )}
+                          {item.consequence && (
+                            <div>
+                              <span className="font-medium text-gray-700">Последствия: </span>
+                              <span className="text-gray-600">{item.consequence}</span>
+                            </div>
+                          )}
+                          {item.recommendation && (
+                            <div>
+                              <span className="font-medium text-gray-700">Рекомендация: </span>
+                              <span className="text-gray-600">{item.recommendation}</span>
+                            </div>
+                          )}
+                          {hasBlockNav && (
+                            <div className="pt-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-7 text-xs"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onNavigateToBlock!(item.blockIds![0]);
+                                }}
+                              >
+                                <Eye className="w-3 h-3 mr-1" />
+                                Перейти к проблеме
+                              </Button>
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
-                    <div className="flex-1">
-                      <p className={cn("font-medium", item.passed ? "text-green-800" : item.severity === "error" ? "text-red-800" : "text-gray-800")}>
-                        {item.rule}
-                      </p>
-                      <p className="text-xs text-gray-500 mt-0.5">{item.details}</p>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
