@@ -221,7 +221,7 @@ export const INTERVIEW_QUESTIONS: InterviewQuestion[] = [
     id: "e1",
     block: "E",
     blockName: "Участники и ресурсы (Key Resources)",
-    question: "Какие роли (должности/подразделения) участвуют в процессе?",
+    question: "Какие роли (должности/подразделения) участвуют в процессе и их зарплата?",
     hint: "Менеджер, Аналитик, Руководитель, Бухгалтер, Юрист, Технический специалист",
     required: true,
     expressMode: true,

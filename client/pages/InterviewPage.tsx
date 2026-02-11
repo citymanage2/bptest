@@ -4,6 +4,7 @@ import { trpc } from "@/lib/trpc";
 import { getQuestionsByMode } from "@shared/questions";
 import type { InterviewQuestion } from "@shared/types";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -34,6 +35,7 @@ import {
   AlertCircle,
   Upload,
   Check,
+  Plus,
 } from "lucide-react";
 
 interface UploadedFile {
@@ -55,18 +57,167 @@ function formatFileSize(bytes: number): string {
   return (bytes / (1024 * 1024)).toFixed(1) + " МБ";
 }
 
-// Average monthly salaries for role suggestions (question e1)
-const ROLE_SALARIES: Record<string, number> = {
-  "Менеджер": 75000,
-  "Аналитик": 95000,
-  "Руководитель": 150000,
-  "Бухгалтер": 60000,
-  "Юрист": 85000,
-  "Технический специалист": 90000,
-};
+// Suggested roles with average monthly salaries (question e1)
+const ROLE_SUGGESTIONS: { role: string; salary: number }[] = [
+  { role: "Менеджер", salary: 75000 },
+  { role: "Аналитик", salary: 95000 },
+  { role: "Руководитель", salary: 150000 },
+  { role: "Бухгалтер", salary: 60000 },
+  { role: "Юрист", salary: 85000 },
+  { role: "Технический специалист", salary: 90000 },
+];
 
-function formatSalary(value: number): string {
-  return value.toLocaleString("ru-RU") + " ₽";
+interface RoleRow {
+  role: string;
+  salary: string;
+}
+
+function parseRoleRows(value: string): RoleRow[] {
+  if (!value.trim()) return [{ role: "", salary: "" }];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+  } catch {
+    // Legacy comma-separated format — migrate
+    const roles = value.split(",").map((s) => s.trim()).filter(Boolean);
+    if (roles.length > 0) return roles.map((r) => ({ role: r, salary: "" }));
+  }
+  return [{ role: "", salary: "" }];
+}
+
+function serializeRoleRows(rows: RoleRow[]): string {
+  const filled = rows.filter((r) => r.role.trim() || r.salary.trim());
+  if (filled.length === 0) return "";
+  return JSON.stringify(filled);
+}
+
+function RoleSalaryTable({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const rows = parseRoleRows(value);
+
+  const updateRow = (index: number, field: keyof RoleRow, val: string) => {
+    const updated = [...rows];
+    updated[index] = { ...updated[index], [field]: val };
+    onChange(serializeRoleRows(updated));
+  };
+
+  const addRow = () => {
+    const updated = [...rows, { role: "", salary: "" }];
+    onChange(serializeRoleRows(updated));
+  };
+
+  const removeRow = (index: number) => {
+    if (rows.length <= 1) {
+      onChange("");
+      return;
+    }
+    const updated = rows.filter((_, i) => i !== index);
+    onChange(serializeRoleRows(updated));
+  };
+
+  const addSuggestion = (suggestion: { role: string; salary: number }) => {
+    const exists = rows.some((r) => r.role.trim().toLowerCase() === suggestion.role.toLowerCase());
+    if (exists) return;
+    // If there's exactly one empty row, fill it; otherwise append
+    const emptyIdx = rows.findIndex((r) => !r.role.trim() && !r.salary.trim());
+    const updated = [...rows];
+    if (emptyIdx !== -1) {
+      updated[emptyIdx] = { role: suggestion.role, salary: String(suggestion.salary) };
+    } else {
+      updated.push({ role: suggestion.role, salary: String(suggestion.salary) });
+    }
+    onChange(serializeRoleRows(updated));
+  };
+
+  const isSuggestionUsed = (role: string) =>
+    rows.some((r) => r.role.trim().toLowerCase() === role.toLowerCase());
+
+  return (
+    <div className="ml-10 space-y-3">
+      {/* Suggestion chips */}
+      <div className="flex flex-wrap gap-1.5">
+        {ROLE_SUGGESTIONS.map((s) => {
+          const used = isSuggestionUsed(s.role);
+          return (
+            <button
+              key={s.role}
+              type="button"
+              onClick={() => !used && addSuggestion(s)}
+              disabled={used}
+              className={cn(
+                "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border transition-colors",
+                used
+                  ? "bg-purple-50 text-purple-400 border-purple-200 cursor-default"
+                  : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-purple-50 hover:text-purple-600 hover:border-purple-300"
+              )}
+            >
+              {used && <Check className="w-3 h-3" />}
+              {s.role}
+              <span className="text-gray-400">— {s.salary.toLocaleString("ru-RU")} ₽</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Table */}
+      <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <div className="grid grid-cols-[1fr_160px_36px] bg-gray-50 border-b border-gray-200">
+          <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Должность</div>
+          <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Зарплата, ₽</div>
+          <div />
+        </div>
+        {rows.map((row, i) => (
+          <div
+            key={i}
+            className={cn(
+              "grid grid-cols-[1fr_160px_36px] items-center",
+              i > 0 && "border-t border-gray-100"
+            )}
+          >
+            <div className="px-2 py-1.5">
+              <Input
+                value={row.role}
+                onChange={(e) => updateRow(i, "role", e.target.value)}
+                placeholder="Название должности"
+                className="h-8 text-sm border-0 shadow-none focus-visible:ring-1"
+              />
+            </div>
+            <div className="px-2 py-1.5">
+              <Input
+                type="number"
+                value={row.salary}
+                onChange={(e) => updateRow(i, "salary", e.target.value)}
+                placeholder="0"
+                min={0}
+                className="h-8 text-sm border-0 shadow-none focus-visible:ring-1 tabular-nums"
+              />
+            </div>
+            <div className="flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => removeRow(i)}
+                className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                title="Удалить строку"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Add row button */}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={addRow}
+        className="text-xs"
+      >
+        <Plus className="w-3.5 h-3.5 mr-1" />
+        Добавить должность
+      </Button>
+    </div>
+  );
 }
 
 export function InterviewPage() {
@@ -563,44 +714,15 @@ export function InterviewPage() {
                     </div>
                   </div>
 
-                  {/* Role chips with salaries for question e1 */}
+                  {/* Role-salary table for question e1 */}
                   {question.id === "e1" && (
-                    <div className="ml-10 flex flex-wrap gap-2 mt-1">
-                      {Object.entries(ROLE_SALARIES).map(([role, salary]) => {
-                        const currentAnswer = answers[question.id] || "";
-                        const roles = currentAnswer.split(",").map((s) => s.trim()).filter(Boolean);
-                        const isSelected = roles.includes(role);
-                        return (
-                          <button
-                            key={role}
-                            type="button"
-                            onClick={() => {
-                              const updated = isSelected
-                                ? roles.filter((r) => r !== role)
-                                : [...roles, role];
-                              handleAnswerChange(question.id, updated.join(", "));
-                            }}
-                            className={cn(
-                              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
-                              isSelected
-                                ? "bg-purple-100 text-purple-700 border-purple-300"
-                                : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
-                            )}
-                          >
-                            {isSelected && <Check className="w-3 h-3" />}
-                            {role}
-                            <span className={cn(
-                              "font-normal",
-                              isSelected ? "text-purple-500" : "text-gray-400"
-                            )}>
-                              — {formatSalary(salary)}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <RoleSalaryTable
+                      value={answers[question.id] || ""}
+                      onChange={(val) => handleAnswerChange(question.id, val)}
+                    />
                   )}
 
+                  {question.id !== "e1" && (
                   <div className="ml-10">
                     <div className="relative">
                       <Textarea
@@ -649,6 +771,7 @@ export function InterviewPage() {
                       </Button>
                     )}
                   </div>
+                  )}
                 </div>
               );
             })}
