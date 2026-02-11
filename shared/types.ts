@@ -83,6 +83,7 @@ export interface ProcessRole {
   name: string;
   description: string;
   department?: string;
+  salary?: number; // monthly salary in rubles
   color: string;
 }
 

@@ -2983,7 +2983,114 @@ function MetricsTab({
           </div>
         </CardContent>
       </Card>
+
+      {/* Process Cost Calculation */}
+      <ProcessCostCard roleWorkload={roleWorkload} />
     </div>
+  );
+}
+
+const HOURS_PER_MONTH = 168;
+
+function ProcessCostCard({
+  roleWorkload,
+}: {
+  roleWorkload: { role: ProcessRole; blockCount: number; totalTime: string; totalMinutes: number }[];
+}) {
+  const roleCosts = roleWorkload
+    .filter((rw) => rw.role.salary && rw.totalMinutes > 0)
+    .map((rw) => {
+      const hours = rw.totalMinutes / 60;
+      const hourlyRate = rw.role.salary! / HOURS_PER_MONTH;
+      const cost = hours * hourlyRate;
+      return { ...rw, hours, hourlyRate, cost };
+    })
+    .sort((a, b) => b.cost - a.cost);
+
+  const totalCost = roleCosts.reduce((sum, r) => sum + r.cost, 0);
+  const rolesWithoutSalary = roleWorkload.filter(
+    (rw) => !rw.role.salary && rw.totalMinutes > 0
+  );
+
+  if (roleCosts.length === 0 && rolesWithoutSalary.length === 0) return null;
+
+  const fmtRub = (v: number) => Math.round(v).toLocaleString("ru-RU") + " ₽";
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Стоимость процесса</CardTitle>
+        <p className="text-xs text-gray-500 mt-1">
+          Формула: время на процесс (ч) × (зарплата / {HOURS_PER_MONTH} ч)
+        </p>
+      </CardHeader>
+      <CardContent>
+        {roleCosts.length > 0 ? (
+          <div className="space-y-4">
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="grid grid-cols-[1fr_100px_100px_100px_120px] bg-gray-50 border-b border-gray-200">
+                <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Должность</div>
+                <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase text-right">Зарплата/мес</div>
+                <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase text-right">Ставка/ч</div>
+                <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase text-right">Время</div>
+                <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase text-right">Стоимость</div>
+              </div>
+              {roleCosts.map(({ role, hours, hourlyRate, cost }) => (
+                <div
+                  key={role.id}
+                  className="grid grid-cols-[1fr_100px_100px_100px_120px] items-center border-b border-gray-100 last:border-b-0"
+                >
+                  <div className="px-3 py-2.5 flex items-center gap-2">
+                    <div
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: role.color || "#7c3aed" }}
+                    />
+                    <span className="text-sm text-gray-800 truncate">{role.name}</span>
+                  </div>
+                  <div className="px-3 py-2.5 text-sm text-gray-500 text-right tabular-nums">
+                    {fmtRub(role.salary!)}
+                  </div>
+                  <div className="px-3 py-2.5 text-sm text-gray-500 text-right tabular-nums">
+                    {fmtRub(hourlyRate)}
+                  </div>
+                  <div className="px-3 py-2.5 text-sm text-gray-500 text-right tabular-nums">
+                    {hours < 1 ? `${Math.round(hours * 60)} мин` : `${hours.toFixed(1)} ч`}
+                  </div>
+                  <div className="px-3 py-2.5 text-sm font-medium text-gray-900 text-right tabular-nums">
+                    {fmtRub(cost)}
+                  </div>
+                </div>
+              ))}
+              {/* Total row */}
+              <div className="grid grid-cols-[1fr_100px_100px_100px_120px] items-center bg-purple-50 border-t border-purple-200">
+                <div className="px-3 py-2.5 text-sm font-semibold text-purple-900">
+                  Итого стоимость процесса
+                </div>
+                <div className="px-3 py-2.5" />
+                <div className="px-3 py-2.5" />
+                <div className="px-3 py-2.5" />
+                <div className="px-3 py-2.5 text-base font-bold text-purple-700 text-right tabular-nums">
+                  {fmtRub(totalCost)}
+                </div>
+              </div>
+            </div>
+
+            {rolesWithoutSalary.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700 flex items-center gap-2">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                Не указана зарплата: {rolesWithoutSalary.map((r) => r.role.name).join(", ")}. Укажите зарплату в анкете для точного расчёта.
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-6 text-center">
+            <p className="text-sm text-gray-500">
+              Зарплаты не указаны. Укажите зарплаты должностей в анкете для расчёта стоимости процесса.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

@@ -124,7 +124,7 @@ const PROCESS_GENERATION_PROMPT = `Ты — эксперт-аналитик по
   "startEvent": "Триггер запуска",
   "endEvent": "Результат/выход",
   "roles": [
-    { "id": "role_1", "name": "Роль", "description": "Зона ответственности", "department": "Отдел" }
+    { "id": "role_1", "name": "Роль", "description": "Зона ответственности", "department": "Отдел", "salary": 80000 }
   ],
   "stages": [
     { "id": "stage_1", "name": "Название этапа", "order": 1 }
@@ -225,10 +225,12 @@ ${answersText}${filesSection}
 
     const data = JSON.parse(jsonMatch[0]) as ProcessData;
 
-    // Assign colors to roles
+    // Assign colors and merge salary data from e1 answer
+    const salaryMap = parseRoleSalaries(answers.e1);
     data.roles = data.roles.map((role, i) => ({
       ...role,
       color: SWIMLANE_COLORS[i % SWIMLANE_COLORS.length],
+      salary: role.salary || salaryMap.get(role.name.toLowerCase()) || undefined,
     }));
 
     return data;
@@ -550,6 +552,28 @@ export function generatePassport(data: ProcessData): ProcessPassport {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Parse role salaries from interview answer e1
+// ═══════════════════════════════════════════════════════════════════
+
+function parseRoleSalaries(e1Answer: string | undefined): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!e1Answer) return map;
+  try {
+    const parsed = JSON.parse(e1Answer);
+    if (Array.isArray(parsed)) {
+      for (const row of parsed) {
+        if (row.role && row.salary) {
+          map.set(row.role.trim().toLowerCase(), Number(row.salary));
+        }
+      }
+    }
+  } catch {
+    // Old comma-separated format — no salary data
+  }
+  return map;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Fallback Process Generator (BMC/VPC-aligned)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -562,12 +586,23 @@ function generateFallbackProcess(
   const owner = answers.a5 || "Руководитель";
   const trigger = answers.a3 || "Поступление заявки от клиента";
   const result = answers.a4 || "Выполненная задача";
-  const rolesStr = answers.e1 || "Руководитель, Менеджер по продажам, Аналитик, Бухгалтер, Специалист, Юрист";
+  const salaryMap = parseRoleSalaries(answers.e1);
+  let roleNames: string[];
+  if (salaryMap.size > 0) {
+    // New JSON format — extract role names from parsed data
+    try {
+      const parsed = JSON.parse(answers.e1);
+      roleNames = (parsed as { role: string }[]).map((r) => r.role.trim()).filter(Boolean);
+    } catch {
+      roleNames = [];
+    }
+  } else {
+    const rolesStr = answers.e1 || "Руководитель, Менеджер по продажам, Аналитик, Бухгалтер, Специалист, Юрист";
+    roleNames = rolesStr.split(/[,;]/).map((r) => r.trim()).filter(Boolean);
+  }
   const stepsStr = answers.d1 || "Инициация, Квалификация, Подготовка предложения, Согласование, Исполнение, Контроль качества, Закрытие";
   const channels = answers.c1 || "Сайт, Телефон, Email";
   const partners = answers.e3 || "";
-
-  const roleNames = rolesStr.split(/[,;]/).map((r) => r.trim()).filter(Boolean);
   const stageNames = stepsStr.split(/[,;.]/).map((s) => s.trim()).filter(Boolean);
 
   // Ensure at least 6 roles
@@ -591,6 +626,7 @@ function generateFallbackProcess(
     name,
     description: `Участник процесса: ${name}`,
     department: "",
+    salary: salaryMap.get(name.toLowerCase()) || undefined,
     color: SWIMLANE_COLORS[i % SWIMLANE_COLORS.length],
   }));
 
