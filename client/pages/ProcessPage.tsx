@@ -2418,10 +2418,33 @@ function StagesTab({ data }: { data: ProcessData }) {
     return m;
   }, [data.roles]);
 
+  const blockMap = useMemo(() => {
+    const m = new Map<string, ProcessBlock>();
+    for (const b of data.blocks) m.set(b.id, b);
+    return m;
+  }, [data.blocks]);
+
   const roleName = useCallback(
     (roleIdOrName: string) => roleMap.get(roleIdOrName) || roleIdOrName,
     [roleMap],
   );
+
+  // Build incoming connections map: blockId -> [{fromBlock, label}]
+  const incomingMap = useMemo(() => {
+    const m = new Map<string, { fromId: string; label?: string }[]>();
+    for (const b of data.blocks) {
+      for (const connId of b.connections) {
+        const target = blockMap.get(connId);
+        let label: string | undefined;
+        if (b.type === "decision" || b.type === "split") {
+          label = target?.conditionLabel || (target?.isDefault ? "По умолчанию" : undefined);
+        }
+        if (!m.has(connId)) m.set(connId, []);
+        m.get(connId)!.push({ fromId: b.id, label });
+      }
+    }
+    return m;
+  }, [data.blocks, blockMap]);
 
   const sortedStages = useMemo(
     () => [...data.stages].sort((a, b) => a.order - b.order),
@@ -2440,6 +2463,40 @@ function StagesTab({ data }: { data: ProcessData }) {
     return map;
   }, [data.blocks, sortedStages, data]);
 
+  // Compute stage-level roles summary
+  const stageRolesSummary = useCallback(
+    (blocks: ProcessBlock[]) => {
+      const roles = new Set<string>();
+      for (const b of blocks) {
+        if (b.isActive !== false) roles.add(roleName(b.role));
+      }
+      return [...roles];
+    },
+    [roleName],
+  );
+
+  // Describe outgoing connections for a block
+  const outgoingDescription = useCallback(
+    (block: ProcessBlock) => {
+      if (block.connections.length === 0) return [];
+      return block.connections.map((connId) => {
+        const target = blockMap.get(connId);
+        if (!target) return { targetName: connId, label: undefined, targetRole: undefined, targetStage: undefined };
+        let label: string | undefined;
+        if (block.type === "decision" || block.type === "split") {
+          label = target.conditionLabel || (target.isDefault ? "По умолчанию" : undefined);
+        }
+        return {
+          targetName: target.name,
+          label,
+          targetRole: roleName(target.role),
+          targetStage: target.stage,
+        };
+      });
+    },
+    [blockMap, roleName],
+  );
+
   const handleDownloadWord = useCallback(async () => {
     const { Document: DocxDocument, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } =
       await import("docx");
@@ -2455,28 +2512,66 @@ function StagesTab({ data }: { data: ProcessData }) {
       })
     );
 
+    // Process summary
+    const summaryItems = [
+      `Цель: ${data.goal}`,
+      `Владелец: ${data.owner}`,
+      `Стартовое событие: ${data.startEvent}`,
+      `Завершающее событие: ${data.endEvent}`,
+      `Ролей: ${data.roles.length}`,
+      `Этапов: ${data.stages.length}`,
+      `Блоков: ${data.blocks.length}`,
+    ];
+    for (const item of summaryItems) {
+      children.push(
+        new Paragraph({
+          children: [new TextRun({ text: item, size: 22 })],
+          spacing: { before: 40 },
+        })
+      );
+    }
+    children.push(new Paragraph({ children: [], spacing: { after: 200 } }));
+
     for (let i = 0; i < sortedStages.length; i++) {
       const stage = sortedStages[i];
       const blocks = blocksByStage.get(stage.id) || [];
 
-      // Stage heading: "1. Название этапа"
+      // Stage heading
       children.push(
         new Paragraph({
           children: [new TextRun({ text: `${i + 1}. ${stage.name}`, bold: true, size: 26 })],
           heading: HeadingLevel.HEADING_1,
-          spacing: { before: 300, after: 120 },
+          spacing: { before: 300, after: 60 },
         })
       );
+
+      // Stage roles summary
+      const roles = stageRolesSummary(blocks);
+      if (roles.length > 0) {
+        children.push(
+          new Paragraph({
+            children: [
+              new TextRun({ text: "Участники этапа: ", bold: true, size: 20, color: "555555" }),
+              new TextRun({ text: roles.join(", "), size: 20, color: "555555" }),
+            ],
+            spacing: { after: 120 },
+          })
+        );
+      }
 
       for (const block of blocks) {
         const typeLabel = BLOCK_CONFIG[block.type]?.label || block.type;
         const role = roleMap.get(block.role) || block.role;
+        const inactive = block.isActive === false;
 
-        // Block name as bullet
+        // Block name
         const headerRuns: InstanceType<typeof TextRun>[] = [
           new TextRun({ text: block.name, bold: true }),
           new TextRun({ text: `  [${typeLabel}]`, italics: true, color: "666666" }),
         ];
+        if (inactive) {
+          headerRuns.push(new TextRun({ text: "  (Выключен)", color: "999999", italics: true }));
+        }
         children.push(
           new Paragraph({
             children: headerRuns,
@@ -2494,6 +2589,27 @@ function StagesTab({ data }: { data: ProcessData }) {
             indent: { left: 720 },
           })
         );
+
+        // Condition label (for blocks coming from decision)
+        if (block.conditionLabel) {
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({ text: "Условие перехода: ", bold: true, size: 20, color: "3b82f6" }),
+                new TextRun({ text: block.conditionLabel, size: 20, color: "3b82f6" }),
+              ],
+              indent: { left: 720 },
+            })
+          );
+        }
+        if (block.isDefault) {
+          children.push(
+            new Paragraph({
+              children: [new TextRun({ text: "Ветка по умолчанию", size: 20, color: "3b82f6", italics: true })],
+              indent: { left: 720 },
+            })
+          );
+        }
 
         // Description
         if (block.description) {
@@ -2540,6 +2656,64 @@ function StagesTab({ data }: { data: ProcessData }) {
             })
           );
         }
+
+        // Checklist
+        if (block.checklist?.length) {
+          children.push(
+            new Paragraph({
+              children: [new TextRun({ text: "Чек-лист:", bold: true, size: 20 })],
+              indent: { left: 720 },
+              spacing: { before: 40 },
+            })
+          );
+          for (const item of block.checklist) {
+            children.push(
+              new Paragraph({
+                children: [new TextRun({ text: `• ${item}`, size: 20 })],
+                indent: { left: 1080 },
+              })
+            );
+          }
+        }
+
+        // Incoming connections
+        const incoming = incomingMap.get(block.id);
+        if (incoming && incoming.length > 0) {
+          const parts = incoming.map((inc) => {
+            const name = blockMap.get(inc.fromId)?.name || inc.fromId;
+            return inc.label ? `${name} (${inc.label})` : name;
+          });
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({ text: "Входящие переходы: ", bold: true, size: 20, color: "666666" }),
+                new TextRun({ text: parts.join("; "), size: 20, color: "666666" }),
+              ],
+              indent: { left: 720 },
+              spacing: { before: 40 },
+            })
+          );
+        }
+
+        // Outgoing connections
+        const outgoing = outgoingDescription(block);
+        if (outgoing.length > 0) {
+          const parts = outgoing.map((o) => {
+            let s = o.targetName;
+            if (o.label) s += ` (${o.label})`;
+            return s;
+          });
+          children.push(
+            new Paragraph({
+              children: [
+                new TextRun({ text: "Исходящие переходы: ", bold: true, size: 20, color: "666666" }),
+                new TextRun({ text: parts.join("; "), size: 20, color: "666666" }),
+              ],
+              indent: { left: 720 },
+              spacing: { before: 40 },
+            })
+          );
+        }
       }
     }
 
@@ -2549,7 +2723,7 @@ function StagesTab({ data }: { data: ProcessData }) {
 
     const blob = await Packer.toBlob(doc);
     saveAs(blob, `Этапы процесса ${data.name}.docx`);
-  }, [data, sortedStages, blocksByStage, roleMap]);
+  }, [data, sortedStages, blocksByStage, roleMap, blockMap, incomingMap, outgoingDescription, stageRolesSummary]);
 
   return (
     <div className="space-y-6">
@@ -2561,8 +2735,51 @@ function StagesTab({ data }: { data: ProcessData }) {
         </Button>
       </div>
 
+      {/* Process summary card */}
+      <Card className="border-blue-200 bg-blue-50/30">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-blue-600" />
+            Общая информация о процессе
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+            <div>
+              <span className="font-medium text-gray-700">Цель процесса:</span>{" "}
+              <span className="text-gray-600">{data.goal}</span>
+            </div>
+            <div>
+              <span className="font-medium text-gray-700">Владелец:</span>{" "}
+              <span className="text-gray-600">{data.owner}</span>
+            </div>
+            <div>
+              <span className="font-medium text-gray-700">Стартовое событие:</span>{" "}
+              <span className="text-gray-600">{data.startEvent}</span>
+            </div>
+            <div>
+              <span className="font-medium text-gray-700">Завершающее событие:</span>{" "}
+              <span className="text-gray-600">{data.endEvent}</span>
+            </div>
+            <div>
+              <span className="font-medium text-gray-700">Количество ролей:</span>{" "}
+              <span className="text-gray-600">{data.roles.length} ({data.roles.map((r) => r.name).join(", ")})</span>
+            </div>
+            <div>
+              <span className="font-medium text-gray-700">Количество этапов:</span>{" "}
+              <span className="text-gray-600">{data.stages.length}</span>
+            </div>
+            <div>
+              <span className="font-medium text-gray-700">Всего блоков:</span>{" "}
+              <span className="text-gray-600">{data.blocks.length} (активных: {data.blocks.filter((b) => b.isActive !== false).length})</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {sortedStages.map((stage, stageIdx) => {
         const blocks = blocksByStage.get(stage.id) || [];
+        const stageRoles = stageRolesSummary(blocks);
         return (
           <Card key={stage.id}>
             <CardHeader className="pb-3">
@@ -2570,7 +2787,7 @@ function StagesTab({ data }: { data: ProcessData }) {
                 <div className="flex items-center justify-center w-8 h-8 rounded-full bg-purple-100 text-purple-700 text-sm font-bold">
                   {stageIdx + 1}
                 </div>
-                <div>
+                <div className="flex-1">
                   <CardTitle className="text-base">{stage.name}</CardTitle>
                   <CardDescription>
                     {(() => {
@@ -2581,6 +2798,11 @@ function StagesTab({ data }: { data: ProcessData }) {
                           {activeCount} {activeCount === 1 ? "блок" : activeCount < 5 ? "блока" : "блоков"}
                           {inactiveCount > 0 && (
                             <span className="text-gray-400"> ({inactiveCount} выкл.)</span>
+                          )}
+                          {stageRoles.length > 0 && (
+                            <span className="text-gray-400 ml-2">
+                              — Участники: {stageRoles.join(", ")}
+                            </span>
                           )}
                         </>
                       );
@@ -2595,9 +2817,11 @@ function StagesTab({ data }: { data: ProcessData }) {
                   Нет блоков на этом этапе
                 </p>
               ) : (
-                <div className="space-y-2">
-                  {blocks.map((block) => {
+                <div className="space-y-3">
+                  {blocks.map((block, blockIdx) => {
                     const inactive = block.isActive === false;
+                    const incoming = incomingMap.get(block.id);
+                    const outgoing = outgoingDescription(block);
                     return (
                     <div
                       key={block.id}
@@ -2614,7 +2838,8 @@ function StagesTab({ data }: { data: ProcessData }) {
                           }}
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs text-gray-400 font-mono">{stageIdx + 1}.{blockIdx + 1}</span>
                             <span className={cn("text-sm font-medium", inactive ? "text-gray-400 line-through" : "text-gray-900")}>
                               {block.name}
                             </span>
@@ -2629,8 +2854,18 @@ function StagesTab({ data }: { data: ProcessData }) {
                                 Выключен
                               </Badge>
                             )}
+                            {block.conditionLabel && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0 border-blue-300 text-blue-600 bg-blue-50">
+                                Условие: {block.conditionLabel}
+                              </Badge>
+                            )}
+                            {block.isDefault && (
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0 border-blue-200 text-blue-500 bg-blue-50">
+                                По умолчанию
+                              </Badge>
+                            )}
                           </div>
-                          <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
+                          <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500 flex-wrap">
                             <span className="flex items-center gap-1">
                               <Users className="w-3 h-3" />
                               {roleName(block.role)}
@@ -2644,6 +2879,8 @@ function StagesTab({ data }: { data: ProcessData }) {
                           </div>
                         </div>
                       </div>
+
+                      {/* Description */}
                       {block.description && (
                         <div className="mt-2 ml-5 pl-[0.25rem] border-l-2 border-gray-200">
                           <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line pl-2">
@@ -2651,6 +2888,8 @@ function StagesTab({ data }: { data: ProcessData }) {
                           </p>
                         </div>
                       )}
+
+                      {/* Documents, IS */}
                       {(block.inputDocuments?.length || block.outputDocuments?.length || block.infoSystems?.length) ? (
                         <div className="mt-2 ml-5 pl-2 flex flex-col gap-1 text-xs text-gray-500">
                           {block.inputDocuments && block.inputDocuments.length > 0 && (
@@ -2673,6 +2912,71 @@ function StagesTab({ data }: { data: ProcessData }) {
                           )}
                         </div>
                       ) : null}
+
+                      {/* Checklist */}
+                      {block.checklist && block.checklist.length > 0 && (
+                        <div className="mt-2 ml-5 pl-2">
+                          <span className="text-xs font-medium text-gray-600 flex items-center gap-1 mb-1">
+                            <ListChecks className="w-3 h-3" />
+                            Чек-лист:
+                          </span>
+                          <ul className="ml-4 text-xs text-gray-500 space-y-0.5">
+                            {block.checklist.map((item, ci) => (
+                              <li key={ci} className="flex items-start gap-1.5">
+                                <Check className="w-3 h-3 text-green-500 mt-0.5 shrink-0" />
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Incoming connections */}
+                      {incoming && incoming.length > 0 && (
+                        <div className="mt-2 ml-5 pl-2 text-xs text-gray-500">
+                          <span className="font-medium text-gray-600">Входящие переходы:</span>{" "}
+                          {incoming.map((inc, idx) => {
+                            const fromBlock = blockMap.get(inc.fromId);
+                            const fromName = fromBlock?.name || inc.fromId;
+                            const fromType = fromBlock ? BLOCK_CONFIG[fromBlock.type]?.label : "";
+                            return (
+                              <span key={idx}>
+                                {idx > 0 && "; "}
+                                <span className="text-gray-700">{fromName}</span>
+                                {fromType && <span className="text-gray-400"> [{fromType}]</span>}
+                                {inc.label && <span className="text-blue-500"> ({inc.label})</span>}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Outgoing connections */}
+                      {outgoing.length > 0 && (
+                        <div className="mt-1 ml-5 pl-2 text-xs text-gray-500">
+                          <span className="font-medium text-gray-600">Исходящие переходы:</span>{" "}
+                          {outgoing.map((o, idx) => {
+                            const targetBlock = data.blocks.find((b) => b.name === o.targetName);
+                            const targetType = targetBlock ? BLOCK_CONFIG[targetBlock.type]?.label : "";
+                            const isCrossRole = targetBlock && roleName(targetBlock.role) !== roleName(block.role);
+                            const isCrossStage = targetBlock && targetBlock.stage !== block.stage;
+                            return (
+                              <span key={idx}>
+                                {idx > 0 && "; "}
+                                <span className="text-gray-700">{o.targetName}</span>
+                                {targetType && <span className="text-gray-400"> [{targetType}]</span>}
+                                {o.label && <span className="text-blue-500"> ({o.label})</span>}
+                                {isCrossRole && (
+                                  <span className="text-orange-500"> → {o.targetRole}</span>
+                                )}
+                                {isCrossStage && targetBlock && (
+                                  <span className="text-purple-500"> → {data.stages.find((s) => s.id === targetBlock.stage || s.name === targetBlock.stage)?.name || targetBlock.stage}</span>
+                                )}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                     );
                   })}
