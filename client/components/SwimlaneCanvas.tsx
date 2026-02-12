@@ -418,12 +418,20 @@ function chooseBestExitSide(
   totalConns: number,
   _allTargets?: LayoutBlock[],
 ): AnchorSide {
-  // Decision blocks: fixed exit sides
-  // Ветвь "Да" (1-я) → left, Ветвь "Нет" (2-я) → right, 3-я+ → bottom
+  // Decision blocks: first exit → bottom (main flow), rest → left/right, never top
   if (source.block.type === "decision") {
-    if (connIndex === 0) return "left";
-    if (connIndex === 1) return "right";
-    return "bottom";
+    // Primary branch always exits from bottom vertex (forward/happy path)
+    if (connIndex === 0) return "bottom";
+    // Remaining branches exit from side vertices (never top — top is entry only)
+    if (totalConns === 2) {
+      // Single remaining exit — choose side based on target position
+      const sc = getBlockCenter(source);
+      const tc = getBlockCenter(target);
+      return tc.x <= sc.x ? "left" : "right";
+    }
+    // 3+ exits: distribute across left and right
+    if (connIndex === 1) return "left";
+    return "right";
   }
 
   const sc = getBlockCenter(source);
@@ -1649,26 +1657,9 @@ function drawAllConnections(
         rawLabel = `Ветвь ${ci + 1}`;
       }
 
-      // Place label near exit point, offset away from block
-      let labelPt: Point;
-      const dx = nextPt.x - exitPt.x;
-      const dy = nextPt.y - exitPt.y;
-      if (Math.abs(dx) > Math.abs(dy)) {
-        // Horizontal exit
-        labelPt = {
-          x: exitPt.x + Math.sign(dx) * 30,
-          y: exitPt.y - 14,
-        };
-      } else {
-        // Vertical exit
-        labelPt = {
-          x: exitPt.x + 24,
-          y: exitPt.y + Math.sign(dy) * 18,
-        };
-      }
-
+      // Measure label text first so placement can adapt to dimensions
       ctx.font = `italic 11px ${FONT_FAMILY}`;
-      const MAX_LABEL_WIDTH = 120;
+      const MAX_LABEL_WIDTH = 140;
       const labelLineH = 14;
       const labelPadH = 8;
       const labelPadV = 4;
@@ -1687,8 +1678,50 @@ function drawAllConnections(
       const tw = Math.min(maxLineW + labelPadH * 2, MAX_LABEL_WIDTH + labelPadH * 2);
       const th = labelLines.length * labelLineH + labelPadV * 2;
 
+      // Place label near exit, adaptive to dimensions and exit direction
+      const dx = nextPt.x - exitPt.x;
+      const dy = nextPt.y - exitPt.y;
+      let labelPt: Point;
+
+      if (sourceBlock.type === "decision") {
+        // Diamond-specific: each exit vertex gets its own label zone — no overlaps
+        if (Math.abs(dy) >= Math.abs(dx)) {
+          // Bottom exit → label to the right of the vertical line
+          labelPt = {
+            x: exitPt.x + tw / 2 + 8,
+            y: exitPt.y + th / 2 + 6,
+          };
+        } else if (dx < 0) {
+          // Left exit → label above-left of the left vertex
+          labelPt = {
+            x: exitPt.x - tw / 2 - 6,
+            y: exitPt.y - th / 2 - 6,
+          };
+        } else {
+          // Right exit → label above-right of the right vertex
+          labelPt = {
+            x: exitPt.x + tw / 2 + 6,
+            y: exitPt.y - th / 2 - 6,
+          };
+        }
+      } else {
+        // Generic placement for split blocks
+        if (Math.abs(dx) > Math.abs(dy)) {
+          labelPt = {
+            x: exitPt.x + Math.sign(dx) * (tw / 2 + 12),
+            y: exitPt.y - th / 2 - 4,
+          };
+        } else {
+          labelPt = {
+            x: exitPt.x + tw / 2 + 8,
+            y: exitPt.y + Math.sign(dy) * (th / 2 + 8),
+          };
+        }
+      }
+
+      // Draw label background
       ctx.fillStyle = "#ffffff";
-      ctx.globalAlpha = 0.92;
+      ctx.globalAlpha = 0.95;
       ctx.beginPath();
       ctx.roundRect(labelPt.x - tw / 2, labelPt.y - th / 2, tw, th, 4);
       ctx.fill();
@@ -1697,6 +1730,7 @@ function drawAllConnections(
       ctx.lineWidth = 1;
       ctx.stroke();
 
+      // Draw label text
       ctx.fillStyle = "#3b82f6";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
