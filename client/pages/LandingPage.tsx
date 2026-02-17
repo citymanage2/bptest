@@ -1,21 +1,22 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
-
-// CSS переменные согласно ТЗ
-const cssVars = {
-  colorPrimary: "#0F2B46",
-  colorAccent: "#00C48C",
-  colorAccentHover: "#00A876",
-  colorWarm: "#FF6B35",
-  colorBg: "#FAFBFC",
-  colorBgAlt: "#F0F4F8",
-  colorBgDark: "#0F2B46",
-  colorText: "#1A2B3C",
-  colorTextMuted: "#5A6B7C",
-  colorTextLight: "#FFFFFF",
-  colorDanger: "#E74C3C",
-  colorBorder: "#E2E8F0",
-};
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Star,
+  Shield,
+  MapPin,
+  TrendingUp,
+  RefreshCw,
+  DollarSign,
+  Clock,
+  Unlock,
+  Home,
+  Menu,
+  X,
+} from "lucide-react";
 
 // Данные отраслей
 const industries = [
@@ -53,2167 +54,669 @@ const testimonials = [
   { text: "За 49 000 получили то, за что консультант просил 800 000 и четыре месяца. Причём у нас документы живые — обновляем сами.", name: "Дмитрий Н.", role: "собственник", company: "сеть автосервисов" },
 ];
 
-// Теги отраслей для Hero
 const industryTags = ["Строительство", "Производство", "Услуги", "Торговля", "Логистика", "Общественное питание", "Медицина", "Автосервис", "Клининг", "Образование", "Проектные организации", "Управляющие компании"];
 
-// Hook для анимации чисел
-function useCountUp(end: number, duration: number = 2000, startOnView: boolean = true) {
+// Hook для countUp
+function useCountUp(end: number, duration: number = 2000) {
   const [count, setCount] = useState(0);
   const [hasStarted, setHasStarted] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!startOnView) {
-      setHasStarted(true);
-    }
-  }, [startOnView]);
-
-  useEffect(() => {
     if (!hasStarted) return;
-
     let startTime: number;
-    let animationFrame: number;
-
-    const animate = (timestamp: number) => {
-      if (!startTime) startTime = timestamp;
-      const progress = Math.min((timestamp - startTime) / duration, 1);
-      setCount(Math.floor(progress * end));
-
-      if (progress < 1) {
-        animationFrame = requestAnimationFrame(animate);
-      }
+    let frame: number;
+    const animate = (ts: number) => {
+      if (!startTime) startTime = ts;
+      const p = Math.min((ts - startTime) / duration, 1);
+      setCount(Math.floor(p * end));
+      if (p < 1) frame = requestAnimationFrame(animate);
     };
-
-    animationFrame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(animationFrame);
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
   }, [end, duration, hasStarted]);
 
   useEffect(() => {
-    if (!startOnView || !ref.current) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !hasStarted) {
-          setHasStarted(true);
-        }
-      },
-      { threshold: 0.5 }
-    );
-
-    observer.observe(ref.current);
-    return () => observer.disconnect();
-  }, [startOnView, hasStarted]);
+    if (!ref.current) return;
+    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) setHasStarted(true); }, { threshold: 0.5 });
+    obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, []);
 
   return { count, ref };
 }
 
-// Hook для анимации появления при скролле
-function useScrollAnimation() {
+// Hook для fade-in при скролле
+function useFadeIn() {
   const ref = useRef<HTMLDivElement>(null);
-  const [isVisible, setIsVisible] = useState(false);
-
+  const [visible, setVisible] = useState(false);
   useEffect(() => {
     if (!ref.current) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-        }
-      },
-      { threshold: 0.1 }
-    );
-
-    observer.observe(ref.current);
-    return () => observer.disconnect();
+    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) setVisible(true); }, { threshold: 0.1 });
+    obs.observe(ref.current);
+    return () => obs.disconnect();
   }, []);
-
-  return { ref, isVisible };
+  return { ref, className: `transition-all duration-700 ${visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"}` };
 }
 
 export function LandingPage() {
   const [isScrolled, setIsScrolled] = useState(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [activeIndustry, setActiveIndustry] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState(0);
   const [formData, setFormData] = useState({ name: "", contact: "", industry: "", wantExpert: false });
 
-  // Счётчики для блока социального доказательства
   const counter1 = useCountUp(200, 2000);
   const counter2 = useCountUp(2, 1500);
   const counter3 = useCountUp(10, 1800);
 
-  // Анимации секций
-  const heroAnim = useScrollAnimation();
-  const problemAnim = useScrollAnimation();
-  const promiseAnim = useScrollAnimation();
-  const howItWorksAnim = useScrollAnimation();
-  const pricingAnim = useScrollAnimation();
-  const comparisonAnim = useScrollAnimation();
-  const industriesAnim = useScrollAnimation();
-  const socialProofAnim = useScrollAnimation();
-  const demoAnim = useScrollAnimation();
-  const offerAnim = useScrollAnimation();
-  const faqAnim = useScrollAnimation();
-  const ctaAnim = useScrollAnimation();
+  const heroFade = useFadeIn();
+  const problemFade = useFadeIn();
+  const promiseFade = useFadeIn();
+  const stepsFade = useFadeIn();
+  const pricingFade = useFadeIn();
+  const compareFade = useFadeIn();
+  const industryFade = useFadeIn();
+  const socialFade = useFadeIn();
+  const demoFade = useFadeIn();
+  const offerFade = useFadeIn();
+  const faqFade = useFadeIn();
+  const ctaFade = useFadeIn();
 
-  // Sticky header
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 50);
-    };
-    window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    const onScroll = () => setIsScrolled(window.scrollY > 50);
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Smooth scroll
-  const scrollToSection = (id: string) => {
-    const element = document.getElementById(id);
-    if (element) {
-      element.scrollIntoView({ behavior: "smooth" });
-    }
-    setIsMobileMenuOpen(false);
-  };
+  const scrollTo = useCallback((id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+    setMobileMenuOpen(false);
+  }, []);
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Здесь логика отправки формы
     console.log("Form submitted:", formData);
   };
 
   return (
-    <>
-      {/* Глобальные стили */}
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap');
-
-        * {
-          margin: 0;
-          padding: 0;
-          box-sizing: border-box;
-        }
-
-        html {
-          scroll-behavior: smooth;
-        }
-
-        body {
-          font-family: 'Manrope', sans-serif;
-          color: ${cssVars.colorText};
-          line-height: 1.6;
-          background: ${cssVars.colorBg};
-        }
-
-        .landing-page {
-          overflow-x: hidden;
-        }
-
-        /* Анимации появления */
-        .fade-in-up {
-          opacity: 0;
-          transform: translateY(30px);
-          transition: opacity 0.6s ease-out, transform 0.6s ease-out;
-        }
-
-        .fade-in-up.visible {
-          opacity: 1;
-          transform: translateY(0);
-        }
-
-        /* Кнопки */
-        .btn-primary {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          padding: 16px 32px;
-          background: ${cssVars.colorAccent};
-          color: ${cssVars.colorTextLight};
-          font-size: 18px;
-          font-weight: 700;
-          border: none;
-          border-radius: 12px;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          text-decoration: none;
-          box-shadow: 0 4px 14px rgba(0, 196, 140, 0.3);
-        }
-
-        .btn-primary:hover {
-          background: ${cssVars.colorAccentHover};
-          transform: translateY(-2px);
-          box-shadow: 0 6px 20px rgba(0, 196, 140, 0.4);
-        }
-
-        .btn-primary-large {
-          height: 56px;
-          font-size: 18px;
-        }
-
-        .btn-ghost {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          padding: 12px 24px;
-          background: transparent;
-          color: ${cssVars.colorPrimary};
-          font-size: 16px;
-          font-weight: 600;
-          border: 2px solid ${cssVars.colorBorder};
-          border-radius: 8px;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          text-decoration: none;
-        }
-
-        .btn-ghost:hover {
-          border-color: ${cssVars.colorAccent};
-          color: ${cssVars.colorAccent};
-        }
-
-        /* Header */
-        .header {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          z-index: 1000;
-          padding: 16px 24px;
-          transition: all 0.3s ease;
-        }
-
-        .header.scrolled {
-          background: rgba(255, 255, 255, 0.95);
-          backdrop-filter: blur(10px);
-          box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
-        }
-
-        .header-inner {
-          max-width: 1200px;
-          margin: 0 auto;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-
-        .logo {
-          font-size: 24px;
-          font-weight: 700;
-          color: ${cssVars.colorPrimary};
-          text-decoration: none;
-        }
-
-        .logo span {
-          color: ${cssVars.colorAccent};
-        }
-
-        .nav-desktop {
-          display: flex;
-          align-items: center;
-          gap: 32px;
-        }
-
-        .nav-link {
-          font-size: 16px;
-          font-weight: 500;
-          color: ${cssVars.colorText};
-          text-decoration: none;
-          transition: color 0.3s ease;
-          cursor: pointer;
-        }
-
-        .nav-link:hover {
-          color: ${cssVars.colorAccent};
-        }
-
-        .header-buttons {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .burger {
-          display: none;
-          flex-direction: column;
-          gap: 5px;
-          cursor: pointer;
-          padding: 8px;
-        }
-
-        .burger span {
-          display: block;
-          width: 24px;
-          height: 2px;
-          background: ${cssVars.colorPrimary};
-          transition: all 0.3s ease;
-        }
-
-        .burger.open span:nth-child(1) {
-          transform: rotate(45deg) translate(5px, 5px);
-        }
-
-        .burger.open span:nth-child(2) {
-          opacity: 0;
-        }
-
-        .burger.open span:nth-child(3) {
-          transform: rotate(-45deg) translate(5px, -5px);
-        }
-
-        /* Mobile menu */
-        .mobile-menu {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: ${cssVars.colorTextLight};
-          z-index: 999;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 24px;
-          opacity: 0;
-          visibility: hidden;
-          transition: all 0.3s ease;
-        }
-
-        .mobile-menu.open {
-          opacity: 1;
-          visibility: visible;
-        }
-
-        .mobile-menu .nav-link {
-          font-size: 24px;
-        }
-
-        /* Секции */
-        .section {
-          padding: 80px 24px;
-        }
-
-        .section-alt {
-          background: ${cssVars.colorBgAlt};
-        }
-
-        .section-dark {
-          background: ${cssVars.colorBgDark};
-          color: ${cssVars.colorTextLight};
-        }
-
-        .container {
-          max-width: 1200px;
-          margin: 0 auto;
-        }
-
-        .section-title {
-          font-size: 36px;
-          font-weight: 800;
-          color: ${cssVars.colorPrimary};
-          margin-bottom: 16px;
-          line-height: 1.3;
-        }
-
-        .section-dark .section-title {
-          color: ${cssVars.colorTextLight};
-        }
-
-        .section-subtitle {
-          font-size: 18px;
-          color: ${cssVars.colorTextMuted};
-          max-width: 800px;
-          line-height: 1.7;
-        }
-
-        /* Hero */
-        .hero {
-          padding-top: 120px;
-          min-height: 100vh;
-          background: linear-gradient(135deg, ${cssVars.colorBg} 0%, #E8F4FD 100%);
-          position: relative;
-          overflow: hidden;
-        }
-
-        .hero-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 60px;
-          align-items: center;
-        }
-
-        .hero-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 8px;
-          padding: 8px 16px;
-          background: rgba(255, 107, 53, 0.15);
-          color: ${cssVars.colorWarm};
-          font-size: 14px;
-          font-weight: 600;
-          border-radius: 20px;
-          margin-bottom: 24px;
-        }
-
-        .hero h1 {
-          font-size: 48px;
-          font-weight: 800;
-          color: ${cssVars.colorPrimary};
-          line-height: 1.2;
-          margin-bottom: 24px;
-        }
-
-        .hero-subtitle {
-          font-size: 20px;
-          color: ${cssVars.colorTextMuted};
-          line-height: 1.7;
-          margin-bottom: 32px;
-        }
-
-        /* Industry tags */
-        .industry-tags {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          margin-bottom: 32px;
-          max-width: 100%;
-          overflow-x: auto;
-          padding-bottom: 8px;
-        }
-
-        .industry-tag {
-          padding: 8px 16px;
-          background: ${cssVars.colorBgAlt};
-          color: ${cssVars.colorTextMuted};
-          font-size: 14px;
-          border-radius: 20px;
-          white-space: nowrap;
-        }
-
-        /* Promo block */
-        .promo-block {
-          background: linear-gradient(135deg, rgba(255, 107, 53, 0.1) 0%, rgba(255, 193, 7, 0.1) 100%);
-          border-left: 4px solid ${cssVars.colorWarm};
-          border-radius: 12px;
-          padding: 24px;
-          margin-bottom: 32px;
-          position: relative;
-        }
-
-        .promo-x2 {
-          position: absolute;
-          right: 24px;
-          top: 50%;
-          transform: translateY(-50%);
-          font-size: 64px;
-          font-weight: 800;
-          color: ${cssVars.colorWarm};
-          opacity: 0.2;
-        }
-
-        .promo-block p {
-          font-size: 18px;
-          color: ${cssVars.colorText};
-          position: relative;
-          z-index: 1;
-        }
-
-        .hero-cta-note {
-          font-size: 14px;
-          color: ${cssVars.colorTextMuted};
-          margin-top: 12px;
-        }
-
-        /* Hero visual */
-        .hero-visual {
-          position: relative;
-        }
-
-        .hero-visual svg {
-          width: 100%;
-          height: auto;
-        }
-
-        /* Trust bar */
-        .trust-bar {
-          background: ${cssVars.colorTextLight};
-          border-top: 1px solid ${cssVars.colorBorder};
-          padding: 16px 24px;
-        }
-
-        .trust-bar-inner {
-          max-width: 1200px;
-          margin: 0 auto;
-          display: flex;
-          justify-content: center;
-          gap: 40px;
-          flex-wrap: wrap;
-        }
-
-        .trust-item {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          font-size: 14px;
-          color: ${cssVars.colorTextMuted};
-        }
-
-        .trust-item svg {
-          color: ${cssVars.colorAccent};
-        }
-
-        /* Problem cards */
-        .problem-cards {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 24px;
-          margin: 48px 0;
-        }
-
-        .problem-card {
-          background: ${cssVars.colorTextLight};
-          border-radius: 16px;
-          padding: 32px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-        }
-
-        .problem-card-icon {
-          font-size: 48px;
-          margin-bottom: 16px;
-        }
-
-        .problem-card h3 {
-          font-size: 20px;
-          font-weight: 700;
-          color: ${cssVars.colorDanger};
-          margin-bottom: 12px;
-        }
-
-        .problem-card p {
-          font-size: 16px;
-          color: ${cssVars.colorTextMuted};
-          line-height: 1.6;
-        }
-
-        /* Amplifier block */
-        .amplifier {
-          background: ${cssVars.colorPrimary};
-          color: ${cssVars.colorTextLight};
-          padding: 40px 60px;
-          border-radius: 16px;
-          text-align: center;
-          font-size: 24px;
-          line-height: 1.6;
-        }
-
-        /* Promise section */
-        .promise-grid {
-          display: grid;
-          grid-template-columns: 200px 1fr;
-          gap: 60px;
-          align-items: start;
-        }
-
-        .promise-icon {
-          width: 200px;
-          height: 200px;
-          background: ${cssVars.colorBgAlt};
-          border-radius: 24px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 80px;
-        }
-
-        .promise-text {
-          font-size: 20px;
-          color: ${cssVars.colorText};
-          line-height: 1.7;
-          margin: 24px 0 32px;
-        }
-
-        .promise-features {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 24px;
-          margin-bottom: 32px;
-        }
-
-        .promise-feature {
-          display: flex;
-          gap: 12px;
-        }
-
-        .promise-feature-icon {
-          font-size: 24px;
-          flex-shrink: 0;
-        }
-
-        .promise-feature p {
-          font-size: 16px;
-          color: ${cssVars.colorText};
-        }
-
-        .promise-result {
-          font-size: 18px;
-          font-style: italic;
-          color: ${cssVars.colorPrimary};
-        }
-
-        /* Steps */
-        .steps {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 40px;
-          position: relative;
-        }
-
-        .steps::before {
-          content: '';
-          position: absolute;
-          top: 40px;
-          left: 15%;
-          right: 15%;
-          height: 2px;
-          background: repeating-linear-gradient(
-            to right,
-            ${cssVars.colorAccent} 0px,
-            ${cssVars.colorAccent} 8px,
-            transparent 8px,
-            transparent 16px
-          );
-        }
-
-        .step {
-          background: ${cssVars.colorTextLight};
-          border-radius: 16px;
-          padding: 32px;
-          border-left: 4px solid ${cssVars.colorAccent};
-          position: relative;
-        }
-
-        .step-number {
-          font-size: 64px;
-          font-weight: 800;
-          color: ${cssVars.colorAccent};
-          opacity: 0.3;
-          position: absolute;
-          top: -10px;
-          right: 24px;
-        }
-
-        .step h3 {
-          font-size: 20px;
-          font-weight: 700;
-          color: ${cssVars.colorPrimary};
-          margin-bottom: 16px;
-        }
-
-        .step p {
-          font-size: 16px;
-          color: ${cssVars.colorTextMuted};
-          line-height: 1.6;
-          margin-bottom: 16px;
-        }
-
-        .step-time {
-          font-size: 14px;
-          font-weight: 600;
-          color: ${cssVars.colorAccent};
-        }
-
-        /* Pricing cards */
-        .pricing-grid {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 24px;
-          margin-top: 48px;
-        }
-
-        .pricing-card {
-          background: ${cssVars.colorTextLight};
-          border-radius: 16px;
-          padding: 32px;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-          position: relative;
-        }
-
-        .pricing-card.featured {
-          border: 2px solid ${cssVars.colorAccent};
-        }
-
-        .pricing-card.dark {
-          background: ${cssVars.colorPrimary};
-          color: ${cssVars.colorTextLight};
-        }
-
-        .pricing-badge {
-          position: absolute;
-          top: -12px;
-          left: 24px;
-          padding: 6px 12px;
-          background: ${cssVars.colorAccent};
-          color: ${cssVars.colorTextLight};
-          font-size: 12px;
-          font-weight: 700;
-          border-radius: 6px;
-        }
-
-        .pricing-card.dark .pricing-badge {
-          background: ${cssVars.colorWarm};
-        }
-
-        .pricing-card h3 {
-          font-size: 20px;
-          font-weight: 700;
-          margin-bottom: 8px;
-        }
-
-        .pricing-price {
-          font-size: 32px;
-          font-weight: 800;
-          color: ${cssVars.colorPrimary};
-          margin-bottom: 16px;
-        }
-
-        .pricing-card.dark .pricing-price {
-          color: ${cssVars.colorTextLight};
-        }
-
-        .pricing-card p {
-          font-size: 14px;
-          color: ${cssVars.colorTextMuted};
-          margin-bottom: 16px;
-          line-height: 1.6;
-        }
-
-        .pricing-card.dark p {
-          color: rgba(255, 255, 255, 0.7);
-        }
-
-        .pricing-features {
-          list-style: none;
-        }
-
-        .pricing-features li {
-          font-size: 14px;
-          padding: 8px 0;
-          border-top: 1px solid ${cssVars.colorBorder};
-          display: flex;
-          align-items: flex-start;
-          gap: 8px;
-        }
-
-        .pricing-card.dark .pricing-features li {
-          border-color: rgba(255, 255, 255, 0.1);
-        }
-
-        .pricing-features li::before {
-          content: '—';
-          color: ${cssVars.colorAccent};
-          font-weight: 700;
-        }
-
-        /* Promo repeat */
-        .promo-repeat {
-          background: linear-gradient(135deg, rgba(255, 107, 53, 0.1) 0%, transparent 100%);
-          border: 2px solid ${cssVars.colorWarm};
-          border-radius: 16px;
-          padding: 32px;
-          margin-top: 48px;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 24px;
-        }
-
-        .promo-repeat-text {
-          display: flex;
-          align-items: center;
-          gap: 16px;
-        }
-
-        .promo-repeat-x2 {
-          font-size: 48px;
-          font-weight: 800;
-          color: ${cssVars.colorWarm};
-          opacity: 0.5;
-        }
-
-        .promo-repeat p {
-          font-size: 18px;
-          color: ${cssVars.colorText};
-        }
-
-        /* Comparison table */
-        .comparison-table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-top: 48px;
-          background: ${cssVars.colorTextLight};
-          border-radius: 16px;
-          overflow: hidden;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-        }
-
-        .comparison-table th,
-        .comparison-table td {
-          padding: 20px 24px;
-          text-align: left;
-          font-size: 16px;
-        }
-
-        .comparison-table th {
-          background: ${cssVars.colorBgAlt};
-          font-weight: 700;
-          color: ${cssVars.colorPrimary};
-        }
-
-        .comparison-table tr:nth-child(even) {
-          background: ${cssVars.colorBgAlt};
-        }
-
-        .comparison-table td:first-child {
-          font-weight: 500;
-          color: ${cssVars.colorText};
-        }
-
-        .comparison-table td:nth-child(2) {
-          color: ${cssVars.colorTextMuted};
-        }
-
-        .comparison-table td:nth-child(3) {
-          color: ${cssVars.colorAccent};
-          font-weight: 600;
-          background: rgba(0, 196, 140, 0.05);
-        }
-
-        /* Industries grid */
-        .industries-grid {
-          display: grid;
-          grid-template-columns: repeat(4, 1fr);
-          gap: 16px;
-          margin-top: 48px;
-        }
-
-        .industry-card {
-          background: ${cssVars.colorTextLight};
-          border-radius: 12px;
-          padding: 24px;
-          cursor: pointer;
-          transition: all 0.3s ease;
-          box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
-        }
-
-        .industry-card:hover {
-          transform: translateY(-4px);
-          box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
-        }
-
-        .industry-card.expanded {
-          grid-column: span 2;
-        }
-
-        .industry-card-header {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .industry-card-icon {
-          font-size: 32px;
-        }
-
-        .industry-card h4 {
-          font-size: 16px;
-          font-weight: 700;
-          color: ${cssVars.colorPrimary};
-        }
-
-        .industry-card-short {
-          font-size: 14px;
-          color: ${cssVars.colorTextMuted};
-          margin-top: 12px;
-          line-height: 1.5;
-        }
-
-        .industry-card-full {
-          font-size: 14px;
-          color: ${cssVars.colorText};
-          margin-top: 12px;
-          padding-top: 12px;
-          border-top: 1px solid ${cssVars.colorBorder};
-          line-height: 1.6;
-        }
-
-        .industries-note {
-          text-align: center;
-          margin-top: 32px;
-          font-size: 16px;
-          color: ${cssVars.colorTextMuted};
-        }
-
-        /* Stats */
-        .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 40px;
-          margin-bottom: 60px;
-        }
-
-        .stat-item {
-          text-align: center;
-        }
-
-        .stat-number {
-          font-size: 56px;
-          font-weight: 800;
-          color: ${cssVars.colorPrimary};
-        }
-
-        .stat-suffix {
-          font-size: 32px;
-        }
-
-        .stat-label {
-          font-size: 16px;
-          color: ${cssVars.colorTextMuted};
-          margin-top: 8px;
-        }
-
-        /* Testimonials */
-        .testimonials-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 24px;
-        }
-
-        .testimonial-card {
-          background: ${cssVars.colorBgAlt};
-          border-radius: 16px;
-          padding: 32px;
-          position: relative;
-        }
-
-        .testimonial-quote {
-          position: absolute;
-          top: 16px;
-          left: 24px;
-          font-size: 64px;
-          color: ${cssVars.colorAccent};
-          opacity: 0.2;
-          font-family: Georgia, serif;
-          line-height: 1;
-        }
-
-        .testimonial-text {
-          font-size: 16px;
-          font-style: italic;
-          color: ${cssVars.colorText};
-          line-height: 1.7;
-          margin-bottom: 24px;
-          position: relative;
-          z-index: 1;
-        }
-
-        .testimonial-author {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-        }
-
-        .testimonial-avatar {
-          width: 48px;
-          height: 48px;
-          background: ${cssVars.colorPrimary};
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          color: ${cssVars.colorTextLight};
-          font-weight: 700;
-        }
-
-        .testimonial-name {
-          font-size: 14px;
-          font-weight: 700;
-          color: ${cssVars.colorPrimary};
-        }
-
-        .testimonial-role {
-          font-size: 12px;
-          color: ${cssVars.colorTextMuted};
-        }
-
-        .testimonial-stars {
-          color: ${cssVars.colorWarm};
-          margin-top: 4px;
-        }
-
-        /* Demo section */
-        .demo-container {
-          max-width: 900px;
-          margin: 0 auto;
-        }
-
-        .demo-browser {
-          background: #1a1a1a;
-          border-radius: 12px;
-          overflow: hidden;
-          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-        }
-
-        .demo-browser-header {
-          background: #2d2d2d;
-          padding: 12px 16px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-
-        .demo-browser-dot {
-          width: 12px;
-          height: 12px;
-          border-radius: 50%;
-        }
-
-        .demo-browser-dot.red { background: #ff5f56; }
-        .demo-browser-dot.yellow { background: #ffbd2e; }
-        .demo-browser-dot.green { background: #27ca40; }
-
-        .demo-browser-content {
-          padding: 24px;
-          min-height: 400px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .demo-tabs {
-          display: flex;
-          justify-content: center;
-          gap: 16px;
-          margin-top: 24px;
-        }
-
-        .demo-tab {
-          padding: 12px 24px;
-          background: rgba(255, 255, 255, 0.1);
-          color: ${cssVars.colorTextLight};
-          border: none;
-          border-radius: 8px;
-          font-size: 14px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: all 0.3s ease;
-        }
-
-        .demo-tab.active {
-          background: ${cssVars.colorAccent};
-        }
-
-        .demo-cta {
-          text-align: center;
-          margin-top: 40px;
-        }
-
-        /* Offer section */
-        .offer-header {
-          text-align: center;
-          margin-bottom: 48px;
-        }
-
-        .offer-grid {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 24px;
-        }
-
-        .offer-card {
-          background: ${cssVars.colorTextLight};
-          border-radius: 16px;
-          padding: 32px;
-          text-align: center;
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-        }
-
-        .offer-card-amount {
-          font-size: 24px;
-          font-weight: 700;
-          color: ${cssVars.colorText};
-          margin-bottom: 8px;
-        }
-
-        .offer-card-result {
-          font-size: 32px;
-          font-weight: 800;
-          color: ${cssVars.colorAccent};
-          margin-bottom: 16px;
-        }
-
-        .offer-card-desc {
-          font-size: 14px;
-          color: ${cssVars.colorTextMuted};
-        }
-
-        .offer-cta {
-          text-align: center;
-          margin-top: 48px;
-        }
-
-        .offer-note {
-          font-size: 14px;
-          color: ${cssVars.colorTextMuted};
-          margin-top: 16px;
-        }
-
-        /* FAQ */
-        .faq-list {
-          max-width: 800px;
-          margin: 48px auto 0;
-        }
-
-        .faq-item {
-          border-bottom: 1px solid ${cssVars.colorBorder};
-        }
-
-        .faq-question {
-          width: 100%;
-          padding: 24px 0;
-          background: none;
-          border: none;
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          font-size: 18px;
-          font-weight: 600;
-          color: ${cssVars.colorPrimary};
-          cursor: pointer;
-          text-align: left;
-        }
-
-        .faq-icon {
-          font-size: 24px;
-          font-weight: 300;
-          transition: transform 0.3s ease;
-        }
-
-        .faq-item.open .faq-icon {
-          transform: rotate(45deg);
-        }
-
-        .faq-answer {
-          max-height: 0;
-          overflow: hidden;
-          transition: max-height 0.3s ease;
-        }
-
-        .faq-item.open .faq-answer {
-          max-height: 500px;
-        }
-
-        .faq-answer p {
-          padding-bottom: 24px;
-          font-size: 16px;
-          color: ${cssVars.colorTextMuted};
-          line-height: 1.7;
-        }
-
-        /* CTA Form */
-        .cta-form-container {
-          background: ${cssVars.colorTextLight};
-          border-radius: 16px;
-          padding: 48px;
-          max-width: 500px;
-          margin: 48px auto 0;
-          box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
-        }
-
-        .cta-form-group {
-          margin-bottom: 20px;
-        }
-
-        .cta-form-label {
-          display: block;
-          font-size: 14px;
-          font-weight: 600;
-          color: ${cssVars.colorText};
-          margin-bottom: 8px;
-        }
-
-        .cta-form-input,
-        .cta-form-select {
-          width: 100%;
-          padding: 14px 16px;
-          font-size: 16px;
-          border: 2px solid ${cssVars.colorBorder};
-          border-radius: 8px;
-          transition: border-color 0.3s ease;
-          font-family: inherit;
-        }
-
-        .cta-form-input:focus,
-        .cta-form-select:focus {
-          outline: none;
-          border-color: ${cssVars.colorAccent};
-        }
-
-        .cta-form-checkbox {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          cursor: pointer;
-        }
-
-        .cta-form-checkbox input {
-          width: 20px;
-          height: 20px;
-          accent-color: ${cssVars.colorAccent};
-        }
-
-        .cta-form-checkbox span {
-          font-size: 14px;
-          color: ${cssVars.colorText};
-        }
-
-        .cta-form-submit {
-          width: 100%;
-          margin-top: 24px;
-        }
-
-        .cta-form-note {
-          font-size: 12px;
-          color: ${cssVars.colorTextMuted};
-          text-align: center;
-          margin-top: 16px;
-        }
-
-        /* Footer */
-        .footer {
-          background: #0A1F33;
-          padding: 60px 24px 24px;
-          color: ${cssVars.colorTextLight};
-        }
-
-        .footer-grid {
-          max-width: 1200px;
-          margin: 0 auto;
-          display: grid;
-          grid-template-columns: 2fr 1fr 1fr 1fr;
-          gap: 40px;
-        }
-
-        .footer-about p {
-          font-size: 14px;
-          color: rgba(255, 255, 255, 0.6);
-          margin-top: 16px;
-          line-height: 1.6;
-        }
-
-        .footer-title {
-          font-size: 16px;
-          font-weight: 700;
-          margin-bottom: 20px;
-        }
-
-        .footer-links {
-          list-style: none;
-        }
-
-        .footer-links li {
-          margin-bottom: 12px;
-        }
-
-        .footer-links a {
-          font-size: 14px;
-          color: rgba(255, 255, 255, 0.6);
-          text-decoration: none;
-          transition: color 0.3s ease;
-        }
-
-        .footer-links a:hover {
-          color: ${cssVars.colorAccent};
-        }
-
-        .footer-contact p {
-          font-size: 14px;
-          color: rgba(255, 255, 255, 0.6);
-          margin-bottom: 8px;
-        }
-
-        .footer-contact a {
-          color: rgba(255, 255, 255, 0.6);
-          text-decoration: none;
-        }
-
-        .footer-contact a:hover {
-          color: ${cssVars.colorAccent};
-        }
-
-        .footer-bottom {
-          max-width: 1200px;
-          margin: 40px auto 0;
-          padding-top: 24px;
-          border-top: 1px solid rgba(255, 255, 255, 0.1);
-          text-align: center;
-          font-size: 14px;
-          color: rgba(255, 255, 255, 0.4);
-        }
-
-        /* Responsive */
-        @media (max-width: 1024px) {
-          .hero-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .hero-visual {
-            display: none;
-          }
-
-          .problem-cards {
-            grid-template-columns: 1fr;
-          }
-
-          .promise-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .promise-icon {
-            width: 120px;
-            height: 120px;
-            font-size: 48px;
-            margin: 0 auto;
-          }
-
-          .promise-features {
-            grid-template-columns: 1fr;
-          }
-
-          .steps {
-            grid-template-columns: 1fr;
-          }
-
-          .steps::before {
-            display: none;
-          }
-
-          .pricing-grid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-
-          .industries-grid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-
-          .stats-grid {
-            grid-template-columns: repeat(3, 1fr);
-          }
-
-          .testimonials-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .offer-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .footer-grid {
-            grid-template-columns: repeat(2, 1fr);
-          }
-        }
-
-        @media (max-width: 768px) {
-          .nav-desktop {
-            display: none;
-          }
-
-          .header-buttons .btn-ghost,
-          .header-buttons .btn-primary {
-            display: none;
-          }
-
-          .burger {
-            display: flex;
-          }
-
-          .hero h1 {
-            font-size: 32px;
-          }
-
-          .hero-subtitle {
-            font-size: 16px;
-          }
-
-          .section {
-            padding: 60px 16px;
-          }
-
-          .section-title {
-            font-size: 26px;
-          }
-
-          .amplifier {
-            padding: 24px;
-            font-size: 18px;
-          }
-
-          .pricing-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .comparison-table {
-            display: block;
-            overflow-x: auto;
-          }
-
-          .industries-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .industry-card.expanded {
-            grid-column: span 1;
-          }
-
-          .stats-grid {
-            grid-template-columns: 1fr;
-            gap: 24px;
-          }
-
-          .stat-number {
-            font-size: 40px;
-          }
-
-          .footer-grid {
-            grid-template-columns: 1fr;
-          }
-
-          .promo-repeat {
-            flex-direction: column;
-            text-align: center;
-          }
-
-          .cta-form-container {
-            padding: 24px;
-            margin: 24px 16px 0;
-          }
-        }
-      `}</style>
-
-      <div className="landing-page">
-        {/* Блок 1: Header */}
-        <header className={`header ${isScrolled ? "scrolled" : ""}`}>
-          <div className="header-inner">
-            <a href="#" className="logo">
-              biz-process<span>.ru</span>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled ? "bg-white/95 backdrop-blur border-b border-gray-200 shadow-sm" : "bg-transparent"}`}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <a href="#" className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center">
+                <Home className="w-5 h-5 text-white" />
+              </div>
+              <span className="font-bold text-lg text-gray-900">biz-process<span className="text-purple-600">.ru</span></span>
             </a>
 
-            <nav className="nav-desktop">
-              <span className="nav-link" onClick={() => scrollToSection("features")}>Возможности</span>
-              <span className="nav-link" onClick={() => scrollToSection("how-it-works")}>Как это работает</span>
-              <span className="nav-link" onClick={() => scrollToSection("pricing")}>Тарифы</span>
-              <span className="nav-link" onClick={() => scrollToSection("testimonials")}>Отзывы</span>
+            <nav className="hidden md:flex items-center gap-1">
+              {[
+                { id: "features", label: "Возможности" },
+                { id: "how-it-works", label: "Как это работает" },
+                { id: "pricing", label: "Тарифы" },
+                { id: "testimonials", label: "Отзывы" },
+              ].map((item) => (
+                <button key={item.id} onClick={() => scrollTo(item.id)} className="px-3 py-2 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors">
+                  {item.label}
+                </button>
+              ))}
             </nav>
 
-            <div className="header-buttons">
-              <Link to="/login" className="btn-ghost">Войти</Link>
-              <button className="btn-primary" onClick={() => scrollToSection("cta")}>Пополнить счёт</button>
-            </div>
-
-            <div className={`burger ${isMobileMenuOpen ? "open" : ""}`} onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
-              <span></span>
-              <span></span>
-              <span></span>
-            </div>
-          </div>
-        </header>
-
-        {/* Mobile menu */}
-        <div className={`mobile-menu ${isMobileMenuOpen ? "open" : ""}`}>
-          <span className="nav-link" onClick={() => scrollToSection("features")}>Возможности</span>
-          <span className="nav-link" onClick={() => scrollToSection("how-it-works")}>Как это работает</span>
-          <span className="nav-link" onClick={() => scrollToSection("pricing")}>Тарифы</span>
-          <span className="nav-link" onClick={() => scrollToSection("testimonials")}>Отзывы</span>
-          <Link to="/login" className="btn-ghost">Войти</Link>
-          <button className="btn-primary" onClick={() => scrollToSection("cta")}>Пополнить счёт</button>
-        </div>
-
-        {/* Блок 2: Hero */}
-        <section className="hero" ref={heroAnim.ref}>
-          <div className={`container fade-in-up ${heroAnim.isVisible ? "visible" : ""}`}>
-            <div className="hero-grid">
-              <div>
-                <div className="hero-badge">
-                  🔥 Первое пополнение — двойной баланс
-                </div>
-
-                <h1>У 9 из 10 компаний нет выстроенных рабочих процессов. Это ваш шанс — оторвитесь от конкурентов</h1>
-
-                <p className="hero-subtitle">
-                  Компания без описанных процессов не растёт — она выживает. Выстроенные процессы — это фундамент, на котором бизнес масштабируется, нанимает людей и увеличивает прибыль. Мы поможем этот фундамент построить.
-                </p>
-
-                <div className="industry-tags">
-                  {industryTags.map((tag, i) => (
-                    <span key={i} className="industry-tag">{tag}</span>
-                  ))}
-                </div>
-
-                <div className="promo-block">
-                  <span className="promo-x2">×2</span>
-                  <p>
-                    Пополните счёт на любую сумму — и мы удвоим её. Вместо 5 000 ₽ на счету окажется 10 000 ₽. Этого хватит на две полных карты рабочих процессов.
-                  </p>
-                </div>
-
-                <button className="btn-primary btn-primary-large" onClick={() => scrollToSection("cta")}>
-                  Пополнить счёт и получить ×2
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M5 12h14M12 5l7 7-7 7"/>
-                  </svg>
-                </button>
-
-                <p className="hero-cta-note">
-                  Минимальное пополнение — 1 000 ₽. Баланс удваивается автоматически.
-                </p>
-              </div>
-
-              <div className="hero-visual">
-                <svg viewBox="0 0 400 400" fill="none">
-                  <rect x="50" y="50" width="100" height="60" rx="8" fill={cssVars.colorAccent} opacity="0.2" stroke={cssVars.colorAccent} strokeWidth="2"/>
-                  <text x="100" y="85" textAnchor="middle" fill={cssVars.colorPrimary} fontSize="12" fontWeight="600">Старт</text>
-
-                  <path d="M100 110 L100 140" stroke={cssVars.colorAccent} strokeWidth="2" strokeDasharray="4"/>
-
-                  <polygon points="200,140 250,180 200,220 150,180" fill={cssVars.colorWarm} opacity="0.2" stroke={cssVars.colorWarm} strokeWidth="2"/>
-                  <text x="200" y="185" textAnchor="middle" fill={cssVars.colorPrimary} fontSize="11" fontWeight="600">Решение</text>
-
-                  <path d="M150 180 L80 180 L80 250" stroke={cssVars.colorAccent} strokeWidth="2" strokeDasharray="4"/>
-                  <path d="M250 180 L320 180 L320 250" stroke={cssVars.colorAccent} strokeWidth="2" strokeDasharray="4"/>
-
-                  <rect x="30" y="250" width="100" height="50" rx="8" fill={cssVars.colorBgAlt} stroke={cssVars.colorPrimary} strokeWidth="2"/>
-                  <text x="80" y="280" textAnchor="middle" fill={cssVars.colorPrimary} fontSize="11" fontWeight="600">Процесс А</text>
-
-                  <rect x="270" y="250" width="100" height="50" rx="8" fill={cssVars.colorBgAlt} stroke={cssVars.colorPrimary} strokeWidth="2"/>
-                  <text x="320" y="280" textAnchor="middle" fill={cssVars.colorPrimary} fontSize="11" fontWeight="600">Процесс Б</text>
-
-                  <path d="M80 300 L80 330 L200 330" stroke={cssVars.colorAccent} strokeWidth="2" strokeDasharray="4"/>
-                  <path d="M320 300 L320 330 L200 330" stroke={cssVars.colorAccent} strokeWidth="2" strokeDasharray="4"/>
-
-                  <circle cx="200" cy="360" r="25" fill={cssVars.colorAccent} opacity="0.2" stroke={cssVars.colorAccent} strokeWidth="2"/>
-                  <text x="200" y="365" textAnchor="middle" fill={cssVars.colorPrimary} fontSize="11" fontWeight="600">Конец</text>
-                </svg>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Trust bar */}
-        <div className="trust-bar">
-          <div className="trust-bar-inner">
-            <div className="trust-item">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-              Уже помогли 200+ компаниям
-            </div>
-            <div className="trust-item">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-              Средняя карта процесса — за 2 часа
-            </div>
-            <div className="trust-item">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-              12 отраслей
-            </div>
-            <div className="trust-item">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
-              Без ломки того, что уже работает
-            </div>
-          </div>
-        </div>
-
-        {/* Блок 3: Проблема */}
-        <section id="features" className="section section-alt" ref={problemAnim.ref}>
-          <div className={`container fade-in-up ${problemAnim.isVisible ? "visible" : ""}`}>
-            <h2 className="section-title" style={{ textAlign: "center" }}>
-              Без выстроенных процессов бизнес не растёт — он буксует
-            </h2>
-            <p className="section-subtitle" style={{ textAlign: "center", margin: "0 auto" }}>
-              9 из 10 компаний работают без описанных рабочих процессов. Каждый сотрудник действует по-своему, задачи теряются, сроки срываются. Руководитель тратит 80% времени на тушение пожаров вместо развития. Те, кто выстраивают процессы первыми — забирают рынок.
-            </p>
-
-            <div className="problem-cards">
-              <div className="problem-card">
-                <div className="problem-card-icon">💸</div>
-                <h3>Прибыль утекает незаметно</h3>
-                <p>Переделки, дублирование работы, простои — до 30% выручки теряется на процессах, которые никто не видит и не контролирует.</p>
-              </div>
-              <div className="problem-card">
-                <div className="problem-card-icon">⏰</div>
-                <h3>Рост упирается в потолок</h3>
-                <p>Невозможно масштабировать то, что не описано. Без процессов каждый новый сотрудник, филиал или направление — это новый хаос.</p>
-              </div>
-              <div className="problem-card">
-                <div className="problem-card-icon">🔓</div>
-                <h3>Бизнес зависит от людей, а не от системы</h3>
-                <p>Уйдёт ключевой человек — встанет целый отдел. Выстроенные процессы делают бизнес устойчивым и независимым от конкретных людей.</p>
-              </div>
-            </div>
-
-            <div className="amplifier">
-              Компании с описанными процессами растут в 2–3 раза быстрее конкурентов. Они нанимают людей без страха, открывают филиалы без потери качества и точно знают, где теряют деньги, а где — резервы для роста.
-            </div>
-          </div>
-        </section>
-
-        {/* Блок 3.5: Обещание */}
-        <section className="section" ref={promiseAnim.ref}>
-          <div className={`container fade-in-up ${promiseAnim.isVisible ? "visible" : ""}`}>
-            <div className="promise-grid">
-              <div className="promise-icon">🛡️</div>
-              <div>
-                <h2 className="section-title">Мы не ломаем то, что у вас уже работает</h2>
-                <p className="promise-text">
-                  Мы не приходим с шаблонами и не заставляем вас перестраивать бизнес. На основе интервью с вами и ваших реальных документов мы описываем процессы так, как они работают сейчас. Без приукрашиваний. Потом выстраиваем их правильно — с чёткой логикой, ответственными и точками контроля.
-                </p>
-                <p style={{ fontWeight: 600, marginBottom: 24, color: cssVars.colorPrimary }}>
-                  Вы сами увидите на карте процессов:
-                </p>
-                <div className="promise-features">
-                  <div className="promise-feature">
-                    <span className="promise-feature-icon">📍</span>
-                    <p>Где именно теряются деньги — на каком этапе, в каком отделе, из-за какого действия</p>
-                  </div>
-                  <div className="promise-feature">
-                    <span className="promise-feature-icon">📈</span>
-                    <p>Где скрыты резервы для роста — какие процессы можно ускорить, упростить или автоматизировать</p>
-                  </div>
-                  <div className="promise-feature">
-                    <span className="promise-feature-icon">🔄</span>
-                    <p>Что можно оптимизировать дальше — карта процессов обновляется вместе с бизнесом, а не пылится в папке</p>
-                  </div>
-                </div>
-                <p className="promise-result">
-                  Результат — не отчёт для полки. Это рабочий инструмент, по которому живёт компания.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Блок 4: Как это работает */}
-        <section id="how-it-works" className="section section-alt" ref={howItWorksAnim.ref}>
-          <div className={`container fade-in-up ${howItWorksAnim.isVisible ? "visible" : ""}`}>
-            <h2 className="section-title" style={{ textAlign: "center" }}>
-              Три шага от хаоса к управляемому бизнесу
-            </h2>
-
-            <div className="steps" style={{ marginTop: 48 }}>
-              <div className="step">
-                <span className="step-number">01</span>
-                <h3>Расскажите, как работает ваш бизнес</h3>
-                <p>Ответьте на вопросы в удобном онлайн-формате. Загрузите существующие документы, регламенты, должностные инструкции — всё, что уже есть. Мы не начинаем с чистого листа. Мы берём то, что работает, и выстраиваем на этом фундаменте.</p>
-                <span className="step-time">~40 минут</span>
-              </div>
-              <div className="step">
-                <span className="step-number">02</span>
-                <h3>Увидьте свой бизнес целиком</h3>
-                <p>На основе интервью и ваших документов сервис строит визуальную карту процессов — такими, какие они есть сейчас. Без приукрашиваний. Вы впервые видите на одном экране: где теряются деньги, где простаивают люди, где скрыты резервы для роста.</p>
-                <span className="step-time">~2 часа</span>
-              </div>
-              <div className="step">
-                <span className="step-number">03</span>
-                <h3>Получите инструменты для управления</h3>
-                <p>На основе карты процессов сервис формирует регламенты, инструкции, бизнес-модель и финансовую модель. Вы сами решаете, что оптимизировать — а сервис показывает, что именно даст максимальный эффект. Процессы обновляются вместе с бизнесом.</p>
-                <span className="step-time">от 1 дня</span>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Блок 5: Продукт и цены */}
-        <section id="pricing" className="section" ref={pricingAnim.ref}>
-          <div className={`container fade-in-up ${pricingAnim.isVisible ? "visible" : ""}`}>
-            <h2 className="section-title" style={{ textAlign: "center" }}>
-              Прозрачные цены — платите только за то, что нужно
-            </h2>
-            <p className="section-subtitle" style={{ textAlign: "center", margin: "0 auto" }}>
-              Начните с карты процессов. Добавляйте документы по мере необходимости. Каждый рубль на счёте — это конкретный результат.
-            </p>
-
-            <div className="pricing-grid">
-              <div className="pricing-card featured">
-                <span className="pricing-badge">Основа</span>
-                <h3>Карта рабочего процесса</h3>
-                <div className="pricing-price">5 000 ₽</div>
-                <p>Полная визуальная схема одного рабочего процесса вашей компании. Видны все этапы, ответственные, точки принятия решений и узкие места.</p>
-                <ul className="pricing-features">
-                  <li>Интервью по процессу</li>
-                  <li>Визуальная карта со всеми этапами</li>
-                  <li>Список найденных узких мест</li>
-                  <li>Рекомендации по оптимизации</li>
-                </ul>
-              </div>
-
-              <div className="pricing-card">
-                <h3>Регламент или инструкция</h3>
-                <div className="pricing-price">от 200 ₽</div>
-                <p>Пошаговый документ на понятном языке: кто, что, когда и как должен делать. Новый сотрудник разберётся за день.</p>
-                <ul className="pricing-features">
-                  <li>Пошаговое описание действий</li>
-                  <li>Ответственные и сроки</li>
-                  <li>Шаблоны документов</li>
-                  <li>Чек-листы для проверки</li>
-                </ul>
-              </div>
-
-              <div className="pricing-card">
-                <h3>Бизнес-модель компании</h3>
-                <div className="pricing-price">5 000 ₽</div>
-                <p>Структурированное описание того, как ваша компания создаёт ценность, привлекает клиентов и зарабатывает деньги.</p>
-                <ul className="pricing-features">
-                  <li>Ценностное предложение</li>
-                  <li>Каналы привлечения и продаж</li>
-                  <li>Структура доходов и расходов</li>
-                  <li>Ключевые ресурсы и партнёры</li>
-                </ul>
-              </div>
-
-              <div className="pricing-card dark">
-                <span className="pricing-badge">Максимальная выгода</span>
-                <h3>Полный комплект «Под ключ»</h3>
-                <div className="pricing-price">от 49 000 ₽</div>
-                <p>Все рабочие процессы компании + все документы + бизнес-модель + финансовая модель + персональный эксперт + обучение команды.</p>
-                <ul className="pricing-features">
-                  <li>Все карты рабочих процессов (до 15 штук)</li>
-                  <li>Регламенты и инструкции по каждому процессу</li>
-                  <li>Бизнес-модель и финансовая модель</li>
-                  <li>Персональный эксперт на весь период</li>
-                  <li>Обучение команды</li>
-                  <li>Поддержка и обновления 3 месяца</li>
-                </ul>
-              </div>
-            </div>
-
-            <div className="promo-repeat">
-              <div className="promo-repeat-text">
-                <span className="promo-repeat-x2">×2</span>
-                <p>
-                  <strong>Не забудьте:</strong> первое пополнение удваивается. Положите 5 000 ₽ — получите 10 000 ₽ на счёт. Это целых две карты процессов или одна карта + бизнес-модель.
-                </p>
-              </div>
-              <button className="btn-primary" onClick={() => scrollToSection("cta")}>
-                Пополнить и получить ×2
+            <div className="hidden md:flex items-center gap-3">
+              <Link to="/login" className="inline-flex items-center justify-center h-9 px-4 py-2 text-sm font-medium border border-gray-300 bg-white rounded-md shadow-sm hover:bg-gray-100 transition-colors">
+                Войти
+              </Link>
+              <button onClick={() => scrollTo("cta")} className="inline-flex items-center justify-center h-9 px-4 py-2 text-sm font-medium bg-purple-600 text-white rounded-md shadow hover:bg-purple-700 transition-colors">
+                Пополнить счёт
               </button>
             </div>
+
+            <button className="md:hidden p-2 rounded-lg hover:bg-gray-100" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
           </div>
-        </section>
+        </div>
 
-        {/* Блок 6: Сравнение с консультантом */}
-        <section className="section section-alt" ref={comparisonAnim.ref}>
-          <div className={`container fade-in-up ${comparisonAnim.isVisible ? "visible" : ""}`}>
-            <h2 className="section-title" style={{ textAlign: "center" }}>
-              Почему компании выбирают сервис, а не консультанта
-            </h2>
+        {mobileMenuOpen && (
+          <div className="md:hidden bg-white border-t border-gray-200 px-4 py-4 space-y-2">
+            {["features", "how-it-works", "pricing", "testimonials"].map((id) => (
+              <button key={id} onClick={() => scrollTo(id)} className="block w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100">
+                {id === "features" ? "Возможности" : id === "how-it-works" ? "Как это работает" : id === "pricing" ? "Тарифы" : "Отзывы"}
+              </button>
+            ))}
+            <Link to="/login" className="block w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100">Войти</Link>
+            <button onClick={() => scrollTo("cta")} className="w-full px-3 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700">Пополнить счёт</button>
+          </div>
+        )}
+      </header>
 
-            <table className="comparison-table">
+      {/* Hero */}
+      <section className="pt-24 pb-16 sm:pt-32 sm:pb-20 bg-white border-b border-gray-200" ref={heroFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${heroFade.className}`}>
+          <div className="max-w-3xl mx-auto text-center">
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-200 rounded-full text-xs font-semibold text-amber-700 mb-6">
+              🔥 Первое пополнение — двойной баланс
+            </div>
+
+            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 tracking-tight leading-tight mb-6">
+              У 9 из 10 компаний нет выстроенных рабочих процессов. Это ваш шанс — оторвитесь от конкурентов
+            </h1>
+
+            <p className="text-base sm:text-lg text-gray-500 mb-8 max-w-2xl mx-auto">
+              Компания без описанных процессов не растёт — она выживает. Выстроенные процессы — это фундамент, на котором бизнес масштабируется, нанимает людей и увеличивает прибыль. Мы поможем этот фундамент построить.
+            </p>
+
+            <div className="flex flex-wrap justify-center gap-2 mb-8">
+              {industryTags.map((tag, i) => (
+                <span key={i} className="px-3 py-1 bg-gray-100 text-gray-500 text-xs font-medium rounded-full">{tag}</span>
+              ))}
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 sm:p-6 mb-8 text-left relative max-w-xl mx-auto">
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-5xl font-extrabold text-amber-300 opacity-40 select-none">×2</span>
+              <p className="text-sm text-gray-700 relative z-10">
+                Пополните счёт на любую сумму — и мы удвоим её. Вместо 5 000 ₽ на счету окажется 10 000 ₽. Этого хватит на две полных карты рабочих процессов.
+              </p>
+            </div>
+
+            <button onClick={() => scrollTo("cta")} className="inline-flex items-center gap-2 h-11 px-8 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors">
+              Пополнить счёт и получить ×2
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            <p className="text-xs text-gray-400 mt-3">Минимальное пополнение — 1 000 ₽. Баланс удваивается автоматически.</p>
+          </div>
+        </div>
+      </section>
+
+      {/* Trust bar */}
+      <div className="bg-gray-50 border-b border-gray-200 py-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap justify-center gap-x-8 gap-y-2">
+          {["Уже помогли 200+ компаниям", "Средняя карта процесса — за 2 часа", "12 отраслей", "Без ломки того, что уже работает"].map((text, i) => (
+            <div key={i} className="flex items-center gap-1.5 text-xs text-gray-500">
+              <Check className="w-3.5 h-3.5 text-purple-600" />
+              {text}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Блок 3: Проблема */}
+      <section id="features" className="py-16 sm:py-20 bg-gray-50" ref={problemFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${problemFade.className}`}>
+          <div className="text-center mb-12">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3">Без выстроенных процессов бизнес не растёт — он буксует</h2>
+            <p className="text-sm text-gray-500 max-w-2xl mx-auto">
+              9 из 10 компаний работают без описанных рабочих процессов. Каждый сотрудник действует по-своему, задачи теряются, сроки срываются. Руководитель тратит 80% времени на тушение пожаров вместо развития. Те, кто выстраивают процессы первыми — забирают рынок.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+            {[
+              { icon: DollarSign, title: "Прибыль утекает незаметно", text: "Переделки, дублирование работы, простои — до 30% выручки теряется на процессах, которые никто не видит и не контролирует." },
+              { icon: Clock, title: "Рост упирается в потолок", text: "Невозможно масштабировать то, что не описано. Без процессов каждый новый сотрудник, филиал или направление — это новый хаос." },
+              { icon: Unlock, title: "Бизнес зависит от людей, а не от системы", text: "Уйдёт ключевой человек — встанет целый отдел. Выстроенные процессы делают бизнес устойчивым и независимым от конкретных людей." },
+            ].map((card, i) => (
+              <div key={i} className="bg-white rounded-xl border border-gray-200 shadow p-6">
+                <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center mb-4">
+                  <card.icon className="w-5 h-5 text-red-500" />
+                </div>
+                <h3 className="font-semibold text-gray-900 mb-2">{card.title}</h3>
+                <p className="text-sm text-gray-500 leading-relaxed">{card.text}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-purple-600 rounded-xl p-6 sm:p-8 text-center text-white">
+            <p className="text-base sm:text-lg leading-relaxed">
+              Компании с описанными процессами растут в 2–3 раза быстрее конкурентов. Они нанимают людей без страха, открывают филиалы без потери качества и точно знают, где теряют деньги, а где — резервы для роста.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Блок 3.5: Обещание */}
+      <section className="py-16 sm:py-20 bg-white" ref={promiseFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${promiseFade.className}`}>
+          <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 lg:gap-12 items-start">
+            <div className="w-28 h-28 lg:w-40 lg:h-40 rounded-2xl bg-purple-100 flex items-center justify-center mx-auto lg:mx-0">
+              <Shield className="w-14 h-14 lg:w-20 lg:h-20 text-purple-600" />
+            </div>
+            <div>
+              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4">Мы не ломаем то, что у вас уже работает</h2>
+              <p className="text-sm sm:text-base text-gray-500 leading-relaxed mb-6">
+                Мы не приходим с шаблонами и не заставляем вас перестраивать бизнес. На основе интервью с вами и ваших реальных документов мы описываем процессы так, как они работают сейчас. Без приукрашиваний. Потом выстраиваем их правильно — с чёткой логикой, ответственными и точками контроля.
+              </p>
+              <p className="text-sm font-semibold text-gray-900 mb-4">Вы сами увидите на карте процессов:</p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                {[
+                  { icon: MapPin, text: "Где именно теряются деньги — на каком этапе, в каком отделе, из-за какого действия" },
+                  { icon: TrendingUp, text: "Где скрыты резервы для роста — какие процессы можно ускорить, упростить или автоматизировать" },
+                  { icon: RefreshCw, text: "Что можно оптимизировать дальше — карта процессов обновляется вместе с бизнесом, а не пылится в папке" },
+                ].map((item, i) => (
+                  <div key={i} className="flex gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
+                      <item.icon className="w-4 h-4 text-purple-600" />
+                    </div>
+                    <p className="text-sm text-gray-600">{item.text}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm italic text-purple-600">
+                Результат — не отчёт для полки. Это рабочий инструмент, по которому живёт компания.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Блок 4: Как это работает */}
+      <section id="how-it-works" className="py-16 sm:py-20 bg-gray-50" ref={stepsFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${stepsFade.className}`}>
+          <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-12">Три шага от хаоса к управляемому бизнесу</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              { num: "01", title: "Расскажите, как работает ваш бизнес", text: "Ответьте на вопросы в удобном онлайн-формате. Загрузите существующие документы, регламенты, должностные инструкции — всё, что уже есть. Мы не начинаем с чистого листа. Мы берём то, что работает, и выстраиваем на этом фундаменте.", time: "~40 минут" },
+              { num: "02", title: "Увидьте свой бизнес целиком", text: "На основе интервью и ваших документов сервис строит визуальную карту процессов — такими, какие они есть сейчас. Без приукрашиваний. Вы впервые видите на одном экране: где теряются деньги, где простаивают люди, где скрыты резервы для роста.", time: "~2 часа" },
+              { num: "03", title: "Получите инструменты для управления", text: "На основе карты процессов сервис формирует регламенты, инструкции, бизнес-модель и финансовую модель. Вы сами решаете, что оптимизировать — а сервис показывает, что именно даст максимальный эффект. Процессы обновляются вместе с бизнесом.", time: "от 1 дня" },
+            ].map((step, i) => (
+              <div key={i} className="bg-white rounded-xl border border-gray-200 shadow p-6 border-l-4 border-l-purple-600 relative">
+                <span className="absolute top-2 right-4 text-5xl font-extrabold text-purple-100 select-none">{step.num}</span>
+                <h3 className="font-semibold text-gray-900 mb-3 pr-12">{step.title}</h3>
+                <p className="text-sm text-gray-500 leading-relaxed mb-4">{step.text}</p>
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-purple-100 text-purple-700">{step.time}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Блок 5: Цены */}
+      <section id="pricing" className="py-16 sm:py-20 bg-white" ref={pricingFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${pricingFade.className}`}>
+          <div className="text-center mb-12">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3">Прозрачные цены — платите только за то, что нужно</h2>
+            <p className="text-sm text-gray-500 max-w-xl mx-auto">Начните с карты процессов. Добавляйте документы по мере необходимости. Каждый рубль на счёте — это конкретный результат.</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl border-2 border-purple-600 shadow p-6 relative">
+              <span className="absolute -top-3 left-4 px-2.5 py-0.5 bg-purple-600 text-white text-xs font-semibold rounded-md">Основа</span>
+              <h3 className="font-semibold text-gray-900 mt-2 mb-1">Карта рабочего процесса</h3>
+              <div className="text-2xl font-bold text-gray-900 mb-3">5 000 ₽</div>
+              <p className="text-xs text-gray-500 mb-4 leading-relaxed">Полная визуальная схема одного рабочего процесса вашей компании. Видны все этапы, ответственные, точки принятия решений и узкие места.</p>
+              <ul className="space-y-2">
+                {["Интервью по процессу", "Визуальная карта со всеми этапами", "Список найденных узких мест", "Рекомендации по оптимизации"].map((f, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs text-gray-600"><Check className="w-3.5 h-3.5 text-purple-600 mt-0.5 flex-shrink-0" />{f}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 shadow p-6">
+              <h3 className="font-semibold text-gray-900 mb-1">Регламент или инструкция</h3>
+              <div className="text-2xl font-bold text-gray-900 mb-3">от 200 ₽</div>
+              <p className="text-xs text-gray-500 mb-4 leading-relaxed">Пошаговый документ на понятном языке: кто, что, когда и как должен делать. Новый сотрудник разберётся за день.</p>
+              <ul className="space-y-2">
+                {["Пошаговое описание действий", "Ответственные и сроки", "Шаблоны документов", "Чек-листы для проверки"].map((f, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs text-gray-600"><Check className="w-3.5 h-3.5 text-purple-600 mt-0.5 flex-shrink-0" />{f}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 shadow p-6">
+              <h3 className="font-semibold text-gray-900 mb-1">Бизнес-модель компании</h3>
+              <div className="text-2xl font-bold text-gray-900 mb-3">5 000 ₽</div>
+              <p className="text-xs text-gray-500 mb-4 leading-relaxed">Структурированное описание того, как ваша компания создаёт ценность, привлекает клиентов и зарабатывает деньги.</p>
+              <ul className="space-y-2">
+                {["Ценностное предложение", "Каналы привлечения и продаж", "Структура доходов и расходов", "Ключевые ресурсы и партнёры"].map((f, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs text-gray-600"><Check className="w-3.5 h-3.5 text-purple-600 mt-0.5 flex-shrink-0" />{f}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="bg-gray-900 rounded-xl shadow p-6 text-white relative">
+              <span className="absolute -top-3 left-4 px-2.5 py-0.5 bg-amber-500 text-white text-xs font-semibold rounded-md">Максимальная выгода</span>
+              <h3 className="font-semibold mt-2 mb-1">Полный комплект «Под ключ»</h3>
+              <div className="text-2xl font-bold mb-3">от 49 000 ₽</div>
+              <p className="text-xs text-gray-400 mb-4 leading-relaxed">Все рабочие процессы компании + все документы + бизнес-модель + финансовая модель + персональный эксперт + обучение команды.</p>
+              <ul className="space-y-2">
+                {["Все карты рабочих процессов (до 15)", "Регламенты и инструкции", "Бизнес-модель и финансовая модель", "Персональный эксперт", "Обучение команды", "Поддержка 3 месяца"].map((f, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs text-gray-300"><Check className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />{f}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="mt-8 bg-amber-50 border border-amber-200 rounded-xl p-4 sm:p-6 flex flex-col sm:flex-row items-center gap-4 justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-3xl font-extrabold text-amber-400 opacity-60">×2</span>
+              <p className="text-sm text-gray-700">
+                <strong>Не забудьте:</strong> первое пополнение удваивается. Положите 5 000 ₽ — получите 10 000 ₽ на счёт.
+              </p>
+            </div>
+            <button onClick={() => scrollTo("cta")} className="inline-flex items-center h-9 px-4 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors whitespace-nowrap">
+              Пополнить и получить ×2
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Блок 6: Сравнение */}
+      <section className="py-16 sm:py-20 bg-gray-50" ref={compareFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${compareFade.className}`}>
+          <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-8">Почему компании выбирают сервис, а не консультанта</h2>
+          <div className="bg-white rounded-xl border border-gray-200 shadow overflow-x-auto">
+            <table className="w-full text-sm">
               <thead>
-                <tr>
-                  <th>Параметр</th>
-                  <th>С консультантом</th>
-                  <th>С нашим сервисом</th>
+                <tr className="bg-gray-50 border-b border-gray-200">
+                  <th className="text-left px-5 py-4 font-semibold text-gray-900">Параметр</th>
+                  <th className="text-left px-5 py-4 font-semibold text-gray-500">С консультантом</th>
+                  <th className="text-left px-5 py-4 font-semibold text-purple-600">С нашим сервисом</th>
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  <td>Стоимость одного процесса</td>
-                  <td>От 50 000 ₽</td>
-                  <td>5 000 ₽</td>
-                </tr>
-                <tr>
-                  <td>Полное описание компании</td>
-                  <td>От 300 000 ₽</td>
-                  <td>От 49 000 ₽</td>
-                </tr>
-                <tr>
-                  <td>Срок получения результата</td>
-                  <td>От 3 до 12 месяцев</td>
-                  <td>Первый результат через 2 часа</td>
-                </tr>
-                <tr>
-                  <td>Формат работы</td>
-                  <td>Встречи, командировки, согласования</td>
-                  <td>Онлайн, в удобное время</td>
-                </tr>
-                <tr>
-                  <td>Обновление процессов</td>
-                  <td>Каждое изменение — доплата</td>
-                  <td>Обновляйте сами, в любой момент</td>
-                </tr>
-                <tr>
-                  <td>Язык документов</td>
-                  <td>Профессиональный жаргон и аббревиатуры</td>
-                  <td>Простой и понятный каждому сотруднику</td>
-                </tr>
-                <tr>
-                  <td>Доступность</td>
-                  <td>Папка с документами на полке</td>
-                  <td>Онлайн, с любого устройства, круглосуточно</td>
-                </tr>
+                {[
+                  ["Стоимость одного процесса", "От 50 000 ₽", "5 000 ₽"],
+                  ["Полное описание компании", "От 300 000 ₽", "От 49 000 ₽"],
+                  ["Срок получения результата", "От 3 до 12 месяцев", "Первый результат через 2 часа"],
+                  ["Формат работы", "Встречи, командировки, согласования", "Онлайн, в удобное время"],
+                  ["Обновление процессов", "Каждое изменение — доплата", "Обновляйте сами, в любой момент"],
+                  ["Язык документов", "Профессиональный жаргон и аббревиатуры", "Простой и понятный каждому сотруднику"],
+                  ["Доступность", "Папка с документами на полке", "Онлайн, с любого устройства, круглосуточно"],
+                ].map(([param, cons, serv], i) => (
+                  <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
+                    <td className="px-5 py-3.5 font-medium text-gray-900">{param}</td>
+                    <td className="px-5 py-3.5 text-gray-500">{cons}</td>
+                    <td className="px-5 py-3.5 text-purple-600 font-medium bg-purple-50/50">{serv}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* Блок 7: Для кого */}
-        <section className="section" ref={industriesAnim.ref}>
-          <div className={`container fade-in-up ${industriesAnim.isVisible ? "visible" : ""}`}>
-            <h2 className="section-title" style={{ textAlign: "center" }}>
-              Работает в любой отрасли, где есть повторяющиеся операции
-            </h2>
-
-            <div className="industries-grid">
-              {industries.map((ind, i) => (
-                <div
-                  key={i}
-                  className={`industry-card ${activeIndustry === i ? "expanded" : ""}`}
-                  onClick={() => setActiveIndustry(activeIndustry === i ? null : i)}
-                >
-                  <div className="industry-card-header">
-                    <span className="industry-card-icon">{ind.icon}</span>
-                    <h4>{ind.name}</h4>
-                  </div>
-                  <p className="industry-card-short">{ind.short}</p>
-                  {activeIndustry === i && (
-                    <p className="industry-card-full">{ind.full}</p>
-                  )}
+      {/* Блок 7: Отрасли */}
+      <section className="py-16 sm:py-20 bg-white" ref={industryFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${industryFade.className}`}>
+          <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-8">Работает в любой отрасли, где есть повторяющиеся операции</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {industries.map((ind, i) => (
+              <div
+                key={i}
+                onClick={() => setActiveIndustry(activeIndustry === i ? null : i)}
+                className={`bg-white rounded-xl border border-gray-200 shadow-sm p-4 cursor-pointer transition-all hover:shadow-md ${activeIndustry === i ? "sm:col-span-2 border-purple-300" : ""}`}
+              >
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-2xl">{ind.icon}</span>
+                  <h4 className="text-sm font-semibold text-gray-900">{ind.name}</h4>
                 </div>
-              ))}
-            </div>
-
-            <p className="industries-note">
-              Не нашли свою отрасль? Сервис адаптируется — интервью подстраивается под специфику любого бизнеса, где есть повторяющиеся рабочие операции.
-            </p>
+                <p className="text-xs text-gray-500 leading-relaxed">{ind.short}</p>
+                {activeIndustry === i && (
+                  <p className="text-xs text-gray-700 mt-3 pt-3 border-t border-gray-100 leading-relaxed">{ind.full}</p>
+                )}
+              </div>
+            ))}
           </div>
-        </section>
+          <p className="text-center text-sm text-gray-400 mt-6">
+            Не нашли свою отрасль? Сервис адаптируется — интервью подстраивается под специфику любого бизнеса, где есть повторяющиеся рабочие операции.
+          </p>
+        </div>
+      </section>
 
-        {/* Блок 8: Социальное доказательство */}
-        <section id="testimonials" className="section section-alt" ref={socialProofAnim.ref}>
-          <div className={`container fade-in-up ${socialProofAnim.isVisible ? "visible" : ""}`}>
-            <h2 className="section-title" style={{ textAlign: "center" }}>
-              Компании, которые уже навели порядок
-            </h2>
+      {/* Блок 8: Социальное доказательство */}
+      <section id="testimonials" className="py-16 sm:py-20 bg-gray-50" ref={socialFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${socialFade.className}`}>
+          <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-12">Компании, которые уже навели порядок</h2>
 
-            <div className="stats-grid" style={{ marginTop: 48 }}>
-              <div className="stat-item" ref={counter1.ref}>
-                <div className="stat-number">{counter1.count}<span className="stat-suffix">+</span></div>
-                <div className="stat-label">компаний используют сервис</div>
-              </div>
-              <div className="stat-item" ref={counter2.ref}>
-                <div className="stat-number">{counter2.count} <span className="stat-suffix">часа</span></div>
-                <div className="stat-label">среднее время создания карты процесса</div>
-              </div>
-              <div className="stat-item" ref={counter3.ref}>
-                <div className="stat-number">×{counter3.count}</div>
-                <div className="stat-label">дешевле чем с консультантом</div>
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
+            <div className="text-center" ref={counter1.ref}>
+              <div className="text-4xl sm:text-5xl font-bold text-gray-900">{counter1.count}+</div>
+              <div className="text-sm text-gray-500 mt-1">компаний используют сервис</div>
             </div>
+            <div className="text-center" ref={counter2.ref}>
+              <div className="text-4xl sm:text-5xl font-bold text-gray-900">{counter2.count} часа</div>
+              <div className="text-sm text-gray-500 mt-1">среднее время создания карты процесса</div>
+            </div>
+            <div className="text-center" ref={counter3.ref}>
+              <div className="text-4xl sm:text-5xl font-bold text-gray-900">×{counter3.count}</div>
+              <div className="text-sm text-gray-500 mt-1">дешевле чем с консультантом</div>
+            </div>
+          </div>
 
-            <div className="testimonials-grid">
-              {testimonials.map((t, i) => (
-                <div key={i} className="testimonial-card">
-                  <span className="testimonial-quote">"</span>
-                  <p className="testimonial-text">{t.text}</p>
-                  <div className="testimonial-author">
-                    <div className="testimonial-avatar">{t.name.charAt(0)}</div>
-                    <div>
-                      <div className="testimonial-name">{t.name}</div>
-                      <div className="testimonial-role">{t.role}, {t.company}</div>
-                      <div className="testimonial-stars">★★★★★</div>
-                    </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {testimonials.map((t, i) => (
+              <div key={i} className="bg-white rounded-xl border border-gray-200 shadow p-6 relative">
+                <span className="absolute top-3 left-5 text-5xl font-serif text-purple-200 leading-none select-none">"</span>
+                <p className="text-sm italic text-gray-700 leading-relaxed mb-6 relative z-10">{t.text}</p>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center text-sm font-bold text-purple-600">{t.name.charAt(0)}</div>
+                  <div>
+                    <div className="text-sm font-semibold text-gray-900">{t.name}</div>
+                    <div className="text-xs text-gray-500">{t.role}, {t.company}</div>
+                    <div className="flex gap-0.5 mt-0.5">{[...Array(5)].map((_, j) => <Star key={j} className="w-3 h-3 fill-amber-400 text-amber-400" />)}</div>
                   </div>
                 </div>
-              ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Блок 9: Демо */}
+      <section className="py-16 sm:py-20 bg-gray-900" ref={demoFade.ref}>
+        <div className={`max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 ${demoFade.className}`}>
+          <h2 className="text-2xl sm:text-3xl font-bold text-white text-center mb-8">Посмотрите, как выглядит результат</h2>
+
+          <div className="bg-gray-800 rounded-xl overflow-hidden shadow-2xl">
+            <div className="flex items-center gap-2 px-4 py-3 bg-gray-700">
+              <span className="w-3 h-3 rounded-full bg-red-400"></span>
+              <span className="w-3 h-3 rounded-full bg-yellow-400"></span>
+              <span className="w-3 h-3 rounded-full bg-green-400"></span>
+            </div>
+            <div className="p-6 min-h-[300px] flex items-center justify-center text-white">
+              {activeTab === 0 && (
+                <div className="w-full text-center space-y-4">
+                  <div className="flex items-center justify-center gap-3 flex-wrap">
+                    <span className="px-4 py-2 bg-purple-600/30 border border-purple-500 rounded-lg text-sm">Заявка</span>
+                    <ArrowRight className="w-4 h-4 text-purple-400" />
+                    <span className="px-4 py-2 bg-amber-600/30 border border-amber-500 rounded-lg text-sm">Проверка</span>
+                    <ArrowRight className="w-4 h-4 text-purple-400" />
+                    <span className="px-4 py-2 bg-gray-600/50 border border-gray-500 rounded-lg text-sm">Обработка</span>
+                    <ArrowRight className="w-4 h-4 text-purple-400" />
+                    <span className="px-4 py-2 bg-purple-600/30 border border-purple-500 rounded-lg text-sm">Контроль</span>
+                  </div>
+                  <div className="bg-amber-900/30 border border-amber-700 rounded-lg p-3 text-xs text-amber-200 max-w-md mx-auto">
+                    ⚠ Узкое место: Этап «Проверка» — среднее время 4 часа вместо 30 минут. Потенциальная экономия: 120 000 ₽/мес
+                  </div>
+                </div>
+              )}
+              {activeTab === 1 && (
+                <div className="text-left max-w-md">
+                  <h3 className="font-semibold mb-4">Регламент: Обработка входящей заявки</h3>
+                  <ol className="space-y-2 text-sm text-gray-300 list-decimal list-inside">
+                    <li>Менеджер получает заявку в течение 5 минут</li>
+                    <li>Проверяет комплектность данных по чек-листу</li>
+                    <li>Связывается с клиентом для уточнения деталей</li>
+                    <li>Передаёт заявку в отдел исполнения</li>
+                    <li>Контролирует статус в течение 24 часов</li>
+                  </ol>
+                </div>
+              )}
+              {activeTab === 2 && (
+                <div className="grid grid-cols-3 gap-4 w-full max-w-lg">
+                  {[["Ценность", "Быстрое решение проблем клиентов"], ["Каналы", "Сайт, рекомендации, реклама"], ["Доходы", "Услуги, абонементы, доп. продажи"]].map(([t, d], i) => (
+                    <div key={i} className="bg-gray-700/50 rounded-lg p-4">
+                      <div className="text-sm font-semibold mb-1">{t}</div>
+                      <div className="text-xs text-gray-400">{d}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
-        </section>
 
-        {/* Блок 9: Демо */}
-        <section className="section section-dark" ref={demoAnim.ref}>
-          <div className={`container fade-in-up ${demoAnim.isVisible ? "visible" : ""}`}>
-            <h2 className="section-title" style={{ textAlign: "center" }}>
-              Посмотрите, как выглядит результат
-            </h2>
-
-            <div className="demo-container" style={{ marginTop: 48 }}>
-              <div className="demo-browser">
-                <div className="demo-browser-header">
-                  <span className="demo-browser-dot red"></span>
-                  <span className="demo-browser-dot yellow"></span>
-                  <span className="demo-browser-dot green"></span>
-                </div>
-                <div className="demo-browser-content">
-                  {activeTab === 0 && (
-                    <svg viewBox="0 0 600 300" fill="none" style={{ width: "100%", height: "100%" }}>
-                      <rect x="20" y="20" width="120" height="50" rx="8" fill={cssVars.colorAccent} opacity="0.3" stroke={cssVars.colorAccent} strokeWidth="2"/>
-                      <text x="80" y="50" textAnchor="middle" fill={cssVars.colorTextLight} fontSize="14">Заявка</text>
-
-                      <path d="M140 45 L180 45" stroke={cssVars.colorAccent} strokeWidth="2"/>
-                      <polygon points="180,45 170,40 170,50" fill={cssVars.colorAccent}/>
-
-                      <polygon points="250,20 310,45 250,70 190,45" fill={cssVars.colorWarm} opacity="0.3" stroke={cssVars.colorWarm} strokeWidth="2"/>
-                      <text x="250" y="50" textAnchor="middle" fill={cssVars.colorTextLight} fontSize="12">Проверка</text>
-
-                      <path d="M310 45 L350 45" stroke={cssVars.colorAccent} strokeWidth="2"/>
-
-                      <rect x="350" y="20" width="120" height="50" rx="8" fill={cssVars.colorBgAlt} opacity="0.3" stroke={cssVars.colorTextLight} strokeWidth="2"/>
-                      <text x="410" y="50" textAnchor="middle" fill={cssVars.colorTextLight} fontSize="14">Обработка</text>
-
-                      <path d="M410 70 L410 100 L200 100 L200 130" stroke={cssVars.colorAccent} strokeWidth="2" strokeDasharray="4"/>
-
-                      <rect x="140" y="130" width="120" height="50" rx="8" fill={cssVars.colorPrimary} stroke={cssVars.colorAccent} strokeWidth="2"/>
-                      <text x="200" y="160" textAnchor="middle" fill={cssVars.colorTextLight} fontSize="14">Выполнение</text>
-
-                      <path d="M260 155 L300 155" stroke={cssVars.colorAccent} strokeWidth="2"/>
-
-                      <rect x="300" y="130" width="120" height="50" rx="8" fill={cssVars.colorAccent} opacity="0.3" stroke={cssVars.colorAccent} strokeWidth="2"/>
-                      <text x="360" y="160" textAnchor="middle" fill={cssVars.colorTextLight} fontSize="14">Контроль</text>
-
-                      <path d="M420 155 L460 155" stroke={cssVars.colorAccent} strokeWidth="2"/>
-
-                      <circle cx="500" cy="155" r="25" fill={cssVars.colorAccent} opacity="0.3" stroke={cssVars.colorAccent} strokeWidth="2"/>
-                      <text x="500" y="160" textAnchor="middle" fill={cssVars.colorTextLight} fontSize="12">Готово</text>
-
-                      <rect x="20" y="220" width="560" height="60" rx="8" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.2)" strokeWidth="1"/>
-                      <text x="40" y="245" fill={cssVars.colorWarm} fontSize="12" fontWeight="600">⚠ Узкое место:</text>
-                      <text x="40" y="265" fill="rgba(255,255,255,0.7)" fontSize="11">Этап «Проверка» — среднее время 4 часа вместо 30 минут. Потенциальная экономия: 120 000 ₽/мес</text>
-                    </svg>
-                  )}
-                  {activeTab === 1 && (
-                    <div style={{ color: cssVars.colorTextLight, padding: 40, textAlign: "left" }}>
-                      <h3 style={{ marginBottom: 20 }}>Регламент: Обработка входящей заявки</h3>
-                      <ol style={{ lineHeight: 2, opacity: 0.8 }}>
-                        <li>Менеджер получает заявку в течение 5 минут</li>
-                        <li>Проверяет комплектность данных по чек-листу</li>
-                        <li>Связывается с клиентом для уточнения деталей</li>
-                        <li>Передаёт заявку в отдел исполнения</li>
-                        <li>Контролирует статус в течение 24 часов</li>
-                      </ol>
-                    </div>
-                  )}
-                  {activeTab === 2 && (
-                    <div style={{ color: cssVars.colorTextLight, padding: 40 }}>
-                      <h3 style={{ marginBottom: 20, textAlign: "center" }}>Бизнес-модель</h3>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 20 }}>
-                        <div style={{ background: "rgba(255,255,255,0.1)", padding: 16, borderRadius: 8 }}>
-                          <div style={{ fontWeight: 600, marginBottom: 8 }}>Ценность</div>
-                          <div style={{ fontSize: 12, opacity: 0.7 }}>Быстрое решение проблем клиентов</div>
-                        </div>
-                        <div style={{ background: "rgba(255,255,255,0.1)", padding: 16, borderRadius: 8 }}>
-                          <div style={{ fontWeight: 600, marginBottom: 8 }}>Каналы</div>
-                          <div style={{ fontSize: 12, opacity: 0.7 }}>Сайт, рекомендации, реклама</div>
-                        </div>
-                        <div style={{ background: "rgba(255,255,255,0.1)", padding: 16, borderRadius: 8 }}>
-                          <div style={{ fontWeight: 600, marginBottom: 8 }}>Доходы</div>
-                          <div style={{ fontSize: 12, opacity: 0.7 }}>Услуги, абонементы, доп. продажи</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="demo-tabs">
-                <button className={`demo-tab ${activeTab === 0 ? "active" : ""}`} onClick={() => setActiveTab(0)}>Карта процесса</button>
-                <button className={`demo-tab ${activeTab === 1 ? "active" : ""}`} onClick={() => setActiveTab(1)}>Регламент</button>
-                <button className={`demo-tab ${activeTab === 2 ? "active" : ""}`} onClick={() => setActiveTab(2)}>Бизнес-модель</button>
-              </div>
-
-              <div className="demo-cta">
-                <button className="btn-primary" onClick={() => scrollToSection("cta")}>
-                  Создать карту для своего бизнеса →
-                </button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Блок 10: Повторный оффер */}
-        <section className="section" style={{ background: `linear-gradient(135deg, rgba(255, 107, 53, 0.05) 0%, ${cssVars.colorBg} 100%)` }} ref={offerAnim.ref}>
-          <div className={`container fade-in-up ${offerAnim.isVisible ? "visible" : ""}`}>
-            <div className="offer-header">
-              <h2 className="section-title">
-                Каждый рубль, вложенный в первый раз, работает вдвойне
-              </h2>
-              <p className="section-subtitle" style={{ margin: "0 auto" }}>
-                Пополните баланс прямо сейчас — и получите в два раза больше средств на создание карт процессов, регламентов и инструкций для вашего бизнеса.
-              </p>
-            </div>
-
-            <div className="offer-grid">
-              <div className="offer-card">
-                <div className="offer-card-amount">Вы вносите 2 500 ₽</div>
-                <div className="offer-card-result">На счёте 5 000 ₽</div>
-                <p className="offer-card-desc">1 полная карта рабочего процесса</p>
-              </div>
-              <div className="offer-card" style={{ border: `2px solid ${cssVars.colorAccent}` }}>
-                <div className="offer-card-amount">Вы вносите 5 000 ₽</div>
-                <div className="offer-card-result">На счёте 10 000 ₽</div>
-                <p className="offer-card-desc">2 карты процессов или 1 карта + бизнес-модель</p>
-              </div>
-              <div className="offer-card">
-                <div className="offer-card-amount">Вы вносите 25 000 ₽</div>
-                <div className="offer-card-result">На счёте 50 000 ₽</div>
-                <p className="offer-card-desc">Практически полный комплект «Под ключ»</p>
-              </div>
-            </div>
-
-            <div className="offer-cta">
-              <button className="btn-primary btn-primary-large" onClick={() => scrollToSection("cta")}>
-                Пополнить счёт и удвоить баланс
+          <div className="flex justify-center gap-2 mt-4">
+            {["Карта процесса", "Регламент", "Бизнес-модель"].map((label, i) => (
+              <button key={i} onClick={() => setActiveTab(i)} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === i ? "bg-purple-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600"}`}>
+                {label}
               </button>
-              <p className="offer-note">
-                Акция действует для первого пополнения. Средства не сгорают — используйте в любое время.
-              </p>
-            </div>
+            ))}
           </div>
-        </section>
 
-        {/* Блок 11: FAQ */}
-        <section className="section section-alt" ref={faqAnim.ref}>
-          <div className={`container fade-in-up ${faqAnim.isVisible ? "visible" : ""}`}>
-            <h2 className="section-title" style={{ textAlign: "center" }}>
-              Ответы на вопросы, которые задают чаще всего
-            </h2>
+          <div className="text-center mt-8">
+            <button onClick={() => scrollTo("cta")} className="inline-flex items-center gap-2 h-10 px-6 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors">
+              Создать карту для своего бизнеса <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </section>
 
-            <div className="faq-list">
-              {faqData.map((item, i) => (
-                <div key={i} className={`faq-item ${openFaqIndex === i ? "open" : ""}`}>
-                  <button className="faq-question" onClick={() => setOpenFaqIndex(openFaqIndex === i ? null : i)}>
-                    {item.q}
-                    <span className="faq-icon">+</span>
+      {/* Блок 10: Повторный оффер */}
+      <section className="py-16 sm:py-20 bg-white" ref={offerFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${offerFade.className}`}>
+          <div className="text-center mb-8">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3">Каждый рубль, вложенный в первый раз, работает вдвойне</h2>
+            <p className="text-sm text-gray-500 max-w-xl mx-auto">Пополните баланс прямо сейчас — и получите в два раза больше средств на создание карт процессов, регламентов и инструкций для вашего бизнеса.</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto">
+            {[
+              { amount: "2 500 ₽", result: "5 000 ₽", desc: "1 полная карта рабочего процесса" },
+              { amount: "5 000 ₽", result: "10 000 ₽", desc: "2 карты процессов или 1 карта + бизнес-модель", highlight: true },
+              { amount: "25 000 ₽", result: "50 000 ₽", desc: "Практически полный комплект «Под ключ»" },
+            ].map((item, i) => (
+              <div key={i} className={`bg-white rounded-xl border ${item.highlight ? "border-purple-600 shadow-md" : "border-gray-200 shadow"} p-6 text-center`}>
+                <div className="text-sm font-medium text-gray-500 mb-1">Вы вносите {item.amount}</div>
+                <div className="text-2xl font-bold text-purple-600 mb-3">На счёте {item.result}</div>
+                <p className="text-xs text-gray-500">{item.desc}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="text-center mt-8">
+            <button onClick={() => scrollTo("cta")} className="inline-flex items-center gap-2 h-11 px-8 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors">
+              Пополнить счёт и удвоить баланс
+            </button>
+            <p className="text-xs text-gray-400 mt-3">Акция действует для первого пополнения. Средства не сгорают — используйте в любое время.</p>
+          </div>
+        </div>
+      </section>
+
+      {/* Блок 11: FAQ */}
+      <section className="py-16 sm:py-20 bg-gray-50" ref={faqFade.ref}>
+        <div className={`max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 ${faqFade.className}`}>
+          <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-8">Ответы на вопросы, которые задают чаще всего</h2>
+
+          <div className="space-y-2">
+            {faqData.map((item, i) => {
+              const isOpen = openFaq === i;
+              return (
+                <div key={i} className="bg-white rounded-lg border border-gray-200 overflow-hidden transition-shadow hover:shadow-sm">
+                  <button onClick={() => setOpenFaq(isOpen ? null : i)} className="w-full flex items-center justify-between px-5 py-4 text-left">
+                    <span className="text-sm font-medium text-gray-900 pr-4">{item.q}</span>
+                    {isOpen ? <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" /> : <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />}
                   </button>
-                  <div className="faq-answer">
-                    <p>{item.a}</p>
-                  </div>
+                  {isOpen && (
+                    <div className="px-5 pb-4 border-t border-gray-100">
+                      <p className="pt-3 text-sm text-gray-600 leading-relaxed">{item.a}</p>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* Блок 12: Финальный CTA */}
-        <section id="cta" className="section section-dark" ref={ctaAnim.ref}>
-          <div className={`container fade-in-up ${ctaAnim.isVisible ? "visible" : ""}`}>
-            <h2 className="section-title" style={{ textAlign: "center" }}>
-              Перестаньте терять деньги и время на хаос в процессах
-            </h2>
-            <p className="section-subtitle" style={{ textAlign: "center", margin: "0 auto", color: "rgba(255,255,255,0.7)" }}>
-              Первое пополнение удваивается. Одна карта процесса — 5 000 рублей. Результат — через 2 часа.
-            </p>
-
-            <div className="cta-form-container">
-              <form onSubmit={handleFormSubmit}>
-                <div className="cta-form-group">
-                  <label className="cta-form-label">Ваше имя</label>
-                  <input
-                    type="text"
-                    className="cta-form-input"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="cta-form-group">
-                  <label className="cta-form-label">Телефон или электронная почта</label>
-                  <input
-                    type="text"
-                    className="cta-form-input"
-                    value={formData.contact}
-                    onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="cta-form-group">
-                  <label className="cta-form-label">Ваша отрасль</label>
-                  <select
-                    className="cta-form-select"
-                    value={formData.industry}
-                    onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
-                  >
-                    <option value="">Выберите отрасль</option>
-                    <option value="construction">Строительство</option>
-                    <option value="trade">Торговля</option>
-                    <option value="services">Услуги</option>
-                    <option value="manufacturing">Производство</option>
-                    <option value="other">Другое</option>
-                  </select>
-                </div>
-                <div className="cta-form-group">
-                  <label className="cta-form-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={formData.wantExpert}
-                      onChange={(e) => setFormData({ ...formData, wantExpert: e.target.checked })}
-                    />
-                    <span>Хочу, чтобы эксперт помог на первом интервью (бесплатно)</span>
-                  </label>
-                </div>
-                <button type="submit" className="btn-primary btn-primary-large cta-form-submit">
-                  Пополнить счёт и начать
-                </button>
-              </form>
-              <p className="cta-form-note">
-                Нажимая кнопку, вы соглашаетесь с политикой конфиденциальности. Мы не передаём данные третьим лицам.
-              </p>
-            </div>
+      {/* Блок 12: CTA */}
+      <section id="cta" className="py-16 sm:py-20 bg-purple-600" ref={ctaFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${ctaFade.className}`}>
+          <div className="text-center mb-8">
+            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">Перестаньте терять деньги и время на хаос в процессах</h2>
+            <p className="text-sm text-purple-200 max-w-lg mx-auto">Первое пополнение удваивается. Одна карта процесса — 5 000 рублей. Результат — через 2 часа.</p>
           </div>
-        </section>
 
-        {/* Блок 13: Footer */}
-        <footer className="footer">
-          <div className="footer-grid">
-            <div className="footer-about">
-              <a href="#" className="logo">
-                biz-process<span>.ru</span>
+          <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 max-w-md mx-auto">
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-900">Ваше имя</label>
+                <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required className="flex h-9 w-full rounded-md border border-gray-300 bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-1 placeholder:text-gray-500" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-900">Телефон или электронная почта</label>
+                <input type="text" value={formData.contact} onChange={(e) => setFormData({ ...formData, contact: e.target.value })} required className="flex h-9 w-full rounded-md border border-gray-300 bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-1 placeholder:text-gray-500" />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-900">Ваша отрасль</label>
+                <select value={formData.industry} onChange={(e) => setFormData({ ...formData, industry: e.target.value })} className="flex h-9 w-full rounded-md border border-gray-300 bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-1">
+                  <option value="">Выберите отрасль</option>
+                  <option value="construction">Строительство</option>
+                  <option value="trade">Торговля</option>
+                  <option value="services">Услуги</option>
+                  <option value="manufacturing">Производство</option>
+                  <option value="other">Другое</option>
+                </select>
+              </div>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input type="checkbox" checked={formData.wantExpert} onChange={(e) => setFormData({ ...formData, wantExpert: e.target.checked })} className="w-4 h-4 accent-purple-600 rounded" />
+                <span className="text-sm text-gray-700">Хочу, чтобы эксперт помог на первом интервью (бесплатно)</span>
+              </label>
+              <button type="submit" className="w-full h-10 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors">
+                Пополнить счёт и начать
+              </button>
+            </form>
+            <p className="text-xs text-gray-400 text-center mt-4">Нажимая кнопку, вы соглашаетесь с политикой конфиденциальности. Мы не передаём данные третьим лицам.</p>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="bg-white border-t border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div>
+              <a href="#" className="flex items-center gap-2 mb-4">
+                <div className="w-6 h-6 bg-purple-600 rounded-lg flex items-center justify-center">
+                  <Home className="w-4 h-4 text-white" />
+                </div>
+                <span className="font-semibold text-sm text-gray-900">biz-process<span className="text-purple-600">.ru</span></span>
               </a>
-              <p>
+              <p className="text-xs text-gray-500 leading-relaxed">
                 Сервис для создания карт рабочих процессов, регламентов, инструкций и бизнес-моделей на основе интервью с собственником.
               </p>
             </div>
-
             <div>
-              <div className="footer-title">Навигация</div>
-              <ul className="footer-links">
-                <li><a href="#features">Возможности</a></li>
-                <li><a href="#how-it-works">Как это работает</a></li>
-                <li><a href="#pricing">Тарифы</a></li>
-                <li><a href="#testimonials">Отзывы</a></li>
-                <li><a href="#">Блог</a></li>
+              <h4 className="text-sm font-semibold text-gray-900 mb-4">Навигация</h4>
+              <ul className="space-y-2">
+                {["Возможности", "Как это работает", "Тарифы", "Отзывы", "Блог"].map((l, i) => (
+                  <li key={i}><a href="#" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{l}</a></li>
+                ))}
               </ul>
             </div>
-
             <div>
-              <div className="footer-title">Поддержка</div>
-              <ul className="footer-links">
-                <li><a href="#">Частые вопросы</a></li>
-                <li><a href="#">Контакты</a></li>
-                <li><a href="#">Политика конфиденциальности</a></li>
-                <li><a href="#">Пользовательское соглашение</a></li>
+              <h4 className="text-sm font-semibold text-gray-900 mb-4">Поддержка</h4>
+              <ul className="space-y-2">
+                {["Частые вопросы", "Контакты", "Политика конфиденциальности", "Пользовательское соглашение"].map((l, i) => (
+                  <li key={i}><a href="#" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{l}</a></li>
+                ))}
               </ul>
             </div>
-
-            <div className="footer-contact">
-              <div className="footer-title">Контакты</div>
-              <p><a href="mailto:info@biz-process.ru">info@biz-process.ru</a></p>
-              <p><a href="tel:+7XXXXXXXXXX">+7 (XXX) XXX-XX-XX</a></p>
-              <p><a href="https://t.me/bizprocess">Телеграм: @bizprocess</a></p>
+            <div>
+              <h4 className="text-sm font-semibold text-gray-900 mb-4">Контакты</h4>
+              <div className="space-y-2 text-sm text-gray-500">
+                <p><a href="mailto:info@biz-process.ru" className="hover:text-gray-900 transition-colors">info@biz-process.ru</a></p>
+                <p><a href="tel:+7XXXXXXXXXX" className="hover:text-gray-900 transition-colors">+7 (XXX) XXX-XX-XX</a></p>
+                <p><a href="https://t.me/bizprocess" className="hover:text-gray-900 transition-colors">Телеграм: @bizprocess</a></p>
+              </div>
             </div>
           </div>
-
-          <div className="footer-bottom">
+          <div className="mt-8 pt-6 border-t border-gray-200 text-center text-sm text-gray-400">
             © 2026 biz-process.ru — Все права защищены
           </div>
-        </footer>
-      </div>
-    </>
+        </div>
+      </footer>
+    </div>
   );
 }
