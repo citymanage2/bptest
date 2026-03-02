@@ -30,30 +30,56 @@ export function LandingPage() {
         </div>
       </header>
 
-      {/* Hero */}
-      <section className="py-20 sm:py-32">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h1 className="text-4xl sm:text-6xl font-extrabold text-foreground tracking-tight">
-            Автоматизированное построение
-            <span className="block text-primary mt-2">бизнес-процессов</span>
+      {/* Hero — 100vh */}
+      <section className="h-[calc(100vh-4rem)] flex items-center justify-center">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          {/* Badge */}
+          <div className="inline-flex items-center px-4 py-1.5 bg-primary/10 text-primary text-sm font-medium rounded-full mb-8">
+            🔥 Первое пополнение — двойной баланс
+          </div>
+
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-foreground tracking-tight leading-tight">
+            Выстройте рабочие процессы компании
           </h1>
-          <p className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-3xl mx-auto">
-            Преобразуйте описание деятельности компании в формализованные бизнес-процессы
-            с визуализацией BPMN 2.0 за 15-30 минут вместо 40-80 часов.
+
+          <p className="mt-5 text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto">
+            Преобразуйте описание деятельности в формализованные BPMN-процессы за 15–30 минут.
           </p>
-          <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
+
+          <div className="mt-8">
             <Link
               to="/register"
               className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-primary text-white text-lg font-semibold rounded-xl hover:bg-primary/90 transition-colors shadow-lg shadow-primary/25"
             >
-              Начать бесплатно
+              Построить бизнес-процесс
               <ArrowRight className="w-5 h-5" />
             </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* Industries + Promo */}
+      <section className="py-12 border-t border-border">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-wrap gap-3 justify-center mb-10">
+            {["Строительство", "Производство", "Логистика", "Финансы", "IT", "Торговля", "Медицина"].map((tag) => (
+              <span key={tag} className="px-4 py-2 bg-gray-100 text-foreground text-sm font-medium rounded-full">
+                {tag}
+              </span>
+            ))}
+          </div>
+          <div className="max-w-2xl mx-auto p-8 bg-primary/5 border border-primary/20 rounded-2xl text-center">
+            <div className="text-3xl mb-3">🔥</div>
+            <h3 className="text-xl font-bold text-foreground mb-2">Первое пополнение — двойной баланс</h3>
+            <p className="text-muted-foreground text-sm mb-6">
+              Пополните счёт впервые и получите удвоенный бонус на использование платформы.
+            </p>
             <Link
-              to="/faq"
-              className="inline-flex items-center justify-center gap-2 px-8 py-4 bg-white text-foreground text-lg font-semibold rounded-xl border-2 border-border hover:border-primary/30 transition-colors"
+              to="/register"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-primary text-white text-sm font-semibold rounded-xl hover:bg-primary/90 transition-colors"
             >
-              Узнать больше
+              Воспользоваться предложением
+              <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
         </div>
