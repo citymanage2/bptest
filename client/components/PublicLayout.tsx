@@ -88,6 +88,19 @@ export function PublicLayout() {
               © {new Date().getFullYear()} BPB. Все права защищены.
             </div>
           </div>
+          <div className="mt-4 pt-4 border-t border-border flex justify-center">
+            <a
+              href="https://vladykin.pro"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <span>Разработка с профессионалами</span>
+              <div className="bg-gray-900 rounded px-1.5 py-0.5 flex items-center justify-center">
+                <img src="/vladykin-logo.png" alt="vladykin.pro" className="h-4" />
+              </div>
+            </a>
+          </div>
         </div>
       </footer>
     </div>
