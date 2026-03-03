@@ -157,7 +157,7 @@ export function LandingPage() {
 
               {/* Главный заголовок */}
               <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 tracking-tight leading-tight mb-6">
-                Узнайте, где ваш бизнес теряет деньги — за 2 часа
+                Узнайте, где ваш бизнес теряет деньги — за 1 час
               </h1>
 
               {/* Подзаголовок */}
@@ -255,7 +255,7 @@ export function LandingPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8">
             {[
               { value: "200+", label: "компаний уже работают с сервисом" },
-              { value: "2 часа", label: "средний срок готовности карты процессов" },
+              { value: "1 час", label: "средний срок готовности карты процессов" },
               { value: "12", label: "отраслей в базе сервиса" },
               { value: "от 5 000 ₽", label: "стоимость одной карты процессов" },
             ].map((item, i) => (
@@ -311,7 +311,7 @@ export function LandingPage() {
           {/* Переходная фраза */}
           <div className="bg-purple-50 border border-purple-200 rounded-xl p-6 text-center">
             <p className="text-base text-purple-900">
-              Всё это — следствие одного: <strong>в компании не описаны процессы</strong>. Мы это исправим за 2 часа.
+              Всё это — следствие одного: <strong>в компании не описаны процессы</strong>. Мы это исправим за 1 час.
             </p>
           </div>
         </div>
@@ -597,7 +597,7 @@ export function LandingPage() {
         <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${ctaFade.className}`}>
           <div className="text-center mb-8">
             <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">Начните прямо сейчас — первый шаг бесплатный</h2>
-            <p className="text-sm text-purple-200 max-w-lg mx-auto">Пройдите интервью, и через 2 часа вы увидите свой бизнес на одном экране.</p>
+            <p className="text-sm text-purple-200 max-w-lg mx-auto">Пройдите интервью, и через 1 час вы увидите свой бизнес на одном экране.</p>
           </div>
 
           <div className="flex flex-col items-center gap-4">
