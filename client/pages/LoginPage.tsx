@@ -13,7 +13,7 @@ import {
   CardContent,
   CardFooter,
 } from "@/components/ui/card";
-import { Zap, Mail, Lock, AlertCircle, Loader2 } from "lucide-react";
+import { Mail, Lock, AlertCircle, Loader2 } from "lucide-react";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -50,17 +50,7 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-blue-50 flex flex-col items-center justify-center p-4">
-      {/* Logo */}
-      <Link to="/" className="flex items-center gap-2 mb-8">
-        <div className="w-10 h-10 bg-purple-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-200">
-          <Zap className="w-6 h-6 text-white" />
-        </div>
-        <span className="font-bold text-xl text-gray-900">
-          Business Process Builder
-        </span>
-      </Link>
-
+    <div className="flex-1 bg-gradient-to-br from-purple-50 via-white to-blue-50 flex flex-col items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Вход в аккаунт</CardTitle>
@@ -142,10 +132,6 @@ export function LoginPage() {
           </CardFooter>
         </form>
       </Card>
-
-      <p className="mt-8 text-xs text-gray-400 text-center">
-        &copy; {new Date().getFullYear()} Business Process Builder. Все права защищены.
-      </p>
     </div>
   );
 }

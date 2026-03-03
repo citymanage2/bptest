@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./lib/auth";
 import { Layout } from "./components/Layout";
+import { PublicLayout } from "./components/PublicLayout";
 import { LandingPage } from "./pages/LandingPage";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
@@ -48,12 +49,14 @@ export default function App() {
   return (
     <>
       <Routes>
-        <Route path="/" element={user ? <Navigate to="/companies" replace /> : <LandingPage />} />
-        <Route path="/login" element={user ? <Navigate to="/companies" replace /> : <LoginPage />} />
-        <Route path="/register" element={user ? <Navigate to="/companies" replace /> : <RegisterPage />} />
-        <Route path="/faq" element={<FaqPage />} />
-        <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
-        <Route path="/cookie-policy" element={<CookiePolicyPage />} />
+        <Route element={<PublicLayout />}>
+          <Route path="/" element={user ? <Navigate to="/companies" replace /> : <LandingPage />} />
+          <Route path="/login" element={user ? <Navigate to="/companies" replace /> : <LoginPage />} />
+          <Route path="/register" element={user ? <Navigate to="/companies" replace /> : <RegisterPage />} />
+          <Route path="/faq" element={<FaqPage />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+          <Route path="/cookie-policy" element={<CookiePolicyPage />} />
+        </Route>
         <Route
           element={
             <ProtectedRoute>
