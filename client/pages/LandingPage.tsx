@@ -1,35 +1,9 @@
 import { Link } from "react-router-dom";
-import { ArrowRight, Zap, BarChart3, FileOutput, Brain } from "lucide-react";
+import { ArrowRight, BarChart3, FileOutput, Brain } from "lucide-react";
 
 export function LandingPage() {
   return (
-    <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="border-b border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            <span className="font-bold text-lg">Business Process Builder</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link
-              to="/login"
-              className="px-4 py-2 text-sm font-medium text-foreground hover:text-primary transition-colors"
-            >
-              Войти
-            </Link>
-            <Link
-              to="/register"
-              className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
-            >
-              Регистрация
-            </Link>
-          </div>
-        </div>
-      </header>
-
+    <div className="bg-white">
       {/* Hero */}
       <section className="h-[calc(100vh-4rem)] flex items-center justify-center bg-gradient-to-b from-white to-gray-50">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
@@ -179,13 +153,6 @@ export function LandingPage() {
           </Link>
         </div>
       </section>
-
-      {/* Footer */}
-      <footer className="py-8 border-t border-border">
-        <div className="max-w-7xl mx-auto px-4 text-center text-muted-foreground text-sm">
-          &copy; {new Date().getFullYear()} Business Process Builder. Все права защищены.
-        </div>
-      </footer>
     </div>
   );
 }
