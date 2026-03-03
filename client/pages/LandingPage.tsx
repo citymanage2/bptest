@@ -6,33 +6,17 @@ import {
   ChevronDown,
   ChevronRight,
   Star,
-  Shield,
-  MapPin,
-  TrendingUp,
-  RefreshCw,
-  DollarSign,
   Clock,
-  Unlock,
+  AlertTriangle,
+  Users,
+  FileText,
+  Search,
+  Settings,
   Home,
   Menu,
   X,
+  Flame,
 } from "lucide-react";
-
-// Данные отраслей
-const industries = [
-  { icon: "🏗️", name: "Строительство и подряд", short: "Управление проектом от сметы до сдачи объекта. Контроль субподрядчиков, закупки, этапы работ.", full: "Прекратите терять деньги на простоях, несогласованности подрядчиков и нехватке материалов. Видите каждый этап — от проектирования до подписания акта." },
-  { icon: "⚙️", name: "Производство", short: "Путь от сырья до готового изделия. Планирование, контроль качества, отгрузка.", full: "Найдите, где теряется время между операциями, почему растёт брак и на каком этапе деньги уходят впустую. Сократите производственный цикл." },
-  { icon: "🤝", name: "Услуги и сервис", short: "Стандарт качества от первого обращения до повторной продажи. Масштабирование без потери уровня.", full: "Опишите путь клиента так, чтобы любой новый сотрудник давал тот же уровень сервиса, что и лучший менеджер." },
-  { icon: "🛒", name: "Торговля и розница", short: "Закупка, хранение, продажа, возврат. Прозрачная цепочка и маржа по каждому товару.", full: "Выстройте процессы так, чтобы точно знать, сколько зарабатываете на каждом товаре, и не терять деньги на складских остатках." },
-  { icon: "🚛", name: "Логистика и транспорт", short: "Маршруты, диспетчеризация, погрузка, доставка. Контроль сроков и стоимости перевозки.", full: "Устраните простои, оптимизируйте маршруты, автоматизируйте диспетчеризацию. Видите загрузку транспорта и персонала в реальном времени." },
-  { icon: "🍽️", name: "Общественное питание", short: "Кухня, зал, закупки, персонал. От приёмки продуктов до обслуживания гостя.", full: "Контролируйте себестоимость каждого блюда, стандартизируйте обслуживание и откройте второе заведение без страха потерять качество." },
-  { icon: "🏥", name: "Медицина и клиники", short: "Запись, приём, лечение, документооборот. Стандарты качества и безопасности.", full: "Выстройте путь пациента так, чтобы ни один этап не потерялся: от первичного обращения до контрольного визита. Сократите ожидание и нагрузку на администраторов." },
-  { icon: "🔧", name: "Автосервис и техобслуживание", short: "Приёмка, диагностика, ремонт, выдача. Контроль запчастей и нормо-часов.", full: "Знайте рентабельность каждого заказ-наряда. Стандартизируйте приёмку, чтобы клиент возвращался, а мастера не теряли время на уточнения." },
-  { icon: "🧹", name: "Клининг и эксплуатация", short: "Объекты, графики, бригады, контроль качества, приёмка работ.", full: "Управляйте десятками объектов с чёткими регламентами для каждого типа уборки. Контролируйте качество удалённо и сокращайте рекламации." },
-  { icon: "📚", name: "Образование и обучение", short: "Набор, программы, расписание, преподаватели, аттестация.", full: "Опишите полный цикл от заявки ученика до выдачи сертификата. Масштабируйте образовательные программы без потери качества." },
-  { icon: "📐", name: "Проектные и инженерные организации", short: "Разработка документации, согласования, экспертиза, авторский надзор.", full: "Контролируйте сроки каждого раздела проекта, автоматизируйте передачу между отделами и исключите потерю согласований." },
-  { icon: "🏢", name: "Управляющие компании и девелопмент", short: "Обслуживание объектов, работа с жителями, подрядчики, аварийные службы.", full: "Систематизируйте обработку заявок, контроль подрядчиков и плановое обслуживание. Сократите время реакции и количество жалоб." },
-];
 
 // Данные FAQ
 const faqData = [
@@ -41,10 +25,9 @@ const faqData = [
   { q: "Как я увижу, где теряю деньги?", a: "На карте процессов видно каждый этап, каждого ответственного и каждую точку, где происходят задержки, дублирование или потери. Сервис подсвечивает узкие места и показывает, какие изменения дадут максимальный эффект по деньгам и времени." },
   { q: "Чем это отличается от обычных блок-схем, которые можно нарисовать самому?", a: "Мы не просто рисуем схемы. Интервью выявляет реальные рабочие процессы — не идеальные, а те, что есть сейчас. На основе карты сервис формирует регламенты, инструкции и финансовую модель — готовый комплект для управления." },
   { q: "Нужен ли мне для этого консультант или специальные знания?", a: "Нет. Интервью проходит онлайн, вопросы подстраиваются под вашу отрасль. Вам нужно только рассказать, как работает ваш бизнес — своими словами. Но если хотите, мы подключим эксперта." },
-  { q: "Как быстро я получу результат?", a: "Первая карта рабочего процесса — через 1–2 часа после интервью. Регламенты и инструкции — в тот же день. Полный комплект «Под ключ» — от 3 до 7 рабочих дней." },
+  { q: "Как быстро я получу результат?", a: "Первая карта рабочего процесса — через 30 минут после интервью. Регламенты и инструкции — в тот же день. Полный комплект «Под ключ» — от 3 до 7 рабочих дней." },
   { q: "Что значит «первое пополнение удваивается»?", a: "При первом пополнении баланса мы начисляем бонус в размере вашего платежа. Положили 5 000 — на счёте 10 000. Бонусные средства расходуются так же, как обычные — на любые продукты сервиса. Срока действия нет." },
   { q: "Можно ли обновлять процессы после создания?", a: "Да. Бизнес меняется — процессы тоже. Карта процессов — это живой инструмент, а не отчёт для полки. Обновляйте в любое время. Средства на балансе не сгорают." },
-  { q: "Для каких отраслей подходит сервис?", a: "Для любого бизнеса с повторяющимися операциями: строительство, производство, услуги, торговля, логистика, общественное питание, медицина, автосервис, клининг, образование, проектные организации, управляющие компании и другие. Интервью адаптируется под специфику вашей отрасли." },
 ];
 
 // Отзывы
@@ -53,38 +36,6 @@ const testimonials = [
   { text: "Нашли потери на 1,2 миллиона рублей в месяц. Оказалось, два отдела дублировали работу друг друга и никто этого не видел.", name: "Марина В.", role: "операционный директор", company: "торговая компания" },
   { text: "За 49 000 получили то, за что консультант просил 800 000 и четыре месяца. Причём у нас документы живые — обновляем сами.", name: "Дмитрий Н.", role: "собственник", company: "сеть автосервисов" },
 ];
-
-const industryTags = ["Строительство", "Производство", "Услуги", "Торговля", "Логистика", "Общественное питание", "Медицина", "Автосервис", "Клининг", "Образование", "Проектные организации", "Управляющие компании"];
-
-// Hook для countUp
-function useCountUp(end: number, duration: number = 2000) {
-  const [count, setCount] = useState(0);
-  const [hasStarted, setHasStarted] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!hasStarted) return;
-    let startTime: number;
-    let frame: number;
-    const animate = (ts: number) => {
-      if (!startTime) startTime = ts;
-      const p = Math.min((ts - startTime) / duration, 1);
-      setCount(Math.floor(p * end));
-      if (p < 1) frame = requestAnimationFrame(animate);
-    };
-    frame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frame);
-  }, [end, duration, hasStarted]);
-
-  useEffect(() => {
-    if (!ref.current) return;
-    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) setHasStarted(true); }, { threshold: 0.5 });
-    obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, []);
-
-  return { count, ref };
-}
 
 // Hook для fade-in при скролле
 function useFadeIn() {
@@ -103,24 +54,14 @@ export function LandingPage() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
-  const [activeIndustry, setActiveIndustry] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState(0);
-  const [formData, setFormData] = useState({ name: "", contact: "", industry: "", wantExpert: false });
-
-  const counter1 = useCountUp(200, 2000);
-  const counter2 = useCountUp(2, 1500);
-  const counter3 = useCountUp(10, 1800);
 
   const heroFade = useFadeIn();
-  const problemFade = useFadeIn();
-  const promiseFade = useFadeIn();
+  const trustFade = useFadeIn();
+  const painsFade = useFadeIn();
   const stepsFade = useFadeIn();
+  const resultsFade = useFadeIn();
   const pricingFade = useFadeIn();
-  const compareFade = useFadeIn();
-  const industryFade = useFadeIn();
-  const socialFade = useFadeIn();
-  const demoFade = useFadeIn();
-  const offerFade = useFadeIn();
+  const testimonialsFade = useFadeIn();
   const faqFade = useFadeIn();
   const ctaFade = useFadeIn();
 
@@ -135,14 +76,11 @@ export function LandingPage() {
     setMobileMenuOpen(false);
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    console.log("Form submitted:", formData);
-  };
-
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
+      {/* ============================================================ */}
+      {/* Блок 1. Header */}
+      {/* ============================================================ */}
       <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled ? "bg-white/95 backdrop-blur border-b border-gray-200 shadow-sm" : "bg-transparent"}`}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
@@ -155,10 +93,10 @@ export function LandingPage() {
 
             <nav className="hidden md:flex items-center gap-1">
               {[
-                { id: "features", label: "Возможности" },
                 { id: "how-it-works", label: "Как это работает" },
+                { id: "results", label: "Результат" },
                 { id: "pricing", label: "Тарифы" },
-                { id: "testimonials", label: "Отзывы" },
+                { id: "faq", label: "Вопросы" },
               ].map((item) => (
                 <button key={item.id} onClick={() => scrollTo(item.id)} className="px-3 py-2 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors">
                   {item.label}
@@ -167,12 +105,15 @@ export function LandingPage() {
             </nav>
 
             <div className="hidden md:flex items-center gap-3">
-              <Link to="/login" className="inline-flex items-center justify-center h-9 px-4 py-2 text-sm font-medium border border-gray-300 bg-white rounded-md shadow-sm hover:bg-gray-100 transition-colors">
+              <Link to="/login" className="inline-flex items-center justify-center h-9 px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
                 Войти
               </Link>
-              <button onClick={() => scrollTo("cta")} className="inline-flex items-center justify-center h-9 px-4 py-2 text-sm font-medium bg-purple-600 text-white rounded-md shadow hover:bg-purple-700 transition-colors">
+              <button onClick={() => scrollTo("pricing")} className="inline-flex items-center justify-center h-9 px-4 py-2 text-sm font-medium border border-gray-300 bg-white rounded-md shadow-sm hover:bg-gray-50 transition-colors">
                 Пополнить счёт
               </button>
+              <Link to="/register" className="inline-flex items-center justify-center h-9 px-4 py-2 text-sm font-medium bg-purple-600 text-white rounded-md shadow hover:bg-purple-700 transition-colors">
+                Пройти интервью бесплатно
+              </Link>
             </div>
 
             <button className="md:hidden p-2 rounded-lg hover:bg-gray-100" onClick={() => setMobileMenuOpen(!mobileMenuOpen)}>
@@ -183,311 +124,428 @@ export function LandingPage() {
 
         {mobileMenuOpen && (
           <div className="md:hidden bg-white border-t border-gray-200 px-4 py-4 space-y-2">
-            {["features", "how-it-works", "pricing", "testimonials"].map((id) => (
-              <button key={id} onClick={() => scrollTo(id)} className="block w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100">
-                {id === "features" ? "Возможности" : id === "how-it-works" ? "Как это работает" : id === "pricing" ? "Тарифы" : "Отзывы"}
+            {[
+              { id: "how-it-works", label: "Как это работает" },
+              { id: "results", label: "Результат" },
+              { id: "pricing", label: "Тарифы" },
+              { id: "faq", label: "Вопросы" },
+            ].map((item) => (
+              <button key={item.id} onClick={() => scrollTo(item.id)} className="block w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100">
+                {item.label}
               </button>
             ))}
             <Link to="/login" className="block w-full text-left px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100">Войти</Link>
-            <button onClick={() => scrollTo("cta")} className="w-full px-3 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700">Пополнить счёт</button>
+            <Link to="/register" className="block w-full px-3 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 text-center">
+              Пройти интервью бесплатно
+            </Link>
           </div>
         )}
       </header>
 
-      {/* Hero */}
+      {/* ============================================================ */}
+      {/* Блок 2. Hero */}
+      {/* ============================================================ */}
       <section className="pt-24 pb-16 sm:pt-32 sm:pb-20 bg-white border-b border-gray-200" ref={heroFade.ref}>
         <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${heroFade.className}`}>
-          <div className="max-w-3xl mx-auto text-center">
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 border border-amber-200 rounded-full text-xs font-semibold text-amber-700 mb-6">
-              🔥 Первое пополнение — двойной баланс
-            </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            {/* Левая часть — текст */}
+            <div>
+              {/* Надзаголовок */}
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-50 border border-purple-200 rounded-full text-xs font-semibold text-purple-700 mb-6">
+                ИИ-сервис для описания бизнес-процессов
+              </div>
 
-            <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 tracking-tight leading-tight mb-6">
-              У 9 из 10 компаний нет выстроенных рабочих процессов. Это ваш шанс — оторвитесь от конкурентов
-            </h1>
+              {/* Главный заголовок */}
+              <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 tracking-tight leading-tight mb-6">
+                Узнайте, где ваш бизнес теряет деньги — за 2 часа
+              </h1>
 
-            <p className="text-base sm:text-lg text-gray-500 mb-8 max-w-2xl mx-auto">
-              Компания без описанных процессов не растёт — она выживает. Выстроенные процессы — это фундамент, на котором бизнес масштабируется, нанимает людей и увеличивает прибыль. Мы поможем этот фундамент построить.
-            </p>
-
-            <div className="flex flex-wrap justify-center gap-2 mb-8">
-              {industryTags.map((tag, i) => (
-                <span key={i} className="px-3 py-1 bg-gray-100 text-gray-500 text-xs font-medium rounded-full">{tag}</span>
-              ))}
-            </div>
-
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 sm:p-6 mb-8 text-left relative max-w-xl mx-auto">
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-5xl font-extrabold text-amber-300 opacity-40 select-none">×2</span>
-              <p className="text-sm text-gray-700 relative z-10">
-                Пополните счёт на любую сумму — и мы удвоим её. Вместо 5 000 ₽ на счету окажется 10 000 ₽. Этого хватит на две полных карты рабочих процессов.
+              {/* Подзаголовок */}
+              <p className="text-base sm:text-lg text-gray-500 mb-8 max-w-xl">
+                Пройдите онлайн-интервью, и ИИ построит визуальную карту процессов вашей компании. Вы увидите узкие места, потери и резервы роста — на одном экране.
               </p>
+
+              {/* Два CTA */}
+              <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                <Link to="/register" className="inline-flex items-center justify-center gap-2 h-12 px-8 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors">
+                  Пройти интервью бесплатно
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+                <button onClick={() => scrollTo("results")} className="inline-flex items-center justify-center gap-2 h-12 px-6 border border-gray-300 bg-white text-gray-700 text-sm font-medium rounded-md shadow-sm hover:bg-gray-50 transition-colors">
+                  Посмотреть пример карты
+                </button>
+              </div>
+
+              {/* Микродоверие */}
+              <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-gray-500">
+                <span className="flex items-center gap-1.5">
+                  <Check className="w-4 h-4 text-purple-600" />
+                  Интервью бесплатно
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Check className="w-4 h-4 text-purple-600" />
+                  Результат за 30 минут
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <Check className="w-4 h-4 text-purple-600" />
+                  Без установки ПО
+                </span>
+              </div>
             </div>
 
-            <button onClick={() => scrollTo("cta")} className="inline-flex items-center gap-2 h-11 px-8 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors">
-              Пополнить счёт и получить ×2
-              <ArrowRight className="w-4 h-4" />
-            </button>
-            <p className="text-xs text-gray-400 mt-3">Минимальное пополнение — 1 000 ₽. Баланс удваивается автоматически.</p>
+            {/* Правая часть — визуал (мокап карты процессов) */}
+            <div className="relative">
+              <div className="bg-gray-100 rounded-2xl border border-gray-200 shadow-lg overflow-hidden">
+                {/* Шапка окна */}
+                <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 border-b border-gray-200">
+                  <span className="w-3 h-3 rounded-full bg-red-400"></span>
+                  <span className="w-3 h-3 rounded-full bg-yellow-400"></span>
+                  <span className="w-3 h-3 rounded-full bg-green-400"></span>
+                  <span className="ml-3 text-xs text-gray-400">Карта процесса: Обработка заявки</span>
+                </div>
+                {/* Содержимое — схематичная карта */}
+                <div className="p-6 min-h-[280px] bg-white">
+                  <div className="flex items-center justify-center gap-2 flex-wrap mb-6">
+                    <div className="px-4 py-3 bg-green-50 border-2 border-green-400 rounded-lg text-sm font-medium text-green-700">
+                      Заявка
+                    </div>
+                    <ArrowRight className="w-5 h-5 text-gray-400" />
+                    <div className="px-4 py-3 bg-amber-50 border-2 border-amber-400 rounded-lg text-sm font-medium text-amber-700 relative">
+                      Проверка
+                      <span className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
+                        <AlertTriangle className="w-3 h-3 text-white" />
+                      </span>
+                    </div>
+                    <ArrowRight className="w-5 h-5 text-gray-400" />
+                    <div className="px-4 py-3 bg-blue-50 border-2 border-blue-400 rounded-lg text-sm font-medium text-blue-700">
+                      Обработка
+                    </div>
+                    <ArrowRight className="w-5 h-5 text-gray-400" />
+                    <div className="px-4 py-3 bg-purple-50 border-2 border-purple-400 rounded-lg text-sm font-medium text-purple-700">
+                      Готово
+                    </div>
+                  </div>
+                  {/* Подсветка узкого места */}
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-8 h-8 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                        <AlertTriangle className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div>
+                        <div className="text-sm font-semibold text-amber-800 mb-1">Узкое место найдено</div>
+                        <div className="text-xs text-amber-700">Этап «Проверка» — 4 часа вместо 30 мин. Потенциальная экономия: 120 000 ₽/мес</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {/* Декоративные элементы */}
+              <div className="absolute -z-10 -top-4 -right-4 w-72 h-72 bg-purple-100 rounded-full blur-3xl opacity-50"></div>
+              <div className="absolute -z-10 -bottom-4 -left-4 w-48 h-48 bg-blue-100 rounded-full blur-3xl opacity-50"></div>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Trust bar */}
-      <div className="bg-gray-50 border-b border-gray-200 py-4">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap justify-center gap-x-8 gap-y-2">
-          {["Уже помогли 200+ компаниям", "Средняя карта процесса — за 2 часа", "12 отраслей", "Без ломки того, что уже работает"].map((text, i) => (
-            <div key={i} className="flex items-center gap-1.5 text-xs text-gray-500">
-              <Check className="w-3.5 h-3.5 text-purple-600" />
-              {text}
-            </div>
-          ))}
+      {/* ============================================================ */}
+      {/* Блок 3. Цифры доверия */}
+      {/* ============================================================ */}
+      <section className="py-8 bg-gray-50 border-b border-gray-200" ref={trustFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${trustFade.className}`}>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8">
+            {[
+              { value: "200+", label: "компаний уже работают с сервисом" },
+              { value: "2 часа", label: "средний срок готовности карты процессов" },
+              { value: "12", label: "отраслей в базе сервиса" },
+              { value: "от 5 000 ₽", label: "стоимость одной карты процессов" },
+            ].map((item, i) => (
+              <div key={i} className="text-center">
+                <div className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1">{item.value}</div>
+                <div className="text-xs sm:text-sm text-gray-500">{item.label}</div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      </section>
 
-      {/* Блок 3: Проблема */}
-      <section id="features" className="py-16 sm:py-20 bg-gray-50" ref={problemFade.ref}>
-        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${problemFade.className}`}>
+      {/* ============================================================ */}
+      {/* Блок 4. Боли (проблематизация) */}
+      {/* ============================================================ */}
+      <section className="py-16 sm:py-20 bg-white" ref={painsFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${painsFade.className}`}>
           <div className="text-center mb-12">
-            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3">Без выстроенных процессов бизнес не растёт — он буксует</h2>
-            <p className="text-sm text-gray-500 max-w-2xl mx-auto">
-              9 из 10 компаний работают без описанных рабочих процессов. Каждый сотрудник действует по-своему, задачи теряются, сроки срываются. Руководитель тратит 80% времени на тушение пожаров вместо развития. Те, кто выстраивают процессы первыми — забирают рынок.
-            </p>
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3">Узнаёте себя?</h2>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             {[
-              { icon: DollarSign, title: "Прибыль утекает незаметно", text: "Переделки, дублирование работы, простои — до 30% выручки теряется на процессах, которые никто не видит и не контролирует." },
-              { icon: Clock, title: "Рост упирается в потолок", text: "Невозможно масштабировать то, что не описано. Без процессов каждый новый сотрудник, филиал или направление — это новый хаос." },
-              { icon: Unlock, title: "Бизнес зависит от людей, а не от системы", text: "Уйдёт ключевой человек — встанет целый отдел. Выстроенные процессы делают бизнес устойчивым и независимым от конкретных людей." },
+              {
+                icon: Clock,
+                title: "80% времени — на тушение пожаров",
+                text: "Руководитель решает одни и те же проблемы снова и снова. На развитие не остаётся ни времени, ни сил.",
+                color: "red",
+              },
+              {
+                icon: AlertTriangle,
+                title: "До 30% выручки теряется незаметно",
+                text: "Переделки, дублирование работы, простои — потери есть в каждой компании. Просто их никто не считал.",
+                color: "amber",
+              },
+              {
+                icon: Users,
+                title: "Уйдёт ключевой человек — встанет отдел",
+                text: "Бизнес держится на людях, а не на системе. Масштабировать такой бизнес невозможно.",
+                color: "orange",
+              },
             ].map((card, i) => (
-              <div key={i} className="bg-white rounded-xl border border-gray-200 shadow p-6">
-                <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center mb-4">
-                  <card.icon className="w-5 h-5 text-red-500" />
+              <div key={i} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 hover:shadow-md transition-shadow">
+                <div className={`w-12 h-12 rounded-xl bg-${card.color}-50 flex items-center justify-center mb-4`}>
+                  <card.icon className={`w-6 h-6 text-${card.color}-500`} />
                 </div>
-                <h3 className="font-semibold text-gray-900 mb-2">{card.title}</h3>
+                <h3 className="font-semibold text-gray-900 mb-2 text-lg">{card.title}</h3>
                 <p className="text-sm text-gray-500 leading-relaxed">{card.text}</p>
               </div>
             ))}
           </div>
 
-          <div className="bg-purple-600 rounded-xl p-6 sm:p-8 text-center text-white">
-            <p className="text-base sm:text-lg leading-relaxed">
-              Компании с описанными процессами растут в 2–3 раза быстрее конкурентов. Они нанимают людей без страха, открывают филиалы без потери качества и точно знают, где теряют деньги, а где — резервы для роста.
+          {/* Переходная фраза */}
+          <div className="bg-purple-50 border border-purple-200 rounded-xl p-6 text-center">
+            <p className="text-base text-purple-900">
+              Всё это — следствие одного: <strong>в компании не описаны процессы</strong>. Мы это исправим за 2 часа.
             </p>
           </div>
         </div>
       </section>
 
-      {/* Блок 3.5: Обещание */}
-      <section className="py-16 sm:py-20 bg-white" ref={promiseFade.ref}>
-        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${promiseFade.className}`}>
-          <div className="grid grid-cols-1 lg:grid-cols-[auto_1fr] gap-8 lg:gap-12 items-start">
-            <div className="w-28 h-28 lg:w-40 lg:h-40 rounded-2xl bg-purple-100 flex items-center justify-center mx-auto lg:mx-0">
-              <Shield className="w-14 h-14 lg:w-20 lg:h-20 text-purple-600" />
-            </div>
-            <div>
-              <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4">Мы не ломаем то, что у вас уже работает</h2>
-              <p className="text-sm sm:text-base text-gray-500 leading-relaxed mb-6">
-                Мы не приходим с шаблонами и не заставляем вас перестраивать бизнес. На основе интервью с вами и ваших реальных документов мы описываем процессы так, как они работают сейчас. Без приукрашиваний. Потом выстраиваем их правильно — с чёткой логикой, ответственными и точками контроля.
-              </p>
-              <p className="text-sm font-semibold text-gray-900 mb-4">Вы сами увидите на карте процессов:</p>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-                {[
-                  { icon: MapPin, text: "Где именно теряются деньги — на каком этапе, в каком отделе, из-за какого действия" },
-                  { icon: TrendingUp, text: "Где скрыты резервы для роста — какие процессы можно ускорить, упростить или автоматизировать" },
-                  { icon: RefreshCw, text: "Что можно оптимизировать дальше — карта процессов обновляется вместе с бизнесом, а не пылится в папке" },
-                ].map((item, i) => (
-                  <div key={i} className="flex gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center flex-shrink-0">
-                      <item.icon className="w-4 h-4 text-purple-600" />
-                    </div>
-                    <p className="text-sm text-gray-600">{item.text}</p>
-                  </div>
-                ))}
-              </div>
-              <p className="text-sm italic text-purple-600">
-                Результат — не отчёт для полки. Это рабочий инструмент, по которому живёт компания.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Блок 4: Как это работает */}
+      {/* ============================================================ */}
+      {/* Блок 5. Как это работает (три шага) */}
+      {/* ============================================================ */}
       <section id="how-it-works" className="py-16 sm:py-20 bg-gray-50" ref={stepsFade.ref}>
         <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${stepsFade.className}`}>
           <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-12">Три шага от хаоса к управляемому бизнесу</h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
             {[
-              { num: "01", title: "Расскажите, как работает ваш бизнес", text: "Ответьте на вопросы в удобном онлайн-формате. Загрузите существующие документы, регламенты, должностные инструкции — всё, что уже есть. Мы не начинаем с чистого листа. Мы берём то, что работает, и выстраиваем на этом фундаменте.", time: "~40 минут" },
-              { num: "02", title: "Увидьте свой бизнес целиком", text: "На основе интервью и ваших документов сервис строит визуальную карту процессов — такими, какие они есть сейчас. Без приукрашиваний. Вы впервые видите на одном экране: где теряются деньги, где простаивают люди, где скрыты резервы для роста.", time: "~2 часа" },
-              { num: "03", title: "Получите инструменты для управления", text: "На основе карты процессов сервис формирует регламенты, инструкции, бизнес-модель и финансовую модель. Вы сами решаете, что оптимизировать — а сервис показывает, что именно даст максимальный эффект. Процессы обновляются вместе с бизнесом.", time: "от 1 дня" },
+              {
+                num: "01",
+                title: "Пройдите бесплатное интервью",
+                text: "Ответьте на вопросы в удобном онлайн-формате (~15 минут). Загрузите существующие документы — мы берём то, что уже работает, и выстраиваем на этом фундаменте.",
+                badge: "Бесплатно · ~15 минут",
+                badgeColor: "green",
+              },
+              {
+                num: "02",
+                title: "Увидьте свой бизнес целиком",
+                text: "На основе интервью и ваших документов сервис строит визуальную карту процессов — такими, какие они есть сейчас. Без приукрашиваний. Вы впервые видите на одном экране: где теряются деньги, где простаивают люди, где скрыты резервы для роста.",
+                badge: "~1 час",
+                badgeColor: "purple",
+              },
+              {
+                num: "03",
+                title: "Управляйте бизнесом по системе",
+                text: "На основе карты процессов сервис формирует регламенты, инструкции, бизнес-модель и финансовую модель. Вы сами решаете, что оптимизировать — а сервис показывает, что именно даст максимальный эффект.",
+                badge: "от 1 дня",
+                badgeColor: "blue",
+              },
             ].map((step, i) => (
-              <div key={i} className="bg-white rounded-xl border border-gray-200 shadow p-6 border-l-4 border-l-purple-600 relative">
+              <div key={i} className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 border-l-4 border-l-purple-600 relative">
                 <span className="absolute top-2 right-4 text-5xl font-extrabold text-purple-100 select-none">{step.num}</span>
-                <h3 className="font-semibold text-gray-900 mb-3 pr-12">{step.title}</h3>
+                <h3 className="font-semibold text-gray-900 mb-3 pr-12 text-lg">{step.title}</h3>
                 <p className="text-sm text-gray-500 leading-relaxed mb-4">{step.text}</p>
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-purple-100 text-purple-700">{step.time}</span>
+                <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-${step.badgeColor}-100 text-${step.badgeColor}-700`}>
+                  {step.badge}
+                </span>
               </div>
             ))}
+          </div>
+
+          {/* CTA под блоком */}
+          <div className="text-center">
+            <Link to="/register" className="inline-flex items-center gap-2 h-11 px-8 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors">
+              Начать с бесплатного интервью
+              <ArrowRight className="w-4 h-4" />
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* Блок 5: Цены */}
-      <section id="pricing" className="py-16 sm:py-20 bg-white" ref={pricingFade.ref}>
-        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${pricingFade.className}`}>
+      {/* ============================================================ */}
+      {/* Блок 6. Что вы получите (результат) */}
+      {/* ============================================================ */}
+      <section id="results" className="py-16 sm:py-20 bg-white" ref={resultsFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${resultsFade.className}`}>
           <div className="text-center mb-12">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3">Что вы получите на выходе</h2>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+            {/* Карточки результата */}
+            <div className="space-y-6">
+              {[
+                {
+                  icon: Search,
+                  title: "Визуальная карта процессов",
+                  text: "Полная схема одного рабочего процесса: все этапы, ответственные, точки решений и узкие места. Не отчёт для полки — рабочий инструмент.",
+                },
+                {
+                  icon: AlertTriangle,
+                  title: "Список потерь и резервов",
+                  text: "Где именно теряются деньги, где простаивают люди, что можно ускорить или автоматизировать — конкретно, по каждому этапу.",
+                },
+                {
+                  icon: FileText,
+                  title: "Регламенты и инструкции",
+                  text: "Пошаговые документы: кто, что, когда и как делает. Новый сотрудник разберётся за день. Обновляются вместе с бизнесом.",
+                },
+              ].map((item, i) => (
+                <div key={i} className="flex gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0">
+                    <item.icon className="w-6 h-6 text-purple-600" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900 mb-1">{item.title}</h3>
+                    <p className="text-sm text-gray-500 leading-relaxed">{item.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Мокап карты процессов */}
+            <div className="bg-gray-900 rounded-2xl overflow-hidden shadow-2xl">
+              <div className="flex items-center gap-2 px-4 py-3 bg-gray-800">
+                <span className="w-3 h-3 rounded-full bg-red-400"></span>
+                <span className="w-3 h-3 rounded-full bg-yellow-400"></span>
+                <span className="w-3 h-3 rounded-full bg-green-400"></span>
+                <span className="ml-3 text-xs text-gray-500">Пример карты процессов</span>
+              </div>
+              <div className="p-6 min-h-[300px]">
+                <div className="space-y-4">
+                  {/* Схема процесса */}
+                  <div className="flex items-center gap-3 flex-wrap justify-center">
+                    <span className="px-4 py-2 bg-purple-600/30 border border-purple-500 rounded-lg text-sm text-white">Заявка</span>
+                    <ArrowRight className="w-4 h-4 text-purple-400" />
+                    <span className="px-4 py-2 bg-amber-600/30 border border-amber-500 rounded-lg text-sm text-white">Проверка</span>
+                    <ArrowRight className="w-4 h-4 text-purple-400" />
+                    <span className="px-4 py-2 bg-blue-600/30 border border-blue-500 rounded-lg text-sm text-white">Обработка</span>
+                    <ArrowRight className="w-4 h-4 text-purple-400" />
+                    <span className="px-4 py-2 bg-green-600/30 border border-green-500 rounded-lg text-sm text-white">Готово</span>
+                  </div>
+                  {/* Найденные проблемы */}
+                  <div className="bg-amber-900/30 border border-amber-700 rounded-lg p-3 text-xs text-amber-200">
+                    ⚠️ Узкое место: Этап «Проверка» — среднее время 4 часа вместо 30 минут
+                  </div>
+                  <div className="bg-green-900/30 border border-green-700 rounded-lg p-3 text-xs text-green-200">
+                    💰 Потенциальная экономия: 120 000 ₽/мес
+                  </div>
+                  {/* Регламент */}
+                  <div className="mt-4 pt-4 border-t border-gray-700">
+                    <div className="text-xs text-gray-400 mb-2">Сгенерированный регламент:</div>
+                    <ol className="space-y-1 text-xs text-gray-300 list-decimal list-inside">
+                      <li>Менеджер получает заявку в течение 5 мин</li>
+                      <li>Проверка комплектности по чек-листу</li>
+                      <li>Связь с клиентом для уточнения</li>
+                      <li>Передача в отдел исполнения</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ============================================================ */}
+      {/* Блок 7. Тарифы */}
+      {/* ============================================================ */}
+      <section id="pricing" className="py-16 sm:py-20 bg-gray-50" ref={pricingFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${pricingFade.className}`}>
+          {/* Акционная плашка */}
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 sm:p-6 mb-10 flex flex-col sm:flex-row items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center flex-shrink-0">
+                <Flame className="w-6 h-6 text-amber-600" />
+              </div>
+              <div>
+                <div className="font-bold text-amber-900 mb-0.5">Первое пополнение — двойной баланс</div>
+                <div className="text-sm text-amber-700">Пополните счёт на любую сумму — мы удвоим её. Вместо 5 000 ₽ на счету окажется 10 000 ₽.</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-center mb-10">
             <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3">Прозрачные цены — платите только за то, что нужно</h2>
             <p className="text-sm text-gray-500 max-w-xl mx-auto">Начните с карты процессов. Добавляйте документы по мере необходимости. Каждый рубль на счёте — это конкретный результат.</p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white rounded-xl border-2 border-purple-600 shadow p-6 relative">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            {/* Карта рабочего процесса */}
+            <div className="bg-white rounded-xl border-2 border-purple-600 shadow-md p-6 relative">
               <span className="absolute -top-3 left-4 px-2.5 py-0.5 bg-purple-600 text-white text-xs font-semibold rounded-md">Основа</span>
               <h3 className="font-semibold text-gray-900 mt-2 mb-1">Карта рабочего процесса</h3>
               <div className="text-2xl font-bold text-gray-900 mb-3">5 000 ₽</div>
-              <p className="text-xs text-gray-500 mb-4 leading-relaxed">Полная визуальная схема одного рабочего процесса вашей компании. Видны все этапы, ответственные, точки принятия решений и узкие места.</p>
+              <p className="text-xs text-gray-500 mb-4 leading-relaxed">Полная визуальная схема одного рабочего процесса вашей компании.</p>
               <ul className="space-y-2">
                 {["Интервью по процессу", "Визуальная карта со всеми этапами", "Список найденных узких мест", "Рекомендации по оптимизации"].map((f, i) => (
                   <li key={i} className="flex items-start gap-2 text-xs text-gray-600"><Check className="w-3.5 h-3.5 text-purple-600 mt-0.5 flex-shrink-0" />{f}</li>
                 ))}
               </ul>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 shadow p-6">
+            {/* Регламент */}
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
               <h3 className="font-semibold text-gray-900 mb-1">Регламент или инструкция</h3>
               <div className="text-2xl font-bold text-gray-900 mb-3">от 200 ₽</div>
-              <p className="text-xs text-gray-500 mb-4 leading-relaxed">Пошаговый документ на понятном языке: кто, что, когда и как должен делать. Новый сотрудник разберётся за день.</p>
+              <p className="text-xs text-gray-500 mb-4 leading-relaxed">Пошаговый документ: кто, что, когда и как должен делать.</p>
               <ul className="space-y-2">
                 {["Пошаговое описание действий", "Ответственные и сроки", "Шаблоны документов", "Чек-листы для проверки"].map((f, i) => (
                   <li key={i} className="flex items-start gap-2 text-xs text-gray-600"><Check className="w-3.5 h-3.5 text-purple-600 mt-0.5 flex-shrink-0" />{f}</li>
                 ))}
               </ul>
             </div>
-            <div className="bg-white rounded-xl border border-gray-200 shadow p-6">
+            {/* Бизнес-модель */}
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
               <h3 className="font-semibold text-gray-900 mb-1">Бизнес-модель компании</h3>
               <div className="text-2xl font-bold text-gray-900 mb-3">5 000 ₽</div>
-              <p className="text-xs text-gray-500 mb-4 leading-relaxed">Структурированное описание того, как ваша компания создаёт ценность, привлекает клиентов и зарабатывает деньги.</p>
+              <p className="text-xs text-gray-500 mb-4 leading-relaxed">Как ваша компания создаёт ценность и зарабатывает деньги.</p>
               <ul className="space-y-2">
                 {["Ценностное предложение", "Каналы привлечения и продаж", "Структура доходов и расходов", "Ключевые ресурсы и партнёры"].map((f, i) => (
                   <li key={i} className="flex items-start gap-2 text-xs text-gray-600"><Check className="w-3.5 h-3.5 text-purple-600 mt-0.5 flex-shrink-0" />{f}</li>
                 ))}
               </ul>
             </div>
-            <div className="bg-gray-900 rounded-xl shadow p-6 text-white relative">
+            {/* Под ключ */}
+            <div className="bg-gray-900 rounded-xl shadow-lg p-6 text-white relative">
               <span className="absolute -top-3 left-4 px-2.5 py-0.5 bg-amber-500 text-white text-xs font-semibold rounded-md">Максимальная выгода</span>
               <h3 className="font-semibold mt-2 mb-1">Полный комплект «Под ключ»</h3>
               <div className="text-2xl font-bold mb-3">от 49 000 ₽</div>
-              <p className="text-xs text-gray-400 mb-4 leading-relaxed">Все рабочие процессы компании + все документы + бизнес-модель + финансовая модель + персональный эксперт + обучение команды.</p>
+              <p className="text-xs text-gray-400 mb-4 leading-relaxed">Все процессы + документы + модели + эксперт + обучение команды.</p>
               <ul className="space-y-2">
-                {["Все карты рабочих процессов (до 15)", "Регламенты и инструкции", "Бизнес-модель и финансовая модель", "Персональный эксперт", "Обучение команды", "Поддержка 3 месяца"].map((f, i) => (
+                {["Все карты рабочих процессов (до 15)", "Регламенты и инструкции", "Бизнес-модель и финансовая модель", "Персональный эксперт", "Поддержка 3 месяца"].map((f, i) => (
                   <li key={i} className="flex items-start gap-2 text-xs text-gray-300"><Check className="w-3.5 h-3.5 text-purple-400 mt-0.5 flex-shrink-0" />{f}</li>
                 ))}
               </ul>
             </div>
           </div>
 
-          <div className="mt-8 bg-amber-50 border border-amber-200 rounded-xl p-4 sm:p-6 flex flex-col sm:flex-row items-center gap-4 justify-between">
-            <div className="flex items-center gap-3">
-              <span className="text-3xl font-extrabold text-amber-400 opacity-60">×2</span>
-              <p className="text-sm text-gray-700">
-                <strong>Не забудьте:</strong> первое пополнение удваивается. Положите 5 000 ₽ — получите 10 000 ₽ на счёт.
-              </p>
-            </div>
-            <button onClick={() => scrollTo("cta")} className="inline-flex items-center h-9 px-4 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors whitespace-nowrap">
-              Пополнить и получить ×2
+          {/* CTA под тарифами */}
+          <div className="text-center">
+            <button onClick={() => scrollTo("cta")} className="inline-flex items-center gap-2 h-11 px-8 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors">
+              Пополнить счёт и получить ×2
+              <ArrowRight className="w-4 h-4" />
             </button>
           </div>
         </div>
       </section>
 
-      {/* Блок 6: Сравнение */}
-      <section className="py-16 sm:py-20 bg-gray-50" ref={compareFade.ref}>
-        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${compareFade.className}`}>
-          <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-8">Почему компании выбирают сервис, а не консультанта</h2>
-          <div className="bg-white rounded-xl border border-gray-200 shadow overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="text-left px-5 py-4 font-semibold text-gray-900">Параметр</th>
-                  <th className="text-left px-5 py-4 font-semibold text-gray-500">С консультантом</th>
-                  <th className="text-left px-5 py-4 font-semibold text-purple-600">С нашим сервисом</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  ["Стоимость одного процесса", "От 50 000 ₽", "5 000 ₽"],
-                  ["Полное описание компании", "От 300 000 ₽", "От 49 000 ₽"],
-                  ["Срок получения результата", "От 3 до 12 месяцев", "Первый результат через 2 часа"],
-                  ["Формат работы", "Встречи, командировки, согласования", "Онлайн, в удобное время"],
-                  ["Обновление процессов", "Каждое изменение — доплата", "Обновляйте сами, в любой момент"],
-                  ["Язык документов", "Профессиональный жаргон и аббревиатуры", "Простой и понятный каждому сотруднику"],
-                  ["Доступность", "Папка с документами на полке", "Онлайн, с любого устройства, круглосуточно"],
-                ].map(([param, cons, serv], i) => (
-                  <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-gray-50"}>
-                    <td className="px-5 py-3.5 font-medium text-gray-900">{param}</td>
-                    <td className="px-5 py-3.5 text-gray-500">{cons}</td>
-                    <td className="px-5 py-3.5 text-purple-600 font-medium bg-purple-50/50">{serv}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      {/* Блок 7: Отрасли */}
-      <section className="py-16 sm:py-20 bg-white" ref={industryFade.ref}>
-        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${industryFade.className}`}>
-          <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-8">Работает в любой отрасли, где есть повторяющиеся операции</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {industries.map((ind, i) => (
-              <div
-                key={i}
-                onClick={() => setActiveIndustry(activeIndustry === i ? null : i)}
-                className={`bg-white rounded-xl border border-gray-200 shadow-sm p-4 cursor-pointer transition-all hover:shadow-md ${activeIndustry === i ? "sm:col-span-2 border-purple-300" : ""}`}
-              >
-                <div className="flex items-center gap-3 mb-2">
-                  <span className="text-2xl">{ind.icon}</span>
-                  <h4 className="text-sm font-semibold text-gray-900">{ind.name}</h4>
-                </div>
-                <p className="text-xs text-gray-500 leading-relaxed">{ind.short}</p>
-                {activeIndustry === i && (
-                  <p className="text-xs text-gray-700 mt-3 pt-3 border-t border-gray-100 leading-relaxed">{ind.full}</p>
-                )}
-              </div>
-            ))}
-          </div>
-          <p className="text-center text-sm text-gray-400 mt-6">
-            Не нашли свою отрасль? Сервис адаптируется — интервью подстраивается под специфику любого бизнеса, где есть повторяющиеся рабочие операции.
-          </p>
-        </div>
-      </section>
-
-      {/* Блок 8: Социальное доказательство */}
-      <section id="testimonials" className="py-16 sm:py-20 bg-gray-50" ref={socialFade.ref}>
-        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${socialFade.className}`}>
+      {/* ============================================================ */}
+      {/* Блок 7.5. Отзывы */}
+      {/* ============================================================ */}
+      <section className="py-16 sm:py-20 bg-white" ref={testimonialsFade.ref}>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${testimonialsFade.className}`}>
           <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-12">Компании, которые уже навели порядок</h2>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
-            <div className="text-center" ref={counter1.ref}>
-              <div className="text-4xl sm:text-5xl font-bold text-gray-900">{counter1.count}+</div>
-              <div className="text-sm text-gray-500 mt-1">компаний используют сервис</div>
-            </div>
-            <div className="text-center" ref={counter2.ref}>
-              <div className="text-4xl sm:text-5xl font-bold text-gray-900">{counter2.count} часа</div>
-              <div className="text-sm text-gray-500 mt-1">среднее время создания карты процесса</div>
-            </div>
-            <div className="text-center" ref={counter3.ref}>
-              <div className="text-4xl sm:text-5xl font-bold text-gray-900">×{counter3.count}</div>
-              <div className="text-sm text-gray-500 mt-1">дешевле чем с консультантом</div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {testimonials.map((t, i) => (
-              <div key={i} className="bg-white rounded-xl border border-gray-200 shadow p-6 relative">
+              <div key={i} className="bg-gray-50 rounded-xl border border-gray-200 p-6 relative">
                 <span className="absolute top-3 left-5 text-5xl font-serif text-purple-200 leading-none select-none">"</span>
                 <p className="text-sm italic text-gray-700 leading-relaxed mb-6 relative z-10">{t.text}</p>
                 <div className="flex items-center gap-3">
@@ -504,110 +562,12 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Блок 9: Демо */}
-      <section className="py-16 sm:py-20 bg-gray-900" ref={demoFade.ref}>
-        <div className={`max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 ${demoFade.className}`}>
-          <h2 className="text-2xl sm:text-3xl font-bold text-white text-center mb-8">Посмотрите, как выглядит результат</h2>
-
-          <div className="bg-gray-800 rounded-xl overflow-hidden shadow-2xl">
-            <div className="flex items-center gap-2 px-4 py-3 bg-gray-700">
-              <span className="w-3 h-3 rounded-full bg-red-400"></span>
-              <span className="w-3 h-3 rounded-full bg-yellow-400"></span>
-              <span className="w-3 h-3 rounded-full bg-green-400"></span>
-            </div>
-            <div className="p-6 min-h-[300px] flex items-center justify-center text-white">
-              {activeTab === 0 && (
-                <div className="w-full text-center space-y-4">
-                  <div className="flex items-center justify-center gap-3 flex-wrap">
-                    <span className="px-4 py-2 bg-purple-600/30 border border-purple-500 rounded-lg text-sm">Заявка</span>
-                    <ArrowRight className="w-4 h-4 text-purple-400" />
-                    <span className="px-4 py-2 bg-amber-600/30 border border-amber-500 rounded-lg text-sm">Проверка</span>
-                    <ArrowRight className="w-4 h-4 text-purple-400" />
-                    <span className="px-4 py-2 bg-gray-600/50 border border-gray-500 rounded-lg text-sm">Обработка</span>
-                    <ArrowRight className="w-4 h-4 text-purple-400" />
-                    <span className="px-4 py-2 bg-purple-600/30 border border-purple-500 rounded-lg text-sm">Контроль</span>
-                  </div>
-                  <div className="bg-amber-900/30 border border-amber-700 rounded-lg p-3 text-xs text-amber-200 max-w-md mx-auto">
-                    ⚠ Узкое место: Этап «Проверка» — среднее время 4 часа вместо 30 минут. Потенциальная экономия: 120 000 ₽/мес
-                  </div>
-                </div>
-              )}
-              {activeTab === 1 && (
-                <div className="text-left max-w-md">
-                  <h3 className="font-semibold mb-4">Регламент: Обработка входящей заявки</h3>
-                  <ol className="space-y-2 text-sm text-gray-300 list-decimal list-inside">
-                    <li>Менеджер получает заявку в течение 5 минут</li>
-                    <li>Проверяет комплектность данных по чек-листу</li>
-                    <li>Связывается с клиентом для уточнения деталей</li>
-                    <li>Передаёт заявку в отдел исполнения</li>
-                    <li>Контролирует статус в течение 24 часов</li>
-                  </ol>
-                </div>
-              )}
-              {activeTab === 2 && (
-                <div className="grid grid-cols-3 gap-4 w-full max-w-lg">
-                  {[["Ценность", "Быстрое решение проблем клиентов"], ["Каналы", "Сайт, рекомендации, реклама"], ["Доходы", "Услуги, абонементы, доп. продажи"]].map(([t, d], i) => (
-                    <div key={i} className="bg-gray-700/50 rounded-lg p-4">
-                      <div className="text-sm font-semibold mb-1">{t}</div>
-                      <div className="text-xs text-gray-400">{d}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="flex justify-center gap-2 mt-4">
-            {["Карта процесса", "Регламент", "Бизнес-модель"].map((label, i) => (
-              <button key={i} onClick={() => setActiveTab(i)} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === i ? "bg-purple-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600"}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="text-center mt-8">
-            <button onClick={() => scrollTo("cta")} className="inline-flex items-center gap-2 h-10 px-6 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors">
-              Создать карту для своего бизнеса <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* Блок 10: Повторный оффер */}
-      <section className="py-16 sm:py-20 bg-white" ref={offerFade.ref}>
-        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${offerFade.className}`}>
-          <div className="text-center mb-8">
-            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-3">Каждый рубль, вложенный в первый раз, работает вдвойне</h2>
-            <p className="text-sm text-gray-500 max-w-xl mx-auto">Пополните баланс прямо сейчас — и получите в два раза больше средств на создание карт процессов, регламентов и инструкций для вашего бизнеса.</p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto">
-            {[
-              { amount: "2 500 ₽", result: "5 000 ₽", desc: "1 полная карта рабочего процесса" },
-              { amount: "5 000 ₽", result: "10 000 ₽", desc: "2 карты процессов или 1 карта + бизнес-модель", highlight: true },
-              { amount: "25 000 ₽", result: "50 000 ₽", desc: "Практически полный комплект «Под ключ»" },
-            ].map((item, i) => (
-              <div key={i} className={`bg-white rounded-xl border ${item.highlight ? "border-purple-600 shadow-md" : "border-gray-200 shadow"} p-6 text-center`}>
-                <div className="text-sm font-medium text-gray-500 mb-1">Вы вносите {item.amount}</div>
-                <div className="text-2xl font-bold text-purple-600 mb-3">На счёте {item.result}</div>
-                <p className="text-xs text-gray-500">{item.desc}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="text-center mt-8">
-            <button onClick={() => scrollTo("cta")} className="inline-flex items-center gap-2 h-11 px-8 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors">
-              Пополнить счёт и удвоить баланс
-            </button>
-            <p className="text-xs text-gray-400 mt-3">Акция действует для первого пополнения. Средства не сгорают — используйте в любое время.</p>
-          </div>
-        </div>
-      </section>
-
-      {/* Блок 11: FAQ */}
-      <section className="py-16 sm:py-20 bg-gray-50" ref={faqFade.ref}>
+      {/* ============================================================ */}
+      {/* Блок 8. FAQ */}
+      {/* ============================================================ */}
+      <section id="faq" className="py-16 sm:py-20 bg-gray-50" ref={faqFade.ref}>
         <div className={`max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 ${faqFade.className}`}>
-          <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-8">Ответы на вопросы, которые задают чаще всего</h2>
+          <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 text-center mb-8">Ответы на частые вопросы</h2>
 
           <div className="space-y-2">
             {faqData.map((item, i) => {
@@ -630,49 +590,44 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Блок 12: CTA */}
+      {/* ============================================================ */}
+      {/* Блок 9. Финальный CTA */}
+      {/* ============================================================ */}
       <section id="cta" className="py-16 sm:py-20 bg-purple-600" ref={ctaFade.ref}>
         <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 ${ctaFade.className}`}>
           <div className="text-center mb-8">
-            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">Перестаньте терять деньги и время на хаос в процессах</h2>
-            <p className="text-sm text-purple-200 max-w-lg mx-auto">Первое пополнение удваивается. Одна карта процесса — 5 000 рублей. Результат — через 2 часа.</p>
+            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-3">Начните прямо сейчас — первый шаг бесплатный</h2>
+            <p className="text-sm text-purple-200 max-w-lg mx-auto">Пройдите интервью, и через 2 часа вы увидите свой бизнес на одном экране.</p>
           </div>
 
-          <div className="bg-white rounded-xl shadow-lg p-6 sm:p-8 max-w-md mx-auto">
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-900">Ваше имя</label>
-                <input type="text" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required className="flex h-9 w-full rounded-md border border-gray-300 bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-1 placeholder:text-gray-500" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-900">Телефон или электронная почта</label>
-                <input type="text" value={formData.contact} onChange={(e) => setFormData({ ...formData, contact: e.target.value })} required className="flex h-9 w-full rounded-md border border-gray-300 bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-1 placeholder:text-gray-500" />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-900">Ваша отрасль</label>
-                <select value={formData.industry} onChange={(e) => setFormData({ ...formData, industry: e.target.value })} className="flex h-9 w-full rounded-md border border-gray-300 bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-400 focus:ring-offset-1">
-                  <option value="">Выберите отрасль</option>
-                  <option value="construction">Строительство</option>
-                  <option value="trade">Торговля</option>
-                  <option value="services">Услуги</option>
-                  <option value="manufacturing">Производство</option>
-                  <option value="other">Другое</option>
-                </select>
-              </div>
-              <label className="flex items-center gap-3 cursor-pointer">
-                <input type="checkbox" checked={formData.wantExpert} onChange={(e) => setFormData({ ...formData, wantExpert: e.target.checked })} className="w-4 h-4 accent-purple-600 rounded" />
-                <span className="text-sm text-gray-700">Хочу, чтобы эксперт помог на первом интервью (бесплатно)</span>
-              </label>
-              <button type="submit" className="w-full h-10 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors">
-                Пополнить счёт и начать
-              </button>
-            </form>
-            <p className="text-xs text-gray-400 text-center mt-4">Нажимая кнопку, вы соглашаетесь с политикой конфиденциальности. Мы не передаём данные третьим лицам.</p>
+          <div className="flex flex-col items-center gap-4">
+            <Link to="/register" className="inline-flex items-center gap-2 h-12 px-10 bg-white text-purple-600 text-base font-semibold rounded-md shadow-lg hover:bg-gray-100 transition-colors">
+              Зарегистрироваться и пройти интервью
+              <ArrowRight className="w-5 h-5" />
+            </Link>
+
+            {/* Снятие возражений */}
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-2 text-sm text-purple-200">
+              <span className="flex items-center gap-1.5">
+                <Check className="w-4 h-4" />
+                Без привязки карты
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Check className="w-4 h-4" />
+                Без установки ПО
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Check className="w-4 h-4" />
+                Интервью занимает ~15-30 минут
+              </span>
+            </div>
           </div>
         </div>
       </section>
 
+      {/* ============================================================ */}
       {/* Footer */}
+      {/* ============================================================ */}
       <footer className="bg-white border-t border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -684,14 +639,19 @@ export function LandingPage() {
                 <span className="font-semibold text-sm text-gray-900">biz-process<span className="text-purple-600">.ru</span></span>
               </a>
               <p className="text-xs text-gray-500 leading-relaxed">
-                Сервис для создания карт рабочих процессов, регламентов, инструкций и бизнес-моделей на основе интервью с собственником.
+                ИИ-сервис для создания карт рабочих процессов, регламентов, инструкций и бизнес-моделей.
               </p>
             </div>
             <div>
               <h4 className="text-sm font-semibold text-gray-900 mb-4">Навигация</h4>
               <ul className="space-y-2">
-                {["Возможности", "Как это работает", "Тарифы", "Отзывы", "Блог"].map((l, i) => (
-                  <li key={i}><a href="#" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{l}</a></li>
+                {[
+                  { label: "Как это работает", id: "how-it-works" },
+                  { label: "Результат", id: "results" },
+                  { label: "Тарифы", id: "pricing" },
+                  { label: "Вопросы", id: "faq" },
+                ].map((l, i) => (
+                  <li key={i}><button onClick={() => scrollTo(l.id)} className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{l.label}</button></li>
                 ))}
               </ul>
             </div>
