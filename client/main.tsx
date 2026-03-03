@@ -6,6 +6,7 @@ import { httpBatchLink } from "@trpc/client";
 import superjson from "superjson";
 import { trpc } from "./lib/trpc";
 import { AuthProvider } from "./lib/auth";
+import { CookieConsentProvider } from "./lib/cookieConsent";
 import { Toaster } from "./components/ui/toaster";
 import App from "./App";
 import "./styles/globals.css";
@@ -37,10 +38,12 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
-          <AuthProvider>
-            <App />
-            <Toaster />
-          </AuthProvider>
+          <CookieConsentProvider>
+            <AuthProvider>
+              <App />
+              <Toaster />
+            </AuthProvider>
+          </CookieConsentProvider>
         </BrowserRouter>
       </QueryClientProvider>
     </trpc.Provider>

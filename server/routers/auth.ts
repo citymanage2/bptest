@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { router, publicProcedure, protectedProcedure, signToken } from "../trpc";
 import { db } from "../db";
-import { users } from "../db/schema";
+import { users, userConsents } from "../db/schema";
 
 export const authRouter = router({
   register: publicProcedure
@@ -12,9 +12,21 @@ export const authRouter = router({
         email: z.string().email("Некорректный email"),
         password: z.string().min(6, "Пароль должен содержать минимум 6 символов"),
         name: z.string().min(2, "Имя должно содержать минимум 2 символа"),
+        consentPrivacyPolicy: z.literal(true, {
+          errorMap: () => ({ message: "Необходимо принять Политику конфиденциальности" }),
+        }),
+        consentPersonalData: z.literal(true, {
+          errorMap: () => ({ message: "Необходимо дать согласие на обработку персональных данных" }),
+        }),
+        consentCookiePolicy: z.literal(true, {
+          errorMap: () => ({ message: "Необходимо принять Политику использования Cookie" }),
+        }),
+        consentMarketing: z.literal(true, {
+          errorMap: () => ({ message: "Необходимо дать согласие на получение рассылок" }),
+        }),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const existing = await db.query.users.findFirst({
         where: eq(users.email, input.email),
       });
@@ -33,6 +45,31 @@ export const authRouter = router({
           name: input.name,
         })
         .returning();
+
+      // Save all 4 consents
+      const ipAddress =
+        (ctx.req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ||
+        ctx.req.socket.remoteAddress ||
+        null;
+      const userAgent = (ctx.req.headers["user-agent"] as string) || null;
+
+      const consentTypes = [
+        "privacy_policy" as const,
+        "personal_data" as const,
+        "cookie_policy" as const,
+        "marketing" as const,
+      ];
+
+      for (const consentType of consentTypes) {
+        await db.insert(userConsents).values({
+          userId: user.id,
+          consentType,
+          action: "granted",
+          policyVersion: 1,
+          ipAddress,
+          userAgent,
+        });
+      }
 
       const token = signToken(user.id, user.role);
 

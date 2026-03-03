@@ -24,6 +24,12 @@ export function RegisterPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
+  // Consent checkboxes
+  const [consentPrivacy, setConsentPrivacy] = useState(false);
+  const [consentPersonalData, setConsentPersonalData] = useState(false);
+  const [consentCookie, setConsentCookie] = useState(false);
+  const [consentMarketing, setConsentMarketing] = useState(false);
+
   const registerMutation = trpc.auth.register.useMutation({
     onSuccess: (data) => {
       login(data.token, data.user);
@@ -56,11 +62,31 @@ export function RegisterPage() {
       setError("Пароль должен содержать минимум 6 символов");
       return;
     }
+    if (!consentPrivacy) {
+      setError("Необходимо принять Политику конфиденциальности");
+      return;
+    }
+    if (!consentPersonalData) {
+      setError("Необходимо дать согласие на обработку персональных данных");
+      return;
+    }
+    if (!consentCookie) {
+      setError("Необходимо принять Политику использования Cookie");
+      return;
+    }
+    if (!consentMarketing) {
+      setError("Необходимо дать согласие на получение информационных рассылок");
+      return;
+    }
 
     registerMutation.mutate({
       name: name.trim(),
       email: email.trim(),
       password,
+      consentPrivacyPolicy: true as const,
+      consentPersonalData: true as const,
+      consentCookiePolicy: true as const,
+      consentMarketing: true as const,
     });
   };
 
@@ -149,6 +175,65 @@ export function RegisterPage() {
                 />
               </div>
             </div>
+
+            {/* Consent checkboxes */}
+            <div className="space-y-3 pt-2 border-t border-gray-100">
+              <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">
+                Согласия
+              </p>
+
+              <ConsentCheckbox
+                id="consent-privacy"
+                checked={consentPrivacy}
+                onChange={setConsentPrivacy}
+                disabled={registerMutation.isPending}
+              >
+                Я прочитал и согласен с{" "}
+                <a
+                  href="/privacy-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-600 hover:text-purple-700 underline font-medium"
+                >
+                  Политикой конфиденциальности
+                </a>
+              </ConsentCheckbox>
+
+              <ConsentCheckbox
+                id="consent-personal-data"
+                checked={consentPersonalData}
+                onChange={setConsentPersonalData}
+                disabled={registerMutation.isPending}
+              >
+                Я согласен на обработку моих персональных данных
+              </ConsentCheckbox>
+
+              <ConsentCheckbox
+                id="consent-cookie"
+                checked={consentCookie}
+                onChange={setConsentCookie}
+                disabled={registerMutation.isPending}
+              >
+                Я прочитал и согласен с{" "}
+                <a
+                  href="/cookie-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-600 hover:text-purple-700 underline font-medium"
+                >
+                  Политикой использования Cookie
+                </a>
+              </ConsentCheckbox>
+
+              <ConsentCheckbox
+                id="consent-marketing"
+                checked={consentMarketing}
+                onChange={setConsentMarketing}
+                disabled={registerMutation.isPending}
+              >
+                Я согласен на получение информационных рассылок
+              </ConsentCheckbox>
+            </div>
           </CardContent>
 
           <CardFooter className="flex flex-col gap-4">
@@ -186,5 +271,40 @@ export function RegisterPage() {
         защищены.
       </p>
     </div>
+  );
+}
+
+function ConsentCheckbox({
+  id,
+  checked,
+  onChange,
+  disabled,
+  children,
+}: {
+  id: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <label
+      htmlFor={id}
+      className="flex items-start gap-2.5 cursor-pointer group"
+    >
+      <div className="shrink-0 mt-0.5">
+        <input
+          type="checkbox"
+          id={id}
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          disabled={disabled}
+          className="w-4 h-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500 focus:ring-offset-0 cursor-pointer disabled:cursor-not-allowed"
+        />
+      </div>
+      <span className="text-sm text-gray-600 leading-snug group-hover:text-gray-900 select-none">
+        {children}
+      </span>
+    </label>
   );
 }

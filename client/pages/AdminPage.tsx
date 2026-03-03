@@ -1222,6 +1222,199 @@ function ProcessesTab() {
   );
 }
 
+// ==================== Consent Statistics Tab ====================
+function ConsentStatsTab() {
+  const statsQuery = trpc.consent.getConsentStats.useQuery();
+  const [exportUserId, setExportUserId] = useState("");
+  const exportQuery = trpc.consent.exportUserConsents.useQuery(
+    { userId: parseInt(exportUserId) },
+    { enabled: false }
+  );
+
+  const stats = statsQuery.data;
+
+  const handleExport = async () => {
+    if (!exportUserId) return;
+    const result = await exportQuery.refetch();
+    if (result.data) {
+      const text = JSON.stringify(result.data, null, 2);
+      const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `consents-user-${exportUserId}-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const consentTypeLabels: Record<string, string> = {
+    privacy_policy: "Политика конфиденциальности",
+    personal_data: "Персональные данные",
+    cookie_policy: "Политика Cookie",
+    marketing: "Маркетинговые рассылки",
+  };
+
+  return (
+    <div className="space-y-6">
+      {statsQuery.isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+        </div>
+      ) : stats ? (
+        <>
+          {/* Summary cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card className="bg-white">
+              <CardContent className="p-4">
+                <p className="text-xs text-gray-500 mb-1">Пользователей с согласием</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.totalUsersWithConsent}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-white">
+              <CardContent className="p-4">
+                <p className="text-xs text-gray-500 mb-1">Отзывов согласия</p>
+                <p className="text-2xl font-bold text-red-600">{stats.totalRevocations}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-white">
+              <CardContent className="p-4">
+                <p className="text-xs text-gray-500 mb-1">Cookie-согласий</p>
+                <p className="text-2xl font-bold text-gray-900">{stats.cookieStats.total}</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-white">
+              <CardContent className="p-4">
+                <p className="text-xs text-gray-500 mb-1">Аналитика разрешена</p>
+                <p className="text-2xl font-bold text-green-600">{stats.cookieStats.analytics}</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Cookie consent breakdown */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Статистика Cookie</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {[
+                  { label: "Функциональные", count: stats.cookieStats.functional, total: stats.cookieStats.total },
+                  { label: "Аналитические", count: stats.cookieStats.analytics, total: stats.cookieStats.total },
+                  { label: "Маркетинговые", count: stats.cookieStats.marketing, total: stats.cookieStats.total },
+                ].map(({ label, count, total }) => (
+                  <div key={label} className="space-y-1">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-700">{label}</span>
+                      <span className="text-gray-500">
+                        {count} / {total} ({total > 0 ? Math.round((count / total) * 100) : 0}%)
+                      </span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-purple-600 rounded-full transition-all"
+                        style={{ width: `${total > 0 ? (count / total) * 100 : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Consent by type */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Согласия по типу</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase">Тип</th>
+                      <th className="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase">Действие</th>
+                      <th className="text-left py-2 px-3 text-xs font-medium text-gray-500 uppercase">Количество</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {stats.byType.map((row, i) => (
+                      <tr key={i}>
+                        <td className="py-2 px-3 text-gray-700">
+                          {consentTypeLabels[row.consent_type] || row.consent_type}
+                        </td>
+                        <td className="py-2 px-3">
+                          <Badge variant={row.action === "granted" ? "default" : "destructive"} className="text-xs">
+                            {row.action === "granted" ? "Дано" : "Отозвано"}
+                          </Badge>
+                        </td>
+                        <td className="py-2 px-3 font-medium text-gray-900">{Number(row.count)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Recent consents */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Последние действия</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {stats.recentConsents.map((c) => (
+                  <div key={c.id} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded-lg text-sm">
+                    <div className="flex items-center gap-3">
+                      <Badge variant={c.action === "granted" ? "default" : "destructive"} className="text-[10px]">
+                        {c.action === "granted" ? "Дано" : "Отозвано"}
+                      </Badge>
+                      <span className="text-gray-700">
+                        Пользователь #{c.userId}: {consentTypeLabels[c.consentType] || c.consentType}
+                      </span>
+                    </div>
+                    <span className="text-xs text-gray-400">{formatDateTime(c.createdAt)}</span>
+                  </div>
+                ))}
+                {stats.recentConsents.length === 0 && (
+                  <p className="text-center text-gray-500 py-4 text-sm">Нет записей</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Export user consents */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Экспорт согласий пользователя</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-gray-500 mb-3">
+                Выгрузка истории согласий для ответа на запрос субъекта ПД (152-ФЗ)
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  value={exportUserId}
+                  onChange={(e) => setExportUserId(e.target.value)}
+                  placeholder="ID пользователя"
+                  type="number"
+                  className="max-w-[200px]"
+                />
+                <Button onClick={handleExport} disabled={!exportUserId} size="sm">
+                  Экспорт JSON
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 // ==================== Main Admin Page ====================
 export function AdminPage() {
   const { user } = useAuth();
@@ -1253,6 +1446,10 @@ export function AdminPage() {
             <BookOpen className="w-4 h-4" />
             FAQ
           </TabsTrigger>
+          <TabsTrigger value="consents" className="gap-1.5">
+            <Shield className="w-4 h-4" />
+            Согласия
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="users">
@@ -1269,6 +1466,10 @@ export function AdminPage() {
 
         <TabsContent value="faq">
           <FaqTab />
+        </TabsContent>
+
+        <TabsContent value="consents">
+          <ConsentStatsTab />
         </TabsContent>
       </Tabs>
     </div>
