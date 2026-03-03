@@ -33,12 +33,18 @@ export interface Company {
 // --- Interview ---
 export type InterviewMode = "full" | "express";
 
+export interface QuestionOption {
+  name: string;
+  salary: number;
+}
+
 export interface InterviewQuestion {
   id: string;
   block: "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J";
   blockName: string;
   question: string;
   hint?: string;
+  options?: QuestionOption[];
   required: boolean;
   expressMode: boolean;
   order: number;
