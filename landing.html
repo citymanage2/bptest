@@ -1,0 +1,2553 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>biz-process.ru — Выстройте рабочие процессы компании</title>
+<meta name="description" content="Сервис для создания карт рабочих процессов, регламентов, инструкций и бизнес-моделей. Первое пополнение — двойной баланс. Результат через 2 часа.">
+<meta property="og:title" content="biz-process.ru — Выстройте рабочие процессы компании">
+<meta property="og:description" content="Компания без описанных процессов не растёт — она выживает. Мы поможем построить фундамент для масштабирования бизнеса. Первое пополнение удваивается.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --color-primary: #0F2B46;
+  --color-accent: #00C48C;
+  --color-accent-hover: #00A876;
+  --color-warm: #FF6B35;
+  --color-bg: #FAFBFC;
+  --color-bg-alt: #F0F4F8;
+  --color-bg-dark: #0F2B46;
+  --color-text: #1A2B3C;
+  --color-text-muted: #5A6B7C;
+  --color-text-light: #FFFFFF;
+  --color-danger: #E74C3C;
+  --color-border: #E2E8F0;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --shadow-sm: 0 2px 8px rgba(15,43,70,0.08);
+  --shadow-md: 0 4px 20px rgba(15,43,70,0.12);
+  --shadow-lg: 0 8px 40px rgba(15,43,70,0.16);
+  --transition: 0.3s ease;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Manrope', sans-serif;
+  font-size: 18px;
+  line-height: 1.6;
+  color: var(--color-text);
+  background: var(--color-bg);
+  overflow-x: hidden;
+}
+
+@media (max-width: 768px) {
+  body { font-size: 16px; }
+}
+
+h1 { font-size: 48px; font-weight: 800; line-height: 1.15; }
+h2 { font-size: 36px; font-weight: 700; line-height: 1.2; }
+h3 { font-size: 22px; font-weight: 700; }
+h4 { font-size: 18px; font-weight: 700; }
+
+@media (max-width: 768px) {
+  h1 { font-size: 32px; }
+  h2 { font-size: 26px; }
+}
+
+a { text-decoration: none; color: inherit; transition: color var(--transition); }
+img { max-width: 100%; display: block; }
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+section { padding: 80px 0; }
+@media (max-width: 768px) { section { padding: 56px 0; } }
+
+/* BUTTONS */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 28px;
+  height: 48px;
+  border-radius: var(--radius-md);
+  font-family: 'Manrope', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.btn-primary {
+  background: var(--color-accent);
+  color: var(--color-text-light);
+  border-color: var(--color-accent);
+  box-shadow: 0 4px 15px rgba(0,196,140,0.35);
+}
+.btn-primary:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(0,196,140,0.45);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.btn-ghost:hover {
+  background: var(--color-primary);
+  color: var(--color-text-light);
+}
+
+.btn-lg {
+  height: 56px;
+  font-size: 17px;
+  padding: 0 36px;
+  border-radius: var(--radius-md);
+}
+
+.btn-full { width: 100%; }
+
+/* ANIMATE ON SCROLL */
+.animate-on-scroll {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.6s ease, transform 0.6s ease;
+}
+.animate-on-scroll.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* HEADER */
+header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  padding: 16px 0;
+  transition: all var(--transition);
+  background: transparent;
+}
+header.scrolled {
+  background: rgba(250,251,252,0.95);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 2px 20px rgba(15,43,70,0.1);
+  padding: 12px 0;
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.logo {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+.logo span { color: var(--color-accent); }
+
+nav.main-nav {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+}
+nav.main-nav a {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  position: relative;
+}
+nav.main-nav a::after {
+  content: '';
+  position: absolute;
+  bottom: -2px; left: 0; right: 0;
+  height: 2px;
+  background: var(--color-accent);
+  transform: scaleX(0);
+  transition: transform var(--transition);
+}
+nav.main-nav a:hover { color: var(--color-primary); }
+nav.main-nav a:hover::after { transform: scaleX(1); }
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.burger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  width: 44px;
+  height: 44px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  gap: 5px;
+  padding: 0;
+}
+.burger span {
+  display: block;
+  width: 24px;
+  height: 2px;
+  background: var(--color-primary);
+  border-radius: 2px;
+  transition: all var(--transition);
+}
+.burger.active span:nth-child(1) { transform: translateY(7px) rotate(45deg); }
+.burger.active span:nth-child(2) { opacity: 0; }
+.burger.active span:nth-child(3) { transform: translateY(-7px) rotate(-45deg); }
+
+.mobile-menu {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: var(--color-bg);
+  z-index: 999;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition);
+}
+.mobile-menu.open {
+  opacity: 1;
+  pointer-events: all;
+}
+.mobile-menu a {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.mobile-menu a:hover { color: var(--color-accent); }
+.mobile-menu-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+@media (max-width: 900px) {
+  nav.main-nav { display: none; }
+  .burger { display: flex; }
+  .mobile-menu { display: flex; }
+  .header-actions .btn { display: none; }
+  .header-actions .btn:last-child { display: inline-flex; }
+}
+@media (max-width: 480px) {
+  .header-actions .btn:last-child { display: none; }
+}
+
+/* HERO */
+#hero {
+  padding: 140px 0 80px;
+  background: linear-gradient(135deg, var(--color-bg) 0%, #EBF2FF 100%);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+}
+
+.hero-grid {
+  display: grid;
+  grid-template-columns: 60% 40%;
+  gap: 60px;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .hero-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  #hero { padding-top: 100px; min-height: auto; }
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: rgba(255,107,53,0.15);
+  color: var(--color-warm);
+  border-radius: 100px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 24px;
+}
+
+.hero-left h1 {
+  color: var(--color-primary);
+  margin-bottom: 20px;
+}
+
+.hero-subtitle {
+  font-size: 20px;
+  color: var(--color-text-muted);
+  margin-bottom: 32px;
+  line-height: 1.7;
+}
+@media (max-width: 768px) { .hero-subtitle { font-size: 17px; } }
+
+/* Chips */
+.chip-row-wrap {
+  position: relative;
+  margin-bottom: 32px;
+}
+.chip-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.chip-row::-webkit-scrollbar { display: none; }
+.chip-row-wrap::after {
+  content: '';
+  position: absolute;
+  right: 0; top: 0; bottom: 8px;
+  width: 60px;
+  background: linear-gradient(to right, transparent, #EBF2FF);
+  pointer-events: none;
+}
+
+.chip {
+  flex-shrink: 0;
+  padding: 6px 16px;
+  background: var(--color-bg-alt);
+  border-radius: 20px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Promo block */
+.promo-block {
+  position: relative;
+  background: linear-gradient(135deg, rgba(255,107,53,0.05), rgba(255,107,53,0.12));
+  border-left: 4px solid var(--color-warm);
+  border-radius: var(--radius-md);
+  padding: 24px 28px;
+  margin-bottom: 32px;
+  overflow: hidden;
+}
+.promo-block-x2 {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 80px;
+  font-weight: 800;
+  color: var(--color-warm);
+  opacity: 0.15;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+.promo-block p {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--color-text);
+  position: relative;
+  z-index: 1;
+  max-width: 85%;
+}
+
+.hero-cta-note {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-top: 12px;
+}
+
+/* Hero SVG */
+.hero-right {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero-svg-wrap {
+  width: 100%;
+  max-width: 420px;
+  filter: drop-shadow(0 8px 32px rgba(15,43,70,0.12));
+}
+
+@keyframes pulse-glow {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(0,196,140,0.4)); }
+  50% { filter: drop-shadow(0 0 14px rgba(0,196,140,0.8)); }
+}
+@keyframes pulse-glow-warm {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(255,107,53,0.4)); }
+  50% { filter: drop-shadow(0 0 14px rgba(255,107,53,0.75)); }
+}
+
+.node-pulse { animation: pulse-glow 2.5s ease-in-out infinite; }
+.node-pulse-warm { animation: pulse-glow-warm 2s ease-in-out infinite; }
+
+/* TRUST BAR */
+.trust-bar {
+  padding: 14px 0;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
+  overflow: hidden;
+}
+.trust-bar-inner {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+  white-space: nowrap;
+}
+.trust-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.trust-item .check { color: var(--color-accent); font-weight: 700; }
+.trust-sep { color: var(--color-border); }
+
+@media (max-width: 768px) {
+  .trust-bar-inner {
+    animation: marquee 20s linear infinite;
+    width: max-content;
+  }
+}
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* PROBLEM SECTION */
+.problem-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin: 48px 0;
+}
+@media (max-width: 900px) { .problem-cards { grid-template-columns: 1fr; } }
+
+.problem-card {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  padding: 32px 28px;
+  box-shadow: var(--shadow-md);
+}
+.problem-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: rgba(231,76,60,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  margin-bottom: 20px;
+}
+.problem-card h3 {
+  color: var(--color-danger);
+  margin-bottom: 12px;
+  font-size: 19px;
+}
+.problem-card p { color: var(--color-text-muted); font-size: 15px; }
+
+.reinforce-block {
+  background: var(--color-primary);
+  color: var(--color-text-light);
+  border-radius: var(--radius-lg);
+  padding: 40px 60px;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.6;
+  text-align: center;
+}
+@media (max-width: 768px) {
+  .reinforce-block { padding: 32px 24px; font-size: 18px; }
+}
+
+/* KEY PROMISE */
+.promise-grid {
+  display: grid;
+  grid-template-columns: 40% 60%;
+  gap: 60px;
+  align-items: center;
+}
+@media (max-width: 900px) {
+  .promise-grid { grid-template-columns: 1fr; gap: 40px; }
+  .promise-icon-col { display: none; }
+}
+
+.promise-icon-col svg {
+  width: 100%;
+  max-width: 320px;
+  margin: 0 auto;
+  display: block;
+}
+
+.promise-text h2 { color: var(--color-primary); margin-bottom: 20px; }
+.promise-text p { color: var(--color-text-muted); margin-bottom: 16px; }
+.promise-text .bold { font-weight: 700; color: var(--color-text); margin-bottom: 20px; }
+
+.mini-blocks {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin: 20px 0;
+}
+@media (max-width: 768px) { .mini-blocks { grid-template-columns: 1fr; } }
+
+.mini-block {
+  background: var(--color-bg-alt);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+.mini-block .mini-icon { font-size: 24px; margin-bottom: 10px; }
+.mini-block strong { display: block; font-size: 15px; color: var(--color-text); margin-bottom: 6px; }
+
+.accent-phrase {
+  font-style: italic;
+  color: var(--color-primary);
+  font-size: 18px;
+  font-weight: 600;
+  border-left: 3px solid var(--color-accent);
+  padding-left: 16px;
+  margin-top: 24px;
+}
+
+/* HOW IT WORKS */
+.how-steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  position: relative;
+  margin-top: 48px;
+}
+.how-steps::before {
+  content: '';
+  position: absolute;
+  top: 50px;
+  left: 16.66%;
+  right: 16.66%;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, var(--color-accent) 0, var(--color-accent) 8px, transparent 8px, transparent 16px);
+  pointer-events: none;
+}
+@media (max-width: 900px) {
+  .how-steps { grid-template-columns: 1fr; }
+  .how-steps::before { display: none; }
+}
+
+.step-card {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  border-left: 3px solid var(--color-accent);
+  padding: 32px 28px;
+  box-shadow: var(--shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+.step-number-bg {
+  position: absolute;
+  right: 16px;
+  top: 12px;
+  font-size: 64px;
+  font-weight: 800;
+  color: var(--color-accent);
+  opacity: 0.18;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+.step-number {
+  display: inline-block;
+  width: 40px;
+  height: 40px;
+  background: var(--color-accent);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 40px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+.step-card h3 { margin-bottom: 12px; font-size: 18px; }
+.step-card p { font-size: 15px; color: var(--color-text-muted); margin-bottom: 16px; }
+.step-time {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-accent);
+  background: rgba(0,196,140,0.1);
+  padding: 4px 12px;
+  border-radius: 100px;
+  display: inline-block;
+}
+
+/* PRICING */
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 24px;
+  margin-top: 48px;
+}
+@media (max-width: 768px) { .pricing-grid { grid-template-columns: 1fr; } }
+
+.pricing-card {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  padding: 32px 28px;
+  box-shadow: var(--shadow-md);
+  position: relative;
+  border: 2px solid transparent;
+  display: flex;
+  flex-direction: column;
+}
+.pricing-card.featured { border-color: var(--color-accent); }
+.pricing-card.dark {
+  background: var(--color-primary);
+  color: var(--color-text-light);
+}
+
+.pricing-badge {
+  display: inline-block;
+  padding: 4px 14px;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 100px;
+  margin-bottom: 16px;
+}
+.pricing-badge.warm { background: var(--color-warm); }
+
+.pricing-card h3 { font-size: 20px; margin-bottom: 8px; }
+.pricing-price {
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--color-primary);
+  margin-bottom: 12px;
+}
+.pricing-card.dark .pricing-price { color: var(--color-accent); }
+
+.pricing-desc {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  margin-bottom: 20px;
+}
+.pricing-card.dark .pricing-desc { color: rgba(255,255,255,0.7); }
+
+.pricing-features {
+  list-style: none;
+  margin-bottom: 28px;
+  flex: 1;
+}
+.pricing-features li {
+  padding: 8px 0;
+  font-size: 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+.pricing-card.dark .pricing-features li { border-bottom-color: rgba(255,255,255,0.1); color: rgba(255,255,255,0.85); }
+.pricing-features li:last-child { border-bottom: none; }
+.pricing-features li::before {
+  content: '✓';
+  color: var(--color-accent);
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.promo-strip {
+  background: linear-gradient(135deg, rgba(255,107,53,0.08), rgba(255,107,53,0.18));
+  border: 1px solid rgba(255,107,53,0.3);
+  border-radius: var(--radius-lg);
+  padding: 32px 40px;
+  margin-top: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  position: relative;
+  overflow: hidden;
+}
+.promo-strip-x2 {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 100px;
+  font-weight: 800;
+  color: var(--color-warm);
+  opacity: 0.1;
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+.promo-strip p {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-warm);
+  position: relative;
+  z-index: 1;
+}
+@media (max-width: 768px) {
+  .promo-strip { flex-direction: column; align-items: flex-start; padding: 24px; }
+}
+
+/* COMPARISON TABLE */
+.comparison-wrap {
+  overflow-x: auto;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  margin-top: 48px;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  min-width: 600px;
+}
+thead th {
+  padding: 20px 24px;
+  text-align: left;
+  font-weight: 700;
+  font-size: 16px;
+}
+thead th:first-child { color: var(--color-text-muted); }
+thead th:nth-child(2) { color: var(--color-text-muted); background: var(--color-bg-alt); }
+thead th:nth-child(3) { color: var(--color-accent); background: rgba(0,196,140,0.06); }
+
+tbody tr { border-top: 1px solid var(--color-border); }
+tbody tr:nth-child(even) td { background: var(--color-bg-alt); }
+tbody tr:nth-child(even) td:nth-child(3) { background: rgba(0,196,140,0.06); }
+tbody td {
+  padding: 16px 24px;
+  font-size: 15px;
+  vertical-align: top;
+}
+tbody td:first-child { font-weight: 600; color: var(--color-text); }
+tbody td:nth-child(2) { color: var(--color-text-muted); }
+tbody td:nth-child(3) {
+  font-weight: 600;
+  color: var(--color-primary);
+  background: rgba(0,196,140,0.04);
+}
+
+/* INDUSTRIES */
+.industries-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  margin-top: 48px;
+}
+@media (max-width: 1024px) { .industries-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .industries-grid { grid-template-columns: 1fr; } }
+
+.industry-card {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  padding: 28px 24px;
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  position: relative;
+  overflow: hidden;
+}
+.industry-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+.industry-emoji { font-size: 32px; margin-bottom: 12px; }
+.industry-card h4 { font-size: 16px; margin-bottom: 8px; }
+.industry-short { font-size: 13px; color: var(--color-text-muted); line-height: 1.5; }
+.industry-hover {
+  position: absolute;
+  inset: 0;
+  background: var(--color-primary);
+  color: #fff;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  line-height: 1.6;
+  opacity: 0;
+  transition: opacity var(--transition);
+  border-radius: var(--radius-lg);
+}
+.industry-card:hover .industry-hover { opacity: 1; }
+
+.industries-note {
+  text-align: center;
+  font-style: italic;
+  color: var(--color-text-muted);
+  margin-top: 32px;
+  font-size: 15px;
+}
+
+/* SOCIAL PROOF */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  margin: 48px 0;
+  text-align: center;
+}
+@media (max-width: 768px) { .stats-row { grid-template-columns: 1fr; gap: 24px; } }
+
+.stat-num {
+  font-size: 56px;
+  font-weight: 800;
+  color: var(--color-primary);
+  line-height: 1;
+  display: block;
+  margin-bottom: 8px;
+}
+.stat-label { font-size: 16px; color: var(--color-text-muted); font-weight: 500; }
+
+.reviews-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+@media (max-width: 900px) {
+  .reviews-grid { grid-template-columns: 1fr; }
+}
+
+.review-card {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  padding: 32px 28px;
+  box-shadow: var(--shadow-md);
+  position: relative;
+}
+.review-quote {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  font-size: 80px;
+  font-weight: 800;
+  color: var(--color-accent);
+  opacity: 0.15;
+  line-height: 1;
+  font-family: Georgia, serif;
+  pointer-events: none;
+}
+.review-text {
+  font-size: 16px;
+  font-style: italic;
+  color: var(--color-text);
+  margin-bottom: 20px;
+  line-height: 1.7;
+  position: relative;
+  z-index: 1;
+}
+.review-author { font-weight: 700; font-size: 14px; color: var(--color-primary); }
+.review-role { font-size: 13px; color: var(--color-text-muted); margin-top: 2px; }
+.review-stars { color: #FFB800; font-size: 18px; margin-bottom: 16px; }
+
+/* Slider dots mobile */
+.slider-dots {
+  display: none;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 24px;
+}
+.slider-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-border);
+  border: none;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+.slider-dot.active { background: var(--color-accent); }
+@media (max-width: 900px) {
+  .reviews-grid {
+    overflow: hidden;
+  }
+  .slider-dots { display: flex; }
+  .review-card { display: none; }
+  .review-card.active { display: block; }
+}
+
+/* DEMO */
+#demo {
+  background: var(--color-bg-dark);
+  color: var(--color-text-light);
+  text-align: center;
+}
+#demo h2 { color: #fff; margin-bottom: 48px; }
+
+.browser-mockup {
+  max-width: 800px;
+  margin: 0 auto;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+}
+.browser-bar {
+  background: #2a2a2a;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.browser-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.bd-red { background: #FF5F57; }
+.bd-yellow { background: #FFBD2E; }
+.bd-green { background: #28C840; }
+.browser-url {
+  flex: 1;
+  background: #3a3a3a;
+  border-radius: 6px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-size: 13px;
+  color: rgba(255,255,255,0.5);
+  margin-left: 12px;
+}
+.browser-content {
+  background: #fff;
+  padding: 24px;
+  min-height: 340px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.demo-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin: 24px 0 36px;
+}
+.demo-tab {
+  padding: 10px 24px;
+  border-radius: 100px;
+  border: 2px solid rgba(255,255,255,0.2);
+  background: transparent;
+  color: rgba(255,255,255,0.6);
+  font-family: 'Manrope', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.demo-tab.active {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: #fff;
+}
+.demo-tab:hover:not(.active) {
+  border-color: rgba(255,255,255,0.5);
+  color: #fff;
+}
+
+.tab-content { display: none; width: 100%; }
+.tab-content.active { display: flex; align-items: center; justify-content: center; }
+
+/* REPEAT OFFER */
+#repeat-offer {
+  background: linear-gradient(135deg, rgba(255,107,53,0.05), var(--color-bg));
+}
+#repeat-offer h2 { color: var(--color-primary); margin-bottom: 16px; }
+
+.calc-table-wrap {
+  overflow-x: auto;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  margin: 40px 0;
+}
+.calc-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  min-width: 500px;
+}
+.calc-table thead th {
+  padding: 16px 24px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  border-bottom: 2px solid var(--color-border);
+  text-align: left;
+}
+.calc-table thead th:nth-child(2) {
+  background: rgba(0,196,140,0.08);
+  color: var(--color-accent);
+}
+.calc-table tbody td {
+  padding: 16px 24px;
+  font-size: 15px;
+  border-bottom: 1px solid var(--color-border);
+}
+.calc-table tbody tr:last-child td { border-bottom: none; }
+.calc-table tbody td:first-child { font-weight: 600; color: var(--color-text); }
+.calc-table tbody td:nth-child(2) {
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--color-accent);
+  background: rgba(0,196,140,0.06);
+}
+.calc-table tbody td:nth-child(3) { color: var(--color-text-muted); font-size: 14px; }
+
+.offer-cta-wrap { text-align: center; margin-top: 8px; }
+.offer-note {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-top: 16px;
+  text-align: center;
+}
+
+/* FAQ */
+.faq-list {
+  max-width: 800px;
+  margin: 48px auto 0;
+}
+.faq-item {
+  border-bottom: 1px solid var(--color-border);
+}
+.faq-question {
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  font-family: 'Manrope', sans-serif;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-text);
+  padding: 22px 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  line-height: 1.4;
+}
+.faq-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-bg-alt);
+  border: 2px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 400;
+  flex-shrink: 0;
+  transition: all var(--transition);
+  color: var(--color-accent);
+}
+.faq-item.open .faq-icon {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+.faq-answer {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.4s ease, padding 0.3s ease;
+}
+.faq-answer-inner {
+  padding-bottom: 22px;
+  font-size: 16px;
+  color: var(--color-text-muted);
+  line-height: 1.7;
+}
+.faq-item.open .faq-answer { max-height: 400px; }
+
+/* FINAL CTA */
+#cta {
+  background: var(--color-primary);
+}
+#cta h2 { color: #fff; margin-bottom: 16px; }
+.cta-subtitle {
+  color: rgba(255,255,255,0.75);
+  font-size: 20px;
+  margin-bottom: 40px;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+  text-align: center;
+}
+
+.cta-form-card {
+  max-width: 600px;
+  margin: 0 auto;
+  background: #fff;
+  border-radius: var(--radius-xl);
+  padding: 40px;
+  box-shadow: var(--shadow-lg);
+}
+.form-group { margin-bottom: 20px; }
+.form-group label {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 8px;
+}
+.form-group input,
+.form-group select {
+  width: 100%;
+  height: 52px;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0 16px;
+  font-family: 'Manrope', sans-serif;
+  font-size: 15px;
+  color: var(--color-text);
+  background: var(--color-bg);
+  transition: border-color var(--transition);
+  outline: none;
+}
+.form-group input:focus,
+.form-group select:focus { border-color: var(--color-accent); }
+.form-group input.error,
+.form-group select.error { border-color: var(--color-danger); }
+.form-error {
+  font-size: 12px;
+  color: var(--color-danger);
+  margin-top: 6px;
+  display: none;
+}
+.form-error.visible { display: block; }
+
+.checkbox-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.checkbox-group input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+.checkbox-group label {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  line-height: 1.5;
+}
+
+.form-note {
+  font-size: 11px;
+  color: #9CA3AF;
+  text-align: center;
+  margin-top: 14px;
+  line-height: 1.5;
+}
+
+.success-msg {
+  display: none;
+  text-align: center;
+  padding: 32px;
+}
+.success-msg .success-icon { font-size: 48px; margin-bottom: 16px; }
+.success-msg h3 { color: var(--color-accent); margin-bottom: 8px; }
+.success-msg p { color: var(--color-text-muted); font-size: 15px; }
+
+/* FOOTER */
+footer {
+  background: #0A1F33;
+  padding: 60px 0 0;
+  color: rgba(255,255,255,0.6);
+}
+.footer-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 40px;
+  padding-bottom: 48px;
+}
+@media (max-width: 900px) { .footer-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 480px) { .footer-grid { grid-template-columns: 1fr; } }
+
+.footer-col h4 {
+  font-size: 15px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.9);
+  margin-bottom: 20px;
+}
+.footer-logo {
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+  margin-bottom: 16px;
+  display: block;
+}
+.footer-logo span { color: var(--color-accent); }
+.footer-col p {
+  font-size: 14px;
+  line-height: 1.7;
+}
+.footer-col ul { list-style: none; }
+.footer-col ul li { margin-bottom: 10px; }
+.footer-col ul li a {
+  font-size: 14px;
+  color: rgba(255,255,255,0.6);
+  transition: color var(--transition);
+}
+.footer-col ul li a:hover { color: #fff; }
+.footer-contact {
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+.footer-contact a { color: rgba(255,255,255,0.6); }
+.footer-contact a:hover { color: var(--color-accent); }
+
+.footer-bottom {
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding: 20px 0;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255,255,255,0.35);
+}
+
+/* Section subtitles */
+.section-subtitle {
+  color: var(--color-text-muted);
+  font-size: 18px;
+  max-width: 680px;
+  margin: 16px auto 0;
+  text-align: center;
+}
+.section-header { text-align: center; margin-bottom: 40px; }
+
+/* Section header left-aligned variants */
+.section-header-left { margin-bottom: 40px; }
+.section-header-left .section-subtitle { margin-left: 0; text-align: left; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header id="site-header">
+  <div class="container">
+    <div class="header-inner">
+      <a href="#hero" class="logo">biz-process<span>.ru</span></a>
+      <nav class="main-nav">
+        <a href="#features">Возможности</a>
+        <a href="#how">Как это работает</a>
+        <a href="#pricing">Тарифы</a>
+        <a href="#reviews">Отзывы</a>
+      </nav>
+      <div class="header-actions">
+        <button class="btn btn-ghost">Войти</button>
+        <a href="#cta" class="btn btn-primary">Пополнить счёт</a>
+        <button class="burger" id="burger-btn" aria-label="Меню">
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- MOBILE MENU -->
+<div class="mobile-menu" id="mobile-menu">
+  <a href="#features" class="mobile-nav-link">Возможности</a>
+  <a href="#how" class="mobile-nav-link">Как это работает</a>
+  <a href="#pricing" class="mobile-nav-link">Тарифы</a>
+  <a href="#reviews" class="mobile-nav-link">Отзывы</a>
+  <div class="mobile-menu-actions">
+    <button class="btn btn-ghost" style="width:220px;">Войти</button>
+    <a href="#cta" class="btn btn-primary mobile-nav-link" style="width:220px;">Пополнить счёт</a>
+  </div>
+</div>
+
+<main>
+
+<!-- HERO -->
+<section id="hero">
+  <div class="container">
+    <div class="hero-grid">
+      <div class="hero-left animate-on-scroll">
+        <div class="hero-badge">🔥 Первое пополнение — двойной баланс</div>
+        <h1>У 9 из 10 компаний нет выстроенных рабочих процессов. Это ваш шанс — оторвитесь от конкурентов</h1>
+        <p class="hero-subtitle">Компания без описанных процессов не растёт — она выживает. Выстроенные процессы — это фундамент, на котором бизнес масштабируется, нанимает людей и увеличивает прибыль. Мы поможем этот фундамент построить.</p>
+
+        <div class="chip-row-wrap">
+          <div class="chip-row">
+            <span class="chip">Строительство</span>
+            <span class="chip">Производство</span>
+            <span class="chip">Услуги</span>
+            <span class="chip">Торговля</span>
+            <span class="chip">Логистика</span>
+            <span class="chip">Общественное питание</span>
+            <span class="chip">Медицина</span>
+            <span class="chip">Автосервис</span>
+            <span class="chip">Клининг</span>
+            <span class="chip">Образование</span>
+            <span class="chip">Проектные организации</span>
+            <span class="chip">Управляющие компании</span>
+          </div>
+        </div>
+
+        <div class="promo-block">
+          <div class="promo-block-x2">×2</div>
+          <p>Пополните счёт на любую сумму — и мы удвоим её. Вместо 5&nbsp;000&nbsp;₽ на счету окажется 10&nbsp;000&nbsp;₽. Этого хватит на две полных карты рабочих процессов.</p>
+        </div>
+
+        <a href="#cta" class="btn btn-primary btn-lg" style="margin-top:4px;">Пополнить счёт и получить ×2</a>
+        <p class="hero-cta-note">Минимальное пополнение — 1&nbsp;000&nbsp;₽. Баланс удваивается автоматически.</p>
+      </div>
+
+      <div class="hero-right animate-on-scroll" style="transition-delay:0.2s;">
+        <div class="hero-svg-wrap">
+          <svg viewBox="0 0 380 480" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <!-- Background -->
+            <rect width="380" height="480" rx="16" fill="#F8FAFC"/>
+
+            <!-- START node -->
+            <circle cx="190" cy="36" r="22" fill="#0F2B46" class="node-pulse"/>
+            <text x="190" y="41" text-anchor="middle" fill="white" font-family="Manrope,sans-serif" font-size="11" font-weight="700">СТАРТ</text>
+
+            <!-- Arrow down from start -->
+            <line x1="190" y1="58" x2="190" y2="86" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="4,3"/>
+            <polygon points="186,84 190,92 194,84" fill="#E2E8F0"/>
+
+            <!-- Process box 1 -->
+            <rect x="110" y="92" width="160" height="50" rx="8" fill="white" stroke="#0F2B46" stroke-width="2"/>
+            <text x="190" y="113" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="12" font-weight="700">Приём заявки</text>
+            <text x="190" y="130" text-anchor="middle" fill="#5A6B7C" font-family="Manrope,sans-serif" font-size="10">Менеджер / CRM</text>
+
+            <!-- Arrow down -->
+            <line x1="190" y1="142" x2="190" y2="168" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="4,3"/>
+            <polygon points="186,166 190,174 194,166" fill="#E2E8F0"/>
+
+            <!-- Diamond decision -->
+            <polygon points="190,174 240,208 190,242 140,208" fill="white" stroke="#00C48C" stroke-width="2"/>
+            <text x="190" y="204" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="10" font-weight="700">Проверка</text>
+            <text x="190" y="218" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="10" font-weight="700">данных?</text>
+
+            <!-- YES label -->
+            <text x="248" y="212" fill="#00C48C" font-family="Manrope,sans-serif" font-size="10" font-weight="700">Да</text>
+            <!-- NO label -->
+            <text x="118" y="212" fill="#E74C3C" font-family="Manrope,sans-serif" font-size="10" font-weight="700">Нет</text>
+
+            <!-- Arrow right (YES) -->
+            <line x1="240" y1="208" x2="300" y2="208" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="4,3"/>
+            <polygon points="298,204 306,208 298,212" fill="#E2E8F0"/>
+
+            <!-- Arrow left (NO - goes to a rejection box) -->
+            <line x1="140" y1="208" x2="72" y2="208" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="4,3"/>
+            <polygon points="74,204 66,208 74,212" fill="#E2E8F0"/>
+
+            <!-- Reject box -->
+            <rect x="14" y="185" width="52" height="46" rx="6" fill="#FFF5F5" stroke="#E74C3C" stroke-width="1.5"/>
+            <text x="40" y="204" text-anchor="middle" fill="#E74C3C" font-family="Manrope,sans-serif" font-size="9" font-weight="700">Запрос</text>
+            <text x="40" y="217" text-anchor="middle" fill="#E74C3C" font-family="Manrope,sans-serif" font-size="9" font-weight="700">данных</text>
+
+            <!-- Process box 2 (YES path) -->
+            <rect x="306" y="182" width="56" height="52" rx="8" fill="white" stroke="#0F2B46" stroke-width="2"/>
+            <text x="334" y="204" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="9" font-weight="700">Оформление</text>
+            <text x="334" y="216" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="9" font-weight="700">договора</text>
+            <text x="334" y="228" text-anchor="middle" fill="#5A6B7C" font-family="Manrope,sans-serif" font-size="8">Юрист</text>
+
+            <!-- Arrow down from diamond YES -->
+            <line x1="334" y1="234" x2="334" y2="260" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="4,3"/>
+            <line x1="334" y1="260" x2="190" y2="260" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="4,3"/>
+            <polygon points="192,256 184,260 192,264" fill="#E2E8F0"/>
+
+            <!-- Arrow down from diamond (main) -->
+            <line x1="190" y1="242" x2="190" y2="270" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="4,3"/>
+            <polygon points="186,268 190,276 194,268" fill="#E2E8F0"/>
+
+            <!-- Process box 3 - pulsing accent -->
+            <rect x="106" y="276" width="168" height="50" rx="8" fill="rgba(0,196,140,0.08)" stroke="#00C48C" stroke-width="2" class="node-pulse"/>
+            <text x="190" y="296" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="12" font-weight="700">Выполнение заказа</text>
+            <text x="190" y="312" text-anchor="middle" fill="#5A6B7C" font-family="Manrope,sans-serif" font-size="10">Исполнитель / бригада</text>
+
+            <!-- Arrow down -->
+            <line x1="190" y1="326" x2="190" y2="354" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="4,3"/>
+            <polygon points="186,352 190,360 194,352" fill="#E2E8F0"/>
+
+            <!-- Diamond 2 -->
+            <polygon points="190,360 234,390 190,420 146,390" fill="white" stroke="#00C48C" stroke-width="2"/>
+            <text x="190" y="386" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="10" font-weight="700">Контроль</text>
+            <text x="190" y="400" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="10" font-weight="700">качества?</text>
+
+            <!-- YES label 2 -->
+            <text x="240" y="394" fill="#00C48C" font-family="Manrope,sans-serif" font-size="10" font-weight="700">Да</text>
+            <!-- NO label 2 -->
+            <text x="102" y="394" fill="#FF6B35" font-family="Manrope,sans-serif" font-size="10" font-weight="700">Нет</text>
+
+            <!-- Arrow left for no -->
+            <line x1="146" y1="390" x2="50" y2="390" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="4,3"/>
+            <line x1="50" y1="390" x2="50" y2="301" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="4,3"/>
+            <polygon points="46,303 50,295 54,303" fill="#E2E8F0"/>
+
+            <!-- Arrow down YES -->
+            <line x1="190" y1="420" x2="190" y2="446" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="4,3"/>
+            <polygon points="186,444 190,452 194,444" fill="#E2E8F0"/>
+
+            <!-- END node -->
+            <circle cx="190" cy="458" r="20" fill="#00C48C" class="node-pulse"/>
+            <text x="190" y="463" text-anchor="middle" fill="white" font-family="Manrope,sans-serif" font-size="11" font-weight="700">КОНЕЦ</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- TRUST BAR -->
+<div class="trust-bar">
+  <div class="container">
+    <div class="trust-bar-inner">
+      <span class="trust-item"><span class="check">✓</span> Уже помогли 200+ компаниям</span>
+      <span class="trust-sep">•</span>
+      <span class="trust-item"><span class="check">✓</span> Средняя карта процесса — за 2 часа</span>
+      <span class="trust-sep">•</span>
+      <span class="trust-item"><span class="check">✓</span> 12 отраслей</span>
+      <span class="trust-sep">•</span>
+      <span class="trust-item"><span class="check">✓</span> Без ломки того, что уже работает</span>
+      <!-- Duplicate for marquee -->
+      <span class="trust-sep">•</span>
+      <span class="trust-item"><span class="check">✓</span> Уже помогли 200+ компаниям</span>
+      <span class="trust-sep">•</span>
+      <span class="trust-item"><span class="check">✓</span> Средняя карта процесса — за 2 часа</span>
+      <span class="trust-sep">•</span>
+      <span class="trust-item"><span class="check">✓</span> 12 отраслей</span>
+      <span class="trust-sep">•</span>
+      <span class="trust-item"><span class="check">✓</span> Без ломки того, что уже работает</span>
+    </div>
+  </div>
+</div>
+
+<!-- PROBLEM SECTION -->
+<section id="features" style="background: var(--color-bg-alt);">
+  <div class="container">
+    <div class="section-header animate-on-scroll">
+      <h2>Без выстроенных процессов бизнес не растёт — он буксует</h2>
+      <p class="section-subtitle">9 из 10 компаний работают без описанных рабочих процессов. Каждый сотрудник действует по-своему, задачи теряются, сроки срываются. Руководитель тратит 80% времени на тушение пожаров вместо развития. Те, кто выстраивают процессы первыми — забирают рынок.</p>
+    </div>
+
+    <div class="problem-cards">
+      <div class="problem-card animate-on-scroll">
+        <div class="problem-icon">💸</div>
+        <h3>Прибыль утекает незаметно</h3>
+        <p>Переделки, дублирование работы, простои — до 30% выручки теряется на процессах, которые никто не видит и не контролирует.</p>
+      </div>
+      <div class="problem-card animate-on-scroll" style="transition-delay:0.15s;">
+        <div class="problem-icon">⏰</div>
+        <h3>Рост упирается в потолок</h3>
+        <p>Невозможно масштабировать то, что не описано. Без процессов каждый новый сотрудник, филиал или направление — это новый хаос.</p>
+      </div>
+      <div class="problem-card animate-on-scroll" style="transition-delay:0.3s;">
+        <div class="problem-icon">🔓</div>
+        <h3>Бизнес зависит от людей, а не от системы</h3>
+        <p>Уйдёт ключевой человек — встанет целый отдел. Выстроенные процессы делают бизнес устойчивым и независимым.</p>
+      </div>
+    </div>
+
+    <div class="reinforce-block animate-on-scroll">
+      Компании с описанными процессами растут в 2–3 раза быстрее конкурентов. Они нанимают людей без страха, открывают филиалы без потери качества и точно знают, где теряют деньги, а где — резервы для роста.
+    </div>
+  </div>
+</section>
+
+<!-- KEY PROMISE SECTION -->
+<section style="background: #fff;">
+  <div class="container">
+    <div class="promise-grid">
+      <div class="promise-icon-col animate-on-scroll">
+        <svg viewBox="0 0 300 320" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <!-- Foundation / shield icon -->
+          <rect x="40" y="220" width="220" height="32" rx="8" fill="#E2E8F0"/>
+          <rect x="60" y="200" width="180" height="28" rx="6" fill="#CBD5E1"/>
+          <path d="M150 20 L260 70 L260 180 Q260 240 150 290 Q40 240 40 180 L40 70 Z" fill="rgba(0,196,140,0.1)" stroke="#00C48C" stroke-width="2.5"/>
+          <path d="M150 50 L230 90 L230 175 Q230 220 150 260 Q70 220 70 175 L70 90 Z" fill="rgba(15,43,70,0.06)" stroke="#0F2B46" stroke-width="1.5"/>
+          <!-- Checkmark inside -->
+          <circle cx="150" cy="160" r="40" fill="rgba(0,196,140,0.15)"/>
+          <path d="M130 160 L145 175 L172 148" stroke="#00C48C" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- Stars / decorative -->
+          <circle cx="100" cy="100" r="4" fill="#00C48C" opacity="0.4"/>
+          <circle cx="200" cy="110" r="3" fill="#0F2B46" opacity="0.3"/>
+          <circle cx="210" cy="200" r="5" fill="#00C48C" opacity="0.3"/>
+          <circle cx="90" cy="210" r="4" fill="#0F2B46" opacity="0.25"/>
+          <!-- Ground lines -->
+          <rect x="20" y="252" width="260" height="6" rx="3" fill="#E2E8F0"/>
+          <rect x="0" y="262" width="300" height="4" rx="2" fill="#F0F4F8"/>
+        </svg>
+      </div>
+
+      <div class="promise-text animate-on-scroll" style="transition-delay:0.2s;">
+        <h2>Мы не ломаем то, что у вас уже работает</h2>
+        <p style="font-size:20px; color:var(--color-text-muted); margin-bottom:20px;">Мы не приходим с шаблонами и не заставляем вас перестраивать бизнес. На основе интервью с вами и ваших реальных документов мы описываем процессы так, как они работают сейчас. Без приукрашиваний. Потом выстраиваем их правильно — с чёткой логикой, ответственными и точками контроля.</p>
+        <p class="bold" style="font-weight:700; color:var(--color-text); font-size:17px; margin-bottom:20px;">Вы сами увидите на карте процессов:</p>
+
+        <div class="mini-blocks">
+          <div class="mini-block">
+            <div class="mini-icon">📍</div>
+            <strong>Где теряются деньги</strong>
+            На каком этапе, в каком отделе, из-за какого действия
+          </div>
+          <div class="mini-block">
+            <div class="mini-icon">📈</div>
+            <strong>Резервы для роста</strong>
+            Какие процессы можно ускорить, упростить или автоматизировать
+          </div>
+          <div class="mini-block">
+            <div class="mini-icon">🔄</div>
+            <strong>Что оптимизировать дальше</strong>
+            Карта процессов обновляется вместе с бизнесом
+          </div>
+        </div>
+
+        <p class="accent-phrase">Результат — не отчёт для полки. Это рабочий инструмент, по которому живёт компания.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how" style="background: #fff;">
+  <div class="container">
+    <div class="section-header animate-on-scroll">
+      <h2>Три шага от хаоса к управляемому бизнесу</h2>
+    </div>
+
+    <div class="how-steps">
+      <div class="step-card animate-on-scroll">
+        <div class="step-number-bg">01</div>
+        <div class="step-number">1</div>
+        <h3>Расскажите, как работает ваш бизнес</h3>
+        <p>Ответьте на вопросы в удобном онлайн-формате. Загрузите существующие документы, регламенты, должностные инструкции — всё, что уже есть. Мы не начинаем с чистого листа.</p>
+        <span class="step-time">⏱ ~40 минут</span>
+      </div>
+      <div class="step-card animate-on-scroll" style="transition-delay:0.15s;">
+        <div class="step-number-bg">02</div>
+        <div class="step-number">2</div>
+        <h3>Увидьте свой бизнес целиком</h3>
+        <p>На основе интервью и ваших документов сервис строит визуальную карту процессов — такими, какие они есть сейчас. Вы впервые видите на одном экране: где теряются деньги, где скрыты резервы для роста.</p>
+        <span class="step-time">⏱ ~2 часа</span>
+      </div>
+      <div class="step-card animate-on-scroll" style="transition-delay:0.3s;">
+        <div class="step-number-bg">03</div>
+        <div class="step-number">3</div>
+        <h3>Получите инструменты для управления</h3>
+        <p>Сервис формирует регламенты, инструкции, бизнес-модель и финансовую модель. Вы сами решаете, что оптимизировать — а сервис показывает, что даст максимальный эффект.</p>
+        <span class="step-time">⏱ от 1 дня</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section id="pricing" style="background: var(--color-bg-alt);">
+  <div class="container">
+    <div class="section-header animate-on-scroll">
+      <h2>Прозрачные цены — платите только за то, что нужно</h2>
+      <p class="section-subtitle">Начните с карты процессов. Добавляйте документы по мере необходимости. Каждый рубль на счёте — это конкретный результат.</p>
+    </div>
+
+    <div class="pricing-grid">
+      <div class="pricing-card featured animate-on-scroll">
+        <span class="pricing-badge">Основа</span>
+        <h3>Карта рабочего процесса</h3>
+        <div class="pricing-price">5 000 ₽</div>
+        <p class="pricing-desc">Полное визуальное описание одного рабочего процесса с точками контроля и ответственными.</p>
+        <ul class="pricing-features">
+          <li>Визуальная карта процесса в BPMN-формате</li>
+          <li>Определение ответственных на каждом этапе</li>
+          <li>Выявление узких мест и потерь</li>
+          <li>Рекомендации по оптимизации</li>
+        </ul>
+        <a href="#cta" class="btn btn-primary btn-full">Начать</a>
+      </div>
+
+      <div class="pricing-card animate-on-scroll" style="transition-delay:0.1s;">
+        <h3>Регламент или инструкция</h3>
+        <div class="pricing-price">от 200 до 500 ₽</div>
+        <p class="pricing-desc">Готовый к применению документ для конкретного процесса или должности. Цена за документ.</p>
+        <ul class="pricing-features">
+          <li>Пошаговое описание действий сотрудника</li>
+          <li>Критерии качества и допустимые отклонения</li>
+          <li>Форматы согласования и контроля</li>
+          <li>Простой язык, понятный каждому сотруднику</li>
+        </ul>
+        <a href="#cta" class="btn btn-ghost btn-full">Заказать</a>
+      </div>
+
+      <div class="pricing-card animate-on-scroll" style="transition-delay:0.2s;">
+        <h3>Бизнес-модель компании</h3>
+        <div class="pricing-price">5 000 ₽</div>
+        <p class="pricing-desc">Системное описание того, как ваш бизнес создаёт, доставляет и фиксирует ценность.</p>
+        <ul class="pricing-features">
+          <li>Карта ценностного предложения</li>
+          <li>Описание ключевых ресурсов и партнёров</li>
+          <li>Структура доходов и затрат</li>
+          <li>Сегменты клиентов и каналы продаж</li>
+        </ul>
+        <a href="#cta" class="btn btn-ghost btn-full">Заказать</a>
+      </div>
+
+      <div class="pricing-card dark animate-on-scroll" style="transition-delay:0.3s;">
+        <span class="pricing-badge warm">Максимальная выгода</span>
+        <h3>Полный комплект «Под ключ»</h3>
+        <div class="pricing-price">от 49 000 ₽</div>
+        <p class="pricing-desc">Полное описание всех процессов компании, комплект регламентов, бизнес-модель и финансовая модель.</p>
+        <ul class="pricing-features">
+          <li>Все карты рабочих процессов компании</li>
+          <li>Полный комплект регламентов и инструкций</li>
+          <li>Бизнес-модель и финансовая модель</li>
+          <li>Система KPI и точки контроля</li>
+          <li>Рекомендации по автоматизации</li>
+          <li>Поддержка при внедрении</li>
+        </ul>
+        <a href="#cta" class="btn btn-primary btn-full">Получить комплект</a>
+      </div>
+    </div>
+
+    <div class="promo-strip animate-on-scroll">
+      <div class="promo-strip-x2">×2</div>
+      <p>💰 Не забудьте: первое пополнение удваивается.<br>Положите 5&nbsp;000&nbsp;₽ — получите 10&nbsp;000&nbsp;₽.</p>
+      <a href="#cta" class="btn btn-primary" style="flex-shrink:0;">Пополнить и получить ×2</a>
+    </div>
+  </div>
+</section>
+
+<!-- COMPARISON TABLE -->
+<section style="background: #fff;">
+  <div class="container">
+    <div class="section-header animate-on-scroll">
+      <h2>Почему компании выбирают сервис, а не консультанта</h2>
+    </div>
+
+    <div class="comparison-wrap animate-on-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Параметр</th>
+            <th>С консультантом</th>
+            <th>С нашим сервисом</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Стоимость одного процесса</td>
+            <td>От 50&nbsp;000&nbsp;₽</td>
+            <td>5&nbsp;000&nbsp;₽</td>
+          </tr>
+          <tr>
+            <td>Полное описание компании</td>
+            <td>От 300&nbsp;000&nbsp;₽</td>
+            <td>От 49&nbsp;000&nbsp;₽</td>
+          </tr>
+          <tr>
+            <td>Срок получения результата</td>
+            <td>От 3 до 12 месяцев</td>
+            <td>Первый результат через 2 часа</td>
+          </tr>
+          <tr>
+            <td>Формат работы</td>
+            <td>Встречи, командировки, согласования</td>
+            <td>Онлайн, в удобное время</td>
+          </tr>
+          <tr>
+            <td>Обновление процессов</td>
+            <td>Каждое изменение — доплата</td>
+            <td>Обновляйте сами, в любой момент</td>
+          </tr>
+          <tr>
+            <td>Язык документов</td>
+            <td>Профессиональный жаргон</td>
+            <td>Простой и понятный каждому сотруднику</td>
+          </tr>
+          <tr>
+            <td>Доступность</td>
+            <td>Папка с документами на полке</td>
+            <td>Онлайн, с любого устройства, круглосуточно</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- INDUSTRIES -->
+<section id="industries" style="background: var(--color-bg-alt);">
+  <div class="container">
+    <div class="section-header animate-on-scroll">
+      <h2>Работает в любой отрасли, где есть повторяющиеся операции</h2>
+    </div>
+
+    <div class="industries-grid">
+      <div class="industry-card animate-on-scroll">
+        <div class="industry-emoji">🏗️</div>
+        <h4>Строительство и подряд</h4>
+        <p class="industry-short">Управление проектом от сметы до сдачи объекта.</p>
+        <div class="industry-hover">Прекратите терять деньги на простоях, несогласованности подрядчиков и нехватке материалов.</div>
+      </div>
+      <div class="industry-card animate-on-scroll" style="transition-delay:0.05s;">
+        <div class="industry-emoji">⚙️</div>
+        <h4>Производство</h4>
+        <p class="industry-short">Путь от сырья до готового изделия.</p>
+        <div class="industry-hover">Найдите, где теряется время между операциями, почему растёт брак и на каком этапе деньги уходят впустую.</div>
+      </div>
+      <div class="industry-card animate-on-scroll" style="transition-delay:0.1s;">
+        <div class="industry-emoji">🤝</div>
+        <h4>Услуги и сервис</h4>
+        <p class="industry-short">Стандарт качества от первого обращения до повторной продажи.</p>
+        <div class="industry-hover">Опишите путь клиента так, чтобы любой новый сотрудник давал тот же уровень сервиса.</div>
+      </div>
+      <div class="industry-card animate-on-scroll" style="transition-delay:0.15s;">
+        <div class="industry-emoji">🛒</div>
+        <h4>Торговля и розница</h4>
+        <p class="industry-short">Закупка, хранение, продажа, возврат.</p>
+        <div class="industry-hover">Выстройте процессы так, чтобы точно знать, сколько зарабатываете на каждом товаре.</div>
+      </div>
+      <div class="industry-card animate-on-scroll" style="transition-delay:0.2s;">
+        <div class="industry-emoji">🚛</div>
+        <h4>Логистика и транспорт</h4>
+        <p class="industry-short">Маршруты, диспетчеризация, погрузка, доставка.</p>
+        <div class="industry-hover">Устраните простои, оптимизируйте маршруты, автоматизируйте диспетчеризацию.</div>
+      </div>
+      <div class="industry-card animate-on-scroll" style="transition-delay:0.25s;">
+        <div class="industry-emoji">🍽️</div>
+        <h4>Общественное питание</h4>
+        <p class="industry-short">Кухня, зал, закупки, персонал.</p>
+        <div class="industry-hover">Контролируйте себестоимость каждого блюда и откройте второе заведение без потери качества.</div>
+      </div>
+      <div class="industry-card animate-on-scroll" style="transition-delay:0.3s;">
+        <div class="industry-emoji">🏥</div>
+        <h4>Медицина и клиники</h4>
+        <p class="industry-short">Запись, приём, лечение, документооборот.</p>
+        <div class="industry-hover">Выстройте путь пациента от первичного обращения до контрольного визита.</div>
+      </div>
+      <div class="industry-card animate-on-scroll" style="transition-delay:0.35s;">
+        <div class="industry-emoji">🔧</div>
+        <h4>Автосервис</h4>
+        <p class="industry-short">Приёмка, диагностика, ремонт, выдача.</p>
+        <div class="industry-hover">Знайте рентабельность каждого заказ-наряда. Стандартизируйте приёмку.</div>
+      </div>
+      <div class="industry-card animate-on-scroll" style="transition-delay:0.4s;">
+        <div class="industry-emoji">🧹</div>
+        <h4>Клининг и эксплуатация</h4>
+        <p class="industry-short">Объекты, графики, бригады, контроль качества.</p>
+        <div class="industry-hover">Управляйте десятками объектов с чёткими регламентами.</div>
+      </div>
+      <div class="industry-card animate-on-scroll" style="transition-delay:0.45s;">
+        <div class="industry-emoji">📚</div>
+        <h4>Образование и обучение</h4>
+        <p class="industry-short">Набор, программы, расписание, аттестация.</p>
+        <div class="industry-hover">Опишите полный цикл от заявки ученика до выдачи сертификата.</div>
+      </div>
+      <div class="industry-card animate-on-scroll" style="transition-delay:0.5s;">
+        <div class="industry-emoji">📐</div>
+        <h4>Проектные организации</h4>
+        <p class="industry-short">Документация, согласования, экспертиза.</p>
+        <div class="industry-hover">Контролируйте сроки каждого раздела проекта, автоматизируйте передачу между отделами.</div>
+      </div>
+      <div class="industry-card animate-on-scroll" style="transition-delay:0.55s;">
+        <div class="industry-emoji">🏢</div>
+        <h4>Управляющие компании</h4>
+        <p class="industry-short">Обслуживание объектов, заявки, подрядчики.</p>
+        <div class="industry-hover">Систематизируйте обработку заявок, сократите время реакции и количество жалоб.</div>
+      </div>
+    </div>
+
+    <p class="industries-note animate-on-scroll">Не нашли свою отрасль? Сервис адаптируется — интервью подстраивается под специфику любого бизнеса с повторяющимися рабочими операциями.</p>
+  </div>
+</section>
+
+<!-- SOCIAL PROOF -->
+<section id="reviews" style="background: #fff;">
+  <div class="container">
+    <div class="section-header animate-on-scroll">
+      <h2>Компании, которые уже навели порядок</h2>
+    </div>
+
+    <div class="stats-row">
+      <div class="animate-on-scroll">
+        <span class="stat-num" data-count="200" data-suffix="+">0</span>
+        <span class="stat-label">компаний используют сервис</span>
+      </div>
+      <div class="animate-on-scroll" style="transition-delay:0.15s;">
+        <span class="stat-num" data-text="2 часа">2 часа</span>
+        <span class="stat-label">среднее время создания карты процесса</span>
+      </div>
+      <div class="animate-on-scroll" style="transition-delay:0.3s;">
+        <span class="stat-num" data-text="×10">×10</span>
+        <span class="stat-label">дешевле чем с консультантом</span>
+      </div>
+    </div>
+
+    <div class="reviews-grid">
+      <div class="review-card active animate-on-scroll">
+        <div class="review-quote">"</div>
+        <div class="review-stars">★★★★★</div>
+        <p class="review-text">«Мы сократили время адаптации нового сотрудника с трёх недель до трёх дней. Наконец-то каждый знает, что ему делать.»</p>
+        <div class="review-author">Алексей К.</div>
+        <div class="review-role">Генеральный директор, строительная компания</div>
+      </div>
+      <div class="review-card animate-on-scroll" style="transition-delay:0.15s;">
+        <div class="review-quote">"</div>
+        <div class="review-stars">★★★★★</div>
+        <p class="review-text">«Нашли потери на 1,2 миллиона рублей в месяц. Оказалось, два отдела дублировали работу друг друга и никто этого не видел.»</p>
+        <div class="review-author">Марина В.</div>
+        <div class="review-role">Операционный директор, торговая компания</div>
+      </div>
+      <div class="review-card animate-on-scroll" style="transition-delay:0.3s;">
+        <div class="review-quote">"</div>
+        <div class="review-stars">★★★★★</div>
+        <p class="review-text">«За 49&nbsp;000 получили то, за что консультант просил 800&nbsp;000 и четыре месяца. Причём у нас документы живые — обновляем сами.»</p>
+        <div class="review-author">Дмитрий Н.</div>
+        <div class="review-role">Собственник, сеть автосервисов</div>
+      </div>
+    </div>
+
+    <div class="slider-dots">
+      <button class="slider-dot active" data-idx="0" aria-label="Отзыв 1"></button>
+      <button class="slider-dot" data-idx="1" aria-label="Отзыв 2"></button>
+      <button class="slider-dot" data-idx="2" aria-label="Отзыв 3"></button>
+    </div>
+  </div>
+</section>
+
+<!-- DEMO SECTION -->
+<section id="demo" style="background: var(--color-bg-dark); color: var(--color-text-light);">
+  <div class="container">
+    <div class="section-header animate-on-scroll">
+      <h2 style="color:#fff;">Посмотрите, как выглядит результат</h2>
+    </div>
+
+    <div class="demo-tabs">
+      <button class="demo-tab active" data-tab="map">Карта процесса</button>
+      <button class="demo-tab" data-tab="reg">Регламент</button>
+      <button class="demo-tab" data-tab="biz">Бизнес-модель</button>
+    </div>
+
+    <div class="browser-mockup animate-on-scroll">
+      <div class="browser-bar">
+        <div class="browser-dot bd-red"></div>
+        <div class="browser-dot bd-yellow"></div>
+        <div class="browser-dot bd-green"></div>
+        <div class="browser-url">app.biz-process.ru/map/process-001</div>
+      </div>
+      <div class="browser-content" id="browser-content">
+
+        <!-- TAB: MAP -->
+        <div class="tab-content active" id="tab-map">
+          <svg viewBox="0 0 700 280" fill="none" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-width:700px;" aria-hidden="true">
+            <rect width="700" height="280" rx="8" fill="#F8FAFC"/>
+            <text x="20" y="32" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="14" font-weight="700">Карта: Обработка входящей заявки</text>
+
+            <!-- Lane 1 -->
+            <rect x="10" y="45" width="680" height="65" rx="0" fill="rgba(0,196,140,0.05)" stroke="#E2E8F0" stroke-width="1"/>
+            <text x="18" y="82" fill="#5A6B7C" font-family="Manrope,sans-serif" font-size="10">Менеджер</text>
+
+            <!-- Lane 2 -->
+            <rect x="10" y="110" width="680" height="65" rx="0" fill="rgba(15,43,70,0.03)" stroke="#E2E8F0" stroke-width="1"/>
+            <text x="18" y="147" fill="#5A6B7C" font-family="Manrope,sans-serif" font-size="10">Юрист</text>
+
+            <!-- Lane 3 -->
+            <rect x="10" y="175" width="680" height="65" rx="0" fill="rgba(255,107,53,0.04)" stroke="#E2E8F0" stroke-width="1"/>
+            <text x="18" y="212" fill="#5A6B7C" font-family="Manrope,sans-serif" font-size="10">Исполнитель</text>
+
+            <!-- Start -->
+            <circle cx="70" cy="77" r="16" fill="#0F2B46"/>
+            <text x="70" y="81" text-anchor="middle" fill="white" font-family="Manrope,sans-serif" font-size="8" font-weight="700">СТАРТ</text>
+
+            <!-- Arrow -->
+            <line x1="86" y1="77" x2="115" y2="77" stroke="#CBD5E1" stroke-width="1.5"/>
+            <polygon points="113,74 119,77 113,80" fill="#CBD5E1"/>
+
+            <!-- Box 1 -->
+            <rect x="119" y="59" width="100" height="36" rx="6" fill="white" stroke="#0F2B46" stroke-width="1.5"/>
+            <text x="169" y="74" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="9" font-weight="700">Приём заявки</text>
+            <text x="169" y="87" text-anchor="middle" fill="#5A6B7C" font-family="Manrope,sans-serif" font-size="8">от клиента</text>
+
+            <!-- Arrow -->
+            <line x1="219" y1="77" x2="248" y2="77" stroke="#CBD5E1" stroke-width="1.5"/>
+            <polygon points="246,74 252,77 246,80" fill="#CBD5E1"/>
+
+            <!-- Diamond -->
+            <polygon points="270,77 300,59 330,77 300,95" fill="white" stroke="#00C48C" stroke-width="1.5"/>
+            <text x="300" y="74" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="8" font-weight="700">Полный</text>
+            <text x="300" y="84" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="8" font-weight="700">пакет?</text>
+
+            <!-- YES -->
+            <line x1="330" y1="77" x2="360" y2="77" stroke="#CBD5E1" stroke-width="1.5"/>
+            <polygon points="358,74 364,77 358,80" fill="#CBD5E1"/>
+            <text x="344" y="72" fill="#00C48C" font-family="Manrope,sans-serif" font-size="8" font-weight="700">Да</text>
+
+            <!-- No - down to lawyer -->
+            <line x1="300" y1="95" x2="300" y2="130" stroke="#CBD5E1" stroke-width="1.5" stroke-dasharray="3,2"/>
+            <polygon points="297,128 300,134 303,128" fill="#CBD5E1"/>
+            <text x="308" y="118" fill="#E74C3C" font-family="Manrope,sans-serif" font-size="8" font-weight="700">Нет</text>
+
+            <!-- Lawyer box -->
+            <rect x="248" y="122" width="104" height="36" rx="6" fill="white" stroke="#0F2B46" stroke-width="1.5"/>
+            <text x="300" y="137" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="9" font-weight="700">Запрос документов</text>
+            <text x="300" y="150" text-anchor="middle" fill="#5A6B7C" font-family="Manrope,sans-serif" font-size="8">Юрист</text>
+
+            <!-- Box 2 -->
+            <rect x="364" y="59" width="100" height="36" rx="6" fill="rgba(0,196,140,0.1)" stroke="#00C48C" stroke-width="1.5"/>
+            <text x="414" y="74" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="9" font-weight="700">Заключение</text>
+            <text x="414" y="87" text-anchor="middle" fill="#5A6B7C" font-family="Manrope,sans-serif" font-size="8">договора</text>
+
+            <!-- Arrow -->
+            <line x1="464" y1="77" x2="492" y2="77" stroke="#CBD5E1" stroke-width="1.5"/>
+            <polygon points="490,74 496,77 490,80" fill="#CBD5E1"/>
+
+            <!-- Box executor -->
+            <rect x="496" y="177" width="100" height="36" rx="6" fill="white" stroke="#0F2B46" stroke-width="1.5"/>
+            <text x="546" y="192" text-anchor="middle" fill="#0F2B46" font-family="Manrope,sans-serif" font-size="9" font-weight="700">Выполнение</text>
+            <text x="546" y="205" text-anchor="middle" fill="#5A6B7C" font-family="Manrope,sans-serif" font-size="8">заказа</text>
+
+            <!-- Arrow from box2 down to executor -->
+            <line x1="546" y1="77" x2="546" y2="95" stroke="#CBD5E1" stroke-width="1.5"/>
+            <line x1="496" y1="77" x2="546" y2="77" stroke="#CBD5E1" stroke-width="1.5"/>
+            <line x1="546" y1="95" x2="546" y2="177" stroke="#CBD5E1" stroke-width="1.5"/>
+            <polygon points="543,175 546,181 549,175" fill="#CBD5E1"/>
+
+            <!-- END -->
+            <line x1="596" y1="195" x2="624" y2="195" stroke="#CBD5E1" stroke-width="1.5"/>
+            <polygon points="622,192 628,195 622,198" fill="#CBD5E1"/>
+            <circle cx="644" cy="195" r="16" fill="#00C48C"/>
+            <text x="644" y="199" text-anchor="middle" fill="white" font-family="Manrope,sans-serif" font-size="8" font-weight="700">КОНЕЦ</text>
+          </svg>
+        </div>
+
+        <!-- TAB: REGULATION -->
+        <div class="tab-content" id="tab-reg">
+          <div style="width:100%;max-width:620px;text-align:left;font-family:'Manrope',sans-serif;">
+            <div style="background:var(--color-bg-alt);border-radius:8px;padding:24px;">
+              <div style="font-size:11px;color:var(--color-text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em;">Документ · Регламент</div>
+              <div style="font-size:18px;font-weight:700;color:var(--color-primary);margin-bottom:16px;">Регламент обработки входящих заявок</div>
+              <div style="font-size:12px;color:var(--color-text-muted);margin-bottom:20px;">Версия: 1.0 · Обновлён: 03.03.2026 · Ответственный: Руководитель отдела продаж</div>
+              <div style="font-size:13px;color:var(--color-text);line-height:1.7;">
+                <div style="font-weight:700;margin-bottom:8px;">1. Цель регламента</div>
+                <p style="margin-bottom:12px;color:var(--color-text-muted);">Обеспечить единый стандарт обработки входящих заявок клиентов, исключить потерю обращений и сократить время реакции до 15 минут в рабочее время.</p>
+                <div style="font-weight:700;margin-bottom:8px;">2. Область применения</div>
+                <p style="margin-bottom:12px;color:var(--color-text-muted);">Регламент распространяется на всех сотрудников отдела продаж и клиентского сервиса.</p>
+                <div style="font-weight:700;margin-bottom:8px;">3. Порядок действий</div>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                  <div style="display:flex;gap:10px;align-items:flex-start;"><span style="background:var(--color-accent);color:white;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">1</span><span style="font-size:12px;color:var(--color-text-muted);">Зафиксировать заявку в CRM не позднее 10 минут с момента поступления</span></div>
+                  <div style="display:flex;gap:10px;align-items:flex-start;"><span style="background:var(--color-accent);color:white;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">2</span><span style="font-size:12px;color:var(--color-text-muted);">Квалифицировать клиента: проверить наличие полного пакета документов</span></div>
+                  <div style="display:flex;gap:10px;align-items:flex-start;"><span style="background:var(--color-accent);color:white;border-radius:50%;width:20px;height:20px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">3</span><span style="font-size:12px;color:var(--color-text-muted);">Направить коммерческое предложение в течение 2 рабочих часов</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB: BUSINESS MODEL -->
+        <div class="tab-content" id="tab-biz">
+          <div style="width:100%;max-width:660px;">
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;font-family:'Manrope',sans-serif;">
+              <div style="background:rgba(15,43,70,0.06);border-radius:8px;padding:14px;grid-row:span 2;">
+                <div style="font-size:10px;font-weight:700;color:var(--color-primary);text-transform:uppercase;margin-bottom:8px;">Ключевые партнёры</div>
+                <div style="font-size:11px;color:var(--color-text-muted);line-height:1.5;">Поставщики сырья<br>Транспортные компании<br>ИТ-подрядчики</div>
+              </div>
+              <div style="background:rgba(0,196,140,0.08);border-radius:8px;padding:14px;">
+                <div style="font-size:10px;font-weight:700;color:var(--color-accent);text-transform:uppercase;margin-bottom:8px;">Ключевые действия</div>
+                <div style="font-size:11px;color:var(--color-text-muted);line-height:1.5;">Производство<br>Доставка<br>Поддержка клиентов</div>
+              </div>
+              <div style="background:rgba(0,196,140,0.12);border-radius:8px;padding:14px;grid-row:span 2;">
+                <div style="font-size:10px;font-weight:700;color:var(--color-accent);text-transform:uppercase;margin-bottom:8px;">Ценностное предложение</div>
+                <div style="font-size:11px;color:var(--color-text-muted);line-height:1.5;">Качество<br>Скорость<br>Надёжность<br>Прозрачность</div>
+              </div>
+              <div style="background:rgba(15,43,70,0.06);border-radius:8px;padding:14px;">
+                <div style="font-size:10px;font-weight:700;color:var(--color-primary);text-transform:uppercase;margin-bottom:8px;">Ключевые ресурсы</div>
+                <div style="font-size:11px;color:var(--color-text-muted);line-height:1.5;">Команда<br>Оборудование<br>Интеллектуальная собственность</div>
+              </div>
+              <div style="background:#fff;border:1px solid var(--color-border);border-radius:8px;padding:14px;">
+                <div style="font-size:10px;font-weight:700;color:var(--color-text);text-transform:uppercase;margin-bottom:8px;">Отношения с клиентами</div>
+                <div style="font-size:11px;color:var(--color-text-muted);line-height:1.5;">Персональный менеджер<br>Самообслуживание</div>
+              </div>
+              <div style="background:#fff;border:1px solid var(--color-border);border-radius:8px;padding:14px;">
+                <div style="font-size:10px;font-weight:700;color:var(--color-text);text-transform:uppercase;margin-bottom:8px;">Каналы</div>
+                <div style="font-size:11px;color:var(--color-text-muted);line-height:1.5;">Сайт<br>Партнёрская сеть<br>Прямые продажи</div>
+              </div>
+              <div style="background:#fff;border:1px solid var(--color-border);border-radius:8px;padding:14px;">
+                <div style="font-size:10px;font-weight:700;color:var(--color-text);text-transform:uppercase;margin-bottom:8px;">Сегменты клиентов</div>
+                <div style="font-size:11px;color:var(--color-text-muted);line-height:1.5;">МСБ 10–200 чел.<br>Корпоративный сегмент</div>
+              </div>
+              <div style="background:rgba(231,76,60,0.06);border-radius:8px;padding:14px;">
+                <div style="font-size:10px;font-weight:700;color:var(--color-danger);text-transform:uppercase;margin-bottom:8px;">Структура затрат</div>
+                <div style="font-size:11px;color:var(--color-text-muted);line-height:1.5;">ФОТ — 60%<br>Аренда — 15%<br>Маркетинг — 10%</div>
+              </div>
+              <div style="background:rgba(0,196,140,0.1);border-radius:8px;padding:14px;">
+                <div style="font-size:10px;font-weight:700;color:var(--color-accent);text-transform:uppercase;margin-bottom:8px;">Потоки доходов</div>
+                <div style="font-size:11px;color:var(--color-text-muted);line-height:1.5;">Разовые проекты<br>Подписка<br>Роялти</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div style="text-align:center;margin-top:36px;">
+      <a href="#cta" class="btn btn-primary btn-lg">Создать карту для своего бизнеса →</a>
+    </div>
+  </div>
+</section>
+
+<!-- REPEAT OFFER -->
+<section id="repeat-offer">
+  <div class="container">
+    <div class="section-header animate-on-scroll">
+      <h2>Каждый рубль, вложенный в первый раз, работает вдвойне</h2>
+      <p class="section-subtitle">Пополните баланс прямо сейчас — и получите в два раза больше средств на создание карт процессов, регламентов и инструкций.</p>
+    </div>
+
+    <div class="calc-table-wrap animate-on-scroll">
+      <table class="calc-table">
+        <thead>
+          <tr>
+            <th>Вы вносите</th>
+            <th>На счёте</th>
+            <th>Что можно сделать</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>2 500 ₽</td>
+            <td>5 000 ₽</td>
+            <td>1 полная карта рабочего процесса</td>
+          </tr>
+          <tr>
+            <td>5 000 ₽</td>
+            <td>10 000 ₽</td>
+            <td>2 карты процессов или 1 карта + бизнес-модель</td>
+          </tr>
+          <tr>
+            <td>25 000 ₽</td>
+            <td>50 000 ₽</td>
+            <td>Практически полный комплект «Под ключ»</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="offer-cta-wrap animate-on-scroll">
+      <a href="#cta" class="btn btn-primary btn-lg">Пополнить счёт и удвоить баланс</a>
+      <p class="offer-note">Акция действует для первого пополнения. Средства не сгорают — используйте в любое время.</p>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section style="background:#fff;">
+  <div class="container">
+    <div class="section-header animate-on-scroll">
+      <h2>Ответы на вопросы, которые задают чаще всего</h2>
+    </div>
+
+    <div class="faq-list">
+      <div class="faq-item animate-on-scroll">
+        <button class="faq-question">
+          А если у меня небольшая компания, от пяти человек?
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <div class="faq-answer-inner">Именно на старте правильные процессы дают максимальный эффект. Вы закладываете фундамент, на котором бизнес растёт без хаоса. Чем раньше начнёте — тем сильнее оторвётесь от конкурентов.</div>
+        </div>
+      </div>
+
+      <div class="faq-item animate-on-scroll">
+        <button class="faq-question">
+          У нас уже есть какие-то регламенты и инструкции. Вы всё сломаете и переделаете?
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <div class="faq-answer-inner">Нет. Мы принципиально не ломаем то, что работает. Загрузите существующие документы — мы возьмём их за основу. На интервью уточним, как процессы устроены на самом деле, и выстроим карту, которая отражает реальность.</div>
+        </div>
+      </div>
+
+      <div class="faq-item animate-on-scroll">
+        <button class="faq-question">
+          Как я увижу, где теряю деньги?
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <div class="faq-answer-inner">На карте процессов видно каждый этап, каждого ответственного и каждую точку, где происходят задержки, дублирование или потери. Сервис подсвечивает узкие места и показывает, какие изменения дадут максимальный эффект.</div>
+        </div>
+      </div>
+
+      <div class="faq-item animate-on-scroll">
+        <button class="faq-question">
+          Чем это отличается от обычных блок-схем, которые можно нарисовать самому?
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <div class="faq-answer-inner">Мы не просто рисуем схемы. Интервью выявляет реальные рабочие процессы — не идеальные, а те, что есть сейчас. На основе карты сервис формирует регламенты, инструкции и финансовую модель — готовый комплект для управления.</div>
+        </div>
+      </div>
+
+      <div class="faq-item animate-on-scroll">
+        <button class="faq-question">
+          Нужен ли мне для этого консультант или специальные знания?
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <div class="faq-answer-inner">Нет. Интервью проходит онлайн, вопросы подстраиваются под вашу отрасль. Вам нужно только рассказать, как работает ваш бизнес — своими словами.</div>
+        </div>
+      </div>
+
+      <div class="faq-item animate-on-scroll">
+        <button class="faq-question">
+          Как быстро я получу результат?
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <div class="faq-answer-inner">Первая карта рабочего процесса — через 1–2 часа после интервью. Регламенты и инструкции — в тот же день. Полный комплект «Под ключ» — от 3 до 7 рабочих дней.</div>
+        </div>
+      </div>
+
+      <div class="faq-item animate-on-scroll">
+        <button class="faq-question">
+          Что значит «первое пополнение удваивается»?
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <div class="faq-answer-inner">При первом пополнении баланса мы начисляем бонус в размере вашего платежа. Положили 5&nbsp;000 — на счёте 10&nbsp;000. Бонусные средства расходуются так же, как обычные. Срока действия нет.</div>
+        </div>
+      </div>
+
+      <div class="faq-item animate-on-scroll">
+        <button class="faq-question">
+          Можно ли обновлять процессы после создания?
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <div class="faq-answer-inner">Да. Бизнес меняется — процессы тоже. Карта процессов — это живой инструмент, а не отчёт для полки. Обновляйте в любое время. Средства на балансе не сгорают.</div>
+        </div>
+      </div>
+
+      <div class="faq-item animate-on-scroll">
+        <button class="faq-question">
+          Для каких отраслей подходит сервис?
+          <span class="faq-icon">+</span>
+        </button>
+        <div class="faq-answer">
+          <div class="faq-answer-inner">Для любого бизнеса с повторяющимися операциями: строительство, производство, услуги, торговля, логистика, общественное питание, медицина, автосервис, клининг, образование, проектные организации, управляющие компании и другие.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section id="cta" style="background: var(--color-primary);">
+  <div class="container" style="text-align:center;">
+    <h2 style="color:#fff;margin-bottom:16px;" class="animate-on-scroll">Перестаньте терять деньги и время на хаос в процессах</h2>
+    <p class="cta-subtitle animate-on-scroll" style="transition-delay:0.1s;">Первое пополнение удваивается. Одна карта процесса — 5&nbsp;000 рублей. Результат — через 2 часа.</p>
+
+    <div class="cta-form-card animate-on-scroll" style="transition-delay:0.2s;">
+      <form id="cta-form" novalidate>
+        <div class="form-group">
+          <label for="f-name">Ваше имя</label>
+          <input type="text" id="f-name" name="name" placeholder="Ваше имя" autocomplete="name">
+          <div class="form-error" id="err-name">Введите ваше имя</div>
+        </div>
+        <div class="form-group">
+          <label for="f-contact">Телефон или e-mail</label>
+          <input type="text" id="f-contact" name="contact" placeholder="Телефон или электронная почта" autocomplete="email">
+          <div class="form-error" id="err-contact">Введите телефон или e-mail</div>
+        </div>
+        <div class="form-group">
+          <label for="f-industry">Ваша отрасль</label>
+          <select id="f-industry" name="industry">
+            <option value="">— Выберите отрасль —</option>
+            <option value="construction">Строительство</option>
+            <option value="production">Производство</option>
+            <option value="trade">Торговля</option>
+            <option value="services">Услуги</option>
+            <option value="logistics">Логистика</option>
+            <option value="other">Другое</option>
+          </select>
+          <div class="form-error" id="err-industry">Выберите отрасль</div>
+        </div>
+        <div class="checkbox-group">
+          <input type="checkbox" id="f-expert" name="expert">
+          <label for="f-expert">Хочу, чтобы эксперт помог на первом интервью (бесплатно)</label>
+        </div>
+        <button type="submit" class="btn btn-primary btn-lg btn-full">Пополнить счёт и начать</button>
+        <p class="form-note">Нажимая кнопку, вы соглашаетесь с политикой конфиденциальности. Мы не передаём данные третьим лицам.</p>
+      </form>
+      <div class="success-msg" id="success-msg">
+        <div class="success-icon">🎉</div>
+        <h3>Заявка принята!</h3>
+        <p>Мы свяжемся с вами в течение 15 минут в рабочее время. Ваш баланс будет удвоен после первого пополнения.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container">
+    <div class="footer-grid">
+      <div class="footer-col">
+        <a href="#hero" class="footer-logo">biz-process<span>.ru</span></a>
+        <p>Сервис для создания карт рабочих процессов, регламентов, инструкций и бизнес-моделей.</p>
+      </div>
+      <div class="footer-col">
+        <h4>Навигация</h4>
+        <ul>
+          <li><a href="#features">Возможности</a></li>
+          <li><a href="#how">Как это работает</a></li>
+          <li><a href="#pricing">Тарифы</a></li>
+          <li><a href="#reviews">Отзывы</a></li>
+          <li><a href="#">Блог</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Поддержка</h4>
+        <ul>
+          <li><a href="#">Частые вопросы</a></li>
+          <li><a href="#">Контакты</a></li>
+          <li><a href="#">Политика конфиденциальности</a></li>
+          <li><a href="#">Пользовательское соглашение</a></li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h4>Контакты</h4>
+        <p class="footer-contact"><a href="mailto:info@biz-process.ru">info@biz-process.ru</a></p>
+        <p class="footer-contact"><a href="tel:+7XXXXXXXXXX">+7 (XXX) XXX-XX-XX</a></p>
+        <p class="footer-contact"><a href="https://t.me/bizprocess" target="_blank" rel="noopener">Телеграм: @bizprocess</a></p>
+      </div>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <div class="container">
+      &copy; 2026 biz-process.ru — Все права защищены
+    </div>
+  </div>
+</footer>
+
+<script>
+// ============================================================
+// 1. STICKY HEADER
+// ============================================================
+(function() {
+  var header = document.getElementById('site-header');
+  function onScroll() {
+    if (window.scrollY > 50) {
+      header.classList.add('scrolled');
+    } else {
+      header.classList.remove('scrolled');
+    }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+})();
+
+// ============================================================
+// 2. BURGER MENU
+// ============================================================
+(function() {
+  var burger = document.getElementById('burger-btn');
+  var menu = document.getElementById('mobile-menu');
+  var links = menu.querySelectorAll('.mobile-nav-link');
+
+  function openMenu() {
+    burger.classList.add('active');
+    menu.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+  function closeMenu() {
+    burger.classList.remove('active');
+    menu.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  burger.addEventListener('click', function() {
+    if (menu.classList.contains('open')) {
+      closeMenu();
+    } else {
+      openMenu();
+    }
+  });
+
+  links.forEach(function(link) {
+    link.addEventListener('click', closeMenu);
+  });
+})();
+
+// ============================================================
+// 3. SMOOTH SCROLL
+// ============================================================
+document.querySelectorAll('a[href^="#"]').forEach(function(anchor) {
+  anchor.addEventListener('click', function(e) {
+    var targetId = this.getAttribute('href');
+    if (targetId === '#') return;
+    var target = document.querySelector(targetId);
+    if (target) {
+      e.preventDefault();
+      var headerHeight = document.getElementById('site-header').offsetHeight;
+      var targetPos = target.getBoundingClientRect().top + window.scrollY - headerHeight - 8;
+      window.scrollTo({ top: targetPos, behavior: 'smooth' });
+    }
+  });
+});
+
+// ============================================================
+// 4. INTERSECTION OBSERVER — animate-on-scroll
+// ============================================================
+(function() {
+  var elements = document.querySelectorAll('.animate-on-scroll');
+  if (!elements.length) return;
+
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
+
+  elements.forEach(function(el) { observer.observe(el); });
+})();
+
+// ============================================================
+// 5. COUNTUP ANIMATION
+// ============================================================
+(function() {
+  var countEls = document.querySelectorAll('[data-count]');
+  if (!countEls.length) return;
+
+  function animateCount(el) {
+    var target = parseInt(el.getAttribute('data-count'), 10);
+    var suffix = el.getAttribute('data-suffix') || '';
+    var duration = 1800;
+    var startTime = null;
+
+    function easeOut(t) { return 1 - Math.pow(1 - t, 3); }
+
+    function step(timestamp) {
+      if (!startTime) startTime = timestamp;
+      var progress = Math.min((timestamp - startTime) / duration, 1);
+      var value = Math.round(easeOut(progress) * target);
+      el.textContent = value + suffix;
+      if (progress < 1) {
+        requestAnimationFrame(step);
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  var observer = new IntersectionObserver(function(entries) {
+    entries.forEach(function(entry) {
+      if (entry.isIntersecting) {
+        animateCount(entry.target);
+        observer.unobserve(entry.target);
+      }
+    });
+  }, { threshold: 0.5 });
+
+  countEls.forEach(function(el) { observer.observe(el); });
+})();
+
+// ============================================================
+// 6. FAQ ACCORDION
+// ============================================================
+(function() {
+  var items = document.querySelectorAll('.faq-item');
+  items.forEach(function(item) {
+    var btn = item.querySelector('.faq-question');
+    var icon = item.querySelector('.faq-icon');
+    btn.addEventListener('click', function() {
+      var isOpen = item.classList.contains('open');
+
+      // Close all
+      items.forEach(function(i) {
+        i.classList.remove('open');
+        i.querySelector('.faq-icon').textContent = '+';
+      });
+
+      if (!isOpen) {
+        item.classList.add('open');
+        icon.textContent = '−';
+      }
+    });
+  });
+})();
+
+// ============================================================
+// 7. DEMO TABS
+// ============================================================
+(function() {
+  var tabs = document.querySelectorAll('.demo-tab');
+  var contents = document.querySelectorAll('.tab-content');
+
+  tabs.forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      var target = this.getAttribute('data-tab');
+
+      tabs.forEach(function(t) { t.classList.remove('active'); });
+      contents.forEach(function(c) { c.classList.remove('active'); });
+
+      this.classList.add('active');
+      var targetContent = document.getElementById('tab-' + target);
+      if (targetContent) targetContent.classList.add('active');
+    });
+  });
+})();
+
+// ============================================================
+// 8. MOBILE TESTIMONIALS SLIDER
+// ============================================================
+(function() {
+  var cards = document.querySelectorAll('.review-card');
+  var dots = document.querySelectorAll('.slider-dot');
+  var current = 0;
+
+  function goTo(idx) {
+    cards.forEach(function(c) { c.classList.remove('active'); });
+    dots.forEach(function(d) { d.classList.remove('active'); });
+    current = idx;
+    if (cards[current]) cards[current].classList.add('active');
+    if (dots[current]) dots[current].classList.add('active');
+  }
+
+  dots.forEach(function(dot) {
+    dot.addEventListener('click', function() {
+      goTo(parseInt(this.getAttribute('data-idx'), 10));
+    });
+  });
+
+  // Auto-advance on mobile
+  var autoInterval = setInterval(function() {
+    if (window.innerWidth <= 900) {
+      goTo((current + 1) % cards.length);
+    }
+  }, 4000);
+})();
+
+// ============================================================
+// 9. FORM VALIDATION
+// ============================================================
+(function() {
+  var form = document.getElementById('cta-form');
+  if (!form) return;
+  var successMsg = document.getElementById('success-msg');
+
+  function showError(fieldId, errId) {
+    var field = document.getElementById(fieldId);
+    var err = document.getElementById(errId);
+    if (field) field.classList.add('error');
+    if (err) err.classList.add('visible');
+  }
+  function clearError(fieldId, errId) {
+    var field = document.getElementById(fieldId);
+    var err = document.getElementById(errId);
+    if (field) field.classList.remove('error');
+    if (err) err.classList.remove('visible');
+  }
+
+  function validateEmail(val) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+  }
+  function validatePhone(val) {
+    return /^[\+\d][\d\s\-\(\)]{6,17}$/.test(val.trim());
+  }
+
+  // Live clearing
+  ['f-name', 'f-contact', 'f-industry'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input', function() {
+        this.classList.remove('error');
+        var errId = 'err-' + id.replace('f-', '');
+        var errEl = document.getElementById(errId);
+        if (errEl) errEl.classList.remove('visible');
+      });
+    }
+  });
+
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    var nameVal = document.getElementById('f-name').value.trim();
+    var contactVal = document.getElementById('f-contact').value.trim();
+    var industryVal = document.getElementById('f-industry').value;
+    var valid = true;
+
+    clearError('f-name', 'err-name');
+    clearError('f-contact', 'err-contact');
+    clearError('f-industry', 'err-industry');
+
+    if (!nameVal || nameVal.length < 2) {
+      showError('f-name', 'err-name');
+      valid = false;
+    }
+
+    if (!contactVal) {
+      showError('f-contact', 'err-contact');
+      valid = false;
+    } else if (!validateEmail(contactVal) && !validatePhone(contactVal)) {
+      showError('f-contact', 'err-contact');
+      document.getElementById('err-contact').textContent = 'Введите корректный e-mail или телефон';
+      valid = false;
+    }
+
+    if (!industryVal) {
+      showError('f-industry', 'err-industry');
+      valid = false;
+    }
+
+    if (valid) {
+      form.style.display = 'none';
+      successMsg.style.display = 'block';
+      // Scroll to success
+      successMsg.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  });
+})();
+</script>
+</body>
+</html>
