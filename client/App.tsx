@@ -51,9 +51,13 @@ export default function App() {
         <Route path="/" element={user ? <Navigate to="/companies" replace /> : <LandingPage />} />
         <Route path="/login" element={user ? <Navigate to="/companies" replace /> : <LoginPage />} />
         <Route path="/register" element={user ? <Navigate to="/companies" replace /> : <RegisterPage />} />
+        <Route path="/signup" element={user ? <Navigate to="/companies" replace /> : <RegisterPage />} />
         <Route path="/faq" element={<FaqPage />} />
         <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
         <Route path="/cookie-policy" element={<CookiePolicyPage />} />
+        <Route path="/examples" element={<LandingPage />} />
+        <Route path="/examples/:slug" element={<LandingPage />} />
+        <Route path="/interview/demo" element={user ? <Navigate to="/companies" replace /> : <LandingPage />} />
         <Route
           element={
             <ProtectedRoute>
@@ -66,6 +70,7 @@ export default function App() {
           <Route path="/interview/:id" element={<InterviewPage />} />
           <Route path="/process/:id" element={<ProcessPage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/billing/tokens" element={<ProfilePage />} />
           <Route path="/support" element={<SupportPage />} />
         </Route>
         <Route

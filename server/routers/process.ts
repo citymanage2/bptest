@@ -7,12 +7,21 @@ import {
   processVersions,
   changeRequests,
   recommendations,
+  regulations,
   interviews,
   companies,
   users,
   tokenOperations,
 } from "../db/schema";
-import { generateProcess, applyChanges, generateRecommendations, generatePassport } from "../services/ai";
+import { generateProcess, applyChanges, generateRecommendations, generatePassport, generateRegulationDocument, generateCrmFunnelVariants } from "../services/ai";
+import type { AttachedFileMeta } from "../services/ai";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename_p = fileURLToPath(import.meta.url);
+const __dirname_p = path.dirname(__filename_p);
+const uploadsDir = path.resolve(__dirname_p, "../../uploads");
 import { validateProcess } from "../services/validation";
 import type { ProcessData } from "../../shared/types";
 import { TOKEN_COSTS } from "../../shared/types";
@@ -47,7 +56,34 @@ export const processRouter = router({
 
       // Generate process via AI
       const answers = interview.answers as Record<string, string>;
-      const processData = await generateProcess(answers, interview.company.name, interview.company.industry);
+
+      // Read attached files content for AI
+      const rawFiles = (interview.answers as Record<string, unknown>).__files__;
+      let attachedFiles: AttachedFileMeta[] | undefined;
+      if (Array.isArray(rawFiles) && rawFiles.length > 0) {
+        const textExtensions = [".txt", ".csv", ".md", ".rtf", ".log"];
+        attachedFiles = (rawFiles as Array<Record<string, unknown>>).map((f) => {
+          const meta: AttachedFileMeta = {
+            name: f.name as string,
+            size: f.size as number,
+            type: f.type as string,
+            storedName: f.storedName as string,
+          };
+          // Try to read text content for text-based files
+          const ext = path.extname(meta.name).toLowerCase();
+          if (textExtensions.includes(ext) || meta.type.startsWith("text/")) {
+            try {
+              const filePath = path.join(uploadsDir, meta.storedName);
+              if (fs.existsSync(filePath)) {
+                meta.content = fs.readFileSync(filePath, "utf-8");
+              }
+            } catch { /* skip unreadable files */ }
+          }
+          return meta;
+        });
+      }
+
+      const processData = await generateProcess(answers, interview.company.name, interview.company.industry, attachedFiles);
 
       // Save process
       const [process] = await db
@@ -100,6 +136,7 @@ export const processRouter = router({
         id: process.id,
         interviewId: process.interviewId,
         companyId: process.companyId,
+        companyName: process.company.name,
         status: process.status,
         data: process.data as ProcessData,
         createdAt: process.createdAt.toISOString(),
@@ -459,5 +496,139 @@ export const processRouter = router({
 
       await db.delete(processes).where(eq(processes.id, input.id));
       return { success: true };
+    }),
+
+  // ============ Regulations (Регламенты) ============
+
+  getRegulations: protectedProcedure
+    .input(z.object({ processId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      const result = await db.query.regulations.findMany({
+        where: eq(regulations.processId, input.processId),
+        orderBy: [regulations.roleName, regulations.docType],
+      });
+
+      return result.map((r) => ({
+        id: r.id,
+        processId: r.processId,
+        roleName: r.roleName,
+        docType: r.docType,
+        content: r.content,
+        createdAt: r.createdAt.toISOString(),
+      }));
+    }),
+
+  generateRegulation: protectedProcedure
+    .input(z.object({
+      processId: z.number(),
+      roleName: z.string(),
+      docType: z.enum(["regulation", "job_description"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      await deductTokens(
+        ctx.userId,
+        TOKEN_COSTS.regulation_document,
+        "recommendations" as any,
+        `Генерация ${input.docType === "regulation" ? "регламента" : "должностной инструкции"} для "${input.roleName}"`,
+      );
+
+      const processData = process.data as ProcessData;
+      const content = await generateRegulationDocument(
+        processData,
+        input.roleName,
+        input.docType,
+        process.company.name,
+      );
+
+      // Delete old version if exists
+      const existing = await db.query.regulations.findFirst({
+        where: and(
+          eq(regulations.processId, input.processId),
+          eq(regulations.roleName, input.roleName),
+          eq(regulations.docType, input.docType),
+        ),
+      });
+      if (existing) {
+        await db.delete(regulations).where(eq(regulations.id, existing.id));
+      }
+
+      const [saved] = await db
+        .insert(regulations)
+        .values({
+          processId: input.processId,
+          roleName: input.roleName,
+          docType: input.docType,
+          content,
+        })
+        .returning();
+
+      return {
+        id: saved.id,
+        processId: saved.processId,
+        roleName: saved.roleName,
+        docType: saved.docType,
+        content: saved.content,
+        createdAt: saved.createdAt.toISOString(),
+      };
+    }),
+
+  // ── CRM Funnel Variants ──────────────────────────────────
+  generateCrmVariants: protectedProcedure
+    .input(z.object({ processId: z.number() }))
+    .mutation(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      await deductTokens(ctx.userId, TOKEN_COSTS.crm_generation, "crm_generation", "Генерация вариантов CRM-воронок");
+
+      const data = process.data as ProcessData;
+      const variants = await generateCrmFunnelVariants(data);
+      return variants;
+    }),
+
+  selectCrmVariant: protectedProcedure
+    .input(z.object({
+      processId: z.number(),
+      funnel: z.any(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      const data = process.data as ProcessData;
+      data.crmFunnels = [input.funnel];
+
+      const [updated] = await db
+        .update(processes)
+        .set({ data, updatedAt: new Date() })
+        .where(eq(processes.id, input.processId))
+        .returning();
+
+      return {
+        id: updated.id,
+        data: updated.data as ProcessData,
+      };
     }),
 });

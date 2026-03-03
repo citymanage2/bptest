@@ -69,7 +69,9 @@ export interface ProcessBlock {
   inputDocuments?: string[];
   outputDocuments?: string[];
   infoSystems?: string[];
+  checklist?: string[];
   funnelStage?: string;
+  isActive?: boolean; // defaults to true when undefined
   connections: string[]; // IDs of next blocks
   conditionLabel?: string; // For decision branches
   isDefault?: boolean; // Default branch from decision
@@ -81,6 +83,7 @@ export interface ProcessRole {
   name: string;
   description: string;
   department?: string;
+  salary?: number; // monthly salary in rubles
   color: string;
 }
 
@@ -99,6 +102,7 @@ export interface ProcessData {
   roles: ProcessRole[];
   stages: ProcessStage[];
   blocks: ProcessBlock[];
+  crmFunnels?: CrmFunnel[];
 }
 
 export interface Process {
@@ -246,6 +250,10 @@ export interface QualityCheckItem {
   passed: boolean;
   details: string;
   severity: "error" | "warning" | "info";
+  location?: string;
+  blockIds?: string[];
+  consequence?: string;
+  recommendation?: string;
 }
 
 export interface QualityCheckResult {
@@ -336,6 +344,8 @@ export const TOKEN_COSTS = {
   change_request: 500,
   recommendations: 200,
   transcription_per_minute: 10,
+  regulation_document: 100,
+  crm_generation: 300,
 } as const;
 
 // Block visual config

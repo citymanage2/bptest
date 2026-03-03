@@ -77,7 +77,7 @@ export interface SwimlaneCanvasProps {
 // ============================================================
 // Helper: Block Heights
 // ============================================================
-function getBlockHeight(type: BlockType): number {
+function getMinBlockHeight(type: BlockType): number {
   switch (type) {
     case "start":
       return 80;
@@ -94,6 +94,77 @@ function getBlockHeight(type: BlockType): number {
     default:
       return 100;
   }
+}
+
+// Offscreen canvas for text measurement in layout
+let _measureCtx: CanvasRenderingContext2D | null = null;
+function getMeasureCtx(): CanvasRenderingContext2D {
+  if (!_measureCtx) {
+    const c = document.createElement("canvas");
+    _measureCtx = c.getContext("2d")!;
+  }
+  return _measureCtx;
+}
+
+const MAX_NAME_LINES = 3;
+
+function computeBlockHeight(block: ProcessBlock, blockWidth: number): number {
+  const minH = getMinBlockHeight(block.type);
+  const config = BLOCK_CONFIG[block.type];
+  const ctx = getMeasureCtx();
+
+  // Determine text max width (same logic as drawBlockContent)
+  let textMaxW: number;
+  switch (config.shape) {
+    case "diamond":
+      textMaxW = blockWidth * 0.45;
+      break;
+    case "hexagon":
+      textMaxW = blockWidth - 72;
+      break;
+    case "triangle":
+      textMaxW = blockWidth * 0.55;
+      break;
+    default:
+      textMaxW = blockWidth - 32;
+      break;
+  }
+
+  // Measure name lines
+  ctx.font = `bold 13px ${FONT_FAMILY}`;
+  const nameLines = wrapText(ctx, block.name, textMaxW, MAX_NAME_LINES);
+  const nameLinesCount = Math.max(nameLines.length, 1);
+
+  // For simple block types (start, end, split), just ensure name fits
+  if (block.type === "start" || block.type === "end" || block.type === "split") {
+    // type label (10+15) + name lines * 17 + padding 12
+    const needed = 12 + 15 + nameLinesCount * 17 + 12;
+    return Math.max(minH, needed);
+  }
+
+  // Decision: type label + "?" icon + name
+  if (block.type === "decision") {
+    const needed = 12 + 15 + 26 + nameLinesCount * 15 + 12;
+    return Math.max(minH, needed);
+  }
+
+  // Action / product: type label + name + description + badges
+  let needed = 12 + 15; // top padding + type label
+  needed += nameLinesCount * 17; // name
+
+  if ((block.type === "action" || block.type === "product") && block.description) {
+    ctx.font = `12px ${FONT_FAMILY}`;
+    const descLines = wrapText(ctx, block.description, textMaxW, 2);
+    needed += 3 + descLines.length * 15; // gap + description
+  }
+
+  if (block.type === "action") {
+    needed += 8 + 22 + 8; // gap + badge height + bottom padding
+  } else {
+    needed += 12; // bottom padding
+  }
+
+  return Math.max(minH, needed);
 }
 
 // ============================================================
@@ -202,6 +273,12 @@ function computeLayout(data: ProcessData): LayoutInfo {
     cellBlocks[key].push(block);
   }
 
+  // Pre-compute actual block heights based on text content
+  const blockHeightMap = new Map<string, number>();
+  for (const block of data.blocks) {
+    blockHeightMap.set(block.id, computeBlockHeight(block, BLOCK_WIDTH));
+  }
+
   // Calculate stage heights based on tallest cell in each stage row
   const stageHeights: number[] = stageOrder.map((stageId) => {
     let maxCellH = 0;
@@ -210,7 +287,7 @@ function computeLayout(data: ProcessData): LayoutInfo {
       const blocks = cellBlocks[key] || [];
       let h = BLOCK_PADDING;
       for (const b of blocks) {
-        h += getBlockHeight(b.type) + BLOCK_PADDING;
+        h += (blockHeightMap.get(b.id) || getMinBlockHeight(b.type)) + BLOCK_PADDING;
       }
       maxCellH = Math.max(maxCellH, h);
     }
@@ -242,7 +319,7 @@ function computeLayout(data: ProcessData): LayoutInfo {
 
       // Calculate total height for vertical centering
       let totalH = 0;
-      for (const b of blocks) totalH += getBlockHeight(b.type);
+      for (const b of blocks) totalH += blockHeightMap.get(b.id) || getMinBlockHeight(b.type);
       totalH += (blocks.length - 1) * BLOCK_PADDING;
 
       const cellTop = stagePositions[si];
@@ -250,7 +327,7 @@ function computeLayout(data: ProcessData): LayoutInfo {
       let yStart = cellTop + (cellHeight - totalH) / 2;
 
       for (const block of blocks) {
-        const bh = getBlockHeight(block.type);
+        const bh = blockHeightMap.get(block.id) || getMinBlockHeight(block.type);
         const bx = lanePositions[ri] + (LANE_WIDTH - BLOCK_WIDTH) / 2;
         layoutBlocks.push({ block, x: bx, y: yStart, w: BLOCK_WIDTH, h: bh });
         yStart += bh + BLOCK_PADDING;
@@ -273,125 +350,765 @@ function computeLayout(data: ProcessData): LayoutInfo {
 }
 
 // ============================================================
-// Connection Routing (orthogonal paths)
+// Connection Routing — Obstacle-Aware Orthogonal Router
 // ============================================================
-function routeConnection(
+
+/** Which side of a block a connection anchors to */
+type AnchorSide = "top" | "bottom" | "left" | "right";
+
+interface Anchor {
+  x: number;
+  y: number;
+  side: AnchorSide;
+}
+
+/** Inflated bounding box used as obstacle for routing */
+interface Obstacle {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+const ROUTE_GAP = 20; // min distance from block edges
+const PARALLEL_SPACING = 12; // spacing between parallel lines
+const CORNER_RADIUS = 8; // rounded corner radius for orthogonal paths
+
+// ---- Anchor selection --------------------------------------------------------
+
+function getBlockCenter(lb: LayoutBlock): Point {
+  return { x: lb.x + lb.w / 2, y: lb.y + lb.h / 2 };
+}
+
+function getAnchorPoint(lb: LayoutBlock, side: AnchorSide, offset = 0): Anchor {
+  const cx = lb.x + lb.w / 2;
+  const cy = lb.y + lb.h / 2;
+  switch (side) {
+    case "top":
+      return { x: cx + offset, y: lb.y, side };
+    case "bottom":
+      return { x: cx + offset, y: lb.y + lb.h, side };
+    case "left":
+      return { x: lb.x, y: cy + offset, side };
+    case "right":
+      return { x: lb.x + lb.w, y: cy + offset, side };
+  }
+}
+
+function getDiamondAnchor(lb: LayoutBlock, side: AnchorSide): Anchor {
+  const cx = lb.x + lb.w / 2;
+  const cy = lb.y + lb.h / 2;
+  switch (side) {
+    case "top":
+      return { x: cx, y: lb.y, side };
+    case "bottom":
+      return { x: cx, y: lb.y + lb.h, side };
+    case "left":
+      return { x: lb.x, y: cy, side };
+    case "right":
+      return { x: lb.x + lb.w, y: cy, side };
+  }
+}
+
+/** Choose the best exit side for a source block toward a target */
+function chooseBestExitSide(
   source: LayoutBlock,
   target: LayoutBlock,
   connIndex: number,
   totalConns: number,
-): Point[] {
-  const tx = target.x + target.w / 2;
-  const ty = target.y;
-
-  // Special handling for decision blocks (diamonds) - exit from corners based on conditionLabel
+  _allTargets?: LayoutBlock[],
+): AnchorSide {
+  // Decision blocks: first exit → bottom (main flow), rest → left/right, never top
   if (source.block.type === "decision") {
-    const conditionLabel = target.block.conditionLabel?.toLowerCase();
-    const cy = source.y + source.h / 2; // center Y of diamond
-
-    // "Да" (Yes) branch - exit from LEFT corner of diamond
-    if (conditionLabel === "да") {
-      const sx = source.x; // left corner X
-      const sy = cy; // left corner Y (center height)
-
-      // Route: left -> horizontal -> down to target
-      const gap = 35;
-      const routeX = Math.min(source.x - gap, tx);
-
-      return [
-        { x: sx, y: sy },
-        { x: routeX, y: sy },
-        { x: routeX, y: ty - gap },
-        { x: tx, y: ty - gap },
-        { x: tx, y: ty },
-      ];
+    // Primary branch always exits from bottom vertex (forward/happy path)
+    if (connIndex === 0) return "bottom";
+    // Remaining branches exit from side vertices (never top — top is entry only)
+    if (totalConns === 2) {
+      // Single remaining exit — choose side based on target position
+      const sc = getBlockCenter(source);
+      const tc = getBlockCenter(target);
+      return tc.x <= sc.x ? "left" : "right";
     }
-
-    // "Нет" (No) branch - exit from RIGHT corner of diamond
-    if (conditionLabel === "нет") {
-      const sx = source.x + source.w; // right corner X
-      const sy = cy; // right corner Y (center height)
-
-      // Route: right -> horizontal -> down to target
-      const gap = 35;
-      const routeX = Math.max(source.x + source.w + gap, tx);
-
-      return [
-        { x: sx, y: sy },
-        { x: routeX, y: sy },
-        { x: routeX, y: ty - gap },
-        { x: tx, y: ty - gap },
-        { x: tx, y: ty },
-      ];
-    }
-
-    // Default branch (no specific label or isDefault) - exit from bottom
-    const sx = source.x + source.w / 2;
-    const sy = source.y + source.h;
-
-    if (ty > sy + 5) {
-      if (Math.abs(sx - tx) < 8) {
-        return [
-          { x: sx, y: sy },
-          { x: tx, y: ty },
-        ];
-      }
-      const midY = (sy + ty) / 2;
-      return [
-        { x: sx, y: sy },
-        { x: sx, y: midY },
-        { x: tx, y: midY },
-        { x: tx, y: ty },
-      ];
-    }
+    // 3+ exits: distribute across left and right
+    if (connIndex === 1) return "left";
+    return "right";
   }
 
-  // Standard routing for non-decision blocks
-  // Spread multiple exit points horizontally
-  const spread = Math.min(totalConns - 1, 4) * 14;
-  const exitOffset =
-    totalConns > 1
-      ? -spread / 2 +
-        connIndex * (spread / Math.max(totalConns - 1, 1))
-      : 0;
+  const sc = getBlockCenter(source);
+  const tc = getBlockCenter(target);
+  const dx = tc.x - sc.x;
+  const dy = tc.y - sc.y;
 
-  const sx = source.x + source.w / 2 + exitOffset;
-  const sy = source.y + source.h;
+  // Strongly prefer bottom for forward flow
+  if (dy > source.h / 2) {
+    // Target is below — if it's roughly in the same column, go bottom
+    if (Math.abs(dx) < source.w * 1.5) return "bottom";
+    // Otherwise side exit
+    return dx > 0 ? "right" : "left";
+  }
 
-  // Normal downward flow
-  if (ty > sy + 5) {
-    // Same column - straight vertical line
-    if (Math.abs(sx - tx) < 8) {
-      return [
-        { x: sx, y: sy },
-        { x: tx, y: ty },
-      ];
+  // Target is at same level or above (backward/lateral)
+  if (Math.abs(dy) < source.h) {
+    return dx > 0 ? "right" : "left";
+  }
+
+  // Target is above (backward connection)
+  if (Math.abs(dx) < source.w) return "top";
+  return dx > 0 ? "right" : "left";
+}
+
+/** Choose the best entry side for a target block from a source */
+function chooseBestEntrySide(
+  source: LayoutBlock,
+  target: LayoutBlock,
+  exitSide: AnchorSide,
+): AnchorSide {
+  // Decision (diamond) blocks: ALWAYS enter from top
+  if (target.block.type === "decision") {
+    return "top";
+  }
+
+  const sc = getBlockCenter(source);
+  const tc = getBlockCenter(target);
+  const dy = tc.y - sc.y;
+  const dx = tc.x - sc.x;
+
+  // Standard forward flow → enter from top
+  if (dy > 0 && exitSide === "bottom") return "top";
+
+  // Lateral flow — enter from the opposite side of approach
+  if (exitSide === "right") {
+    if (dx > target.w * 0.5) return "left";
+    return dy > 0 ? "top" : "bottom";
+  }
+  if (exitSide === "left") {
+    if (dx < -target.w * 0.5) return "right";
+    return dy > 0 ? "top" : "bottom";
+  }
+
+  // Backward flow (exit from top)
+  if (exitSide === "top") {
+    if (dy < -target.h * 0.5) return "bottom";
+    return dx > 0 ? "left" : "right";
+  }
+
+  return "top";
+}
+
+// ---- Obstacle-aware orthogonal routing --------------------------------------
+
+function blockToObstacle(lb: LayoutBlock, margin: number): Obstacle {
+  return {
+    x1: lb.x - margin,
+    y1: lb.y - margin,
+    x2: lb.x + lb.w + margin,
+    y2: lb.y + lb.h + margin,
+  };
+}
+
+function pointInObstacle(p: Point, obs: Obstacle): boolean {
+  return p.x > obs.x1 && p.x < obs.x2 && p.y > obs.y1 && p.y < obs.y2;
+}
+
+function segmentIntersectsObstacle(
+  a: Point,
+  b: Point,
+  obs: Obstacle,
+): boolean {
+  // Check if horizontal/vertical segment intersects obstacle
+  const minX = Math.min(a.x, b.x);
+  const maxX = Math.max(a.x, b.x);
+  const minY = Math.min(a.y, b.y);
+  const maxY = Math.max(a.y, b.y);
+
+  // No overlap check
+  if (maxX < obs.x1 || minX > obs.x2 || maxY < obs.y1 || minY > obs.y2) {
+    return false;
+  }
+
+  // Horizontal segment
+  if (Math.abs(a.y - b.y) < 1) {
+    return a.y > obs.y1 && a.y < obs.y2 && maxX > obs.x1 && minX < obs.x2;
+  }
+
+  // Vertical segment
+  if (Math.abs(a.x - b.x) < 1) {
+    return a.x > obs.x1 && a.x < obs.x2 && maxY > obs.y1 && minY < obs.y2;
+  }
+
+  return false;
+}
+
+/** Check if a full route (all segments) intersects any obstacle */
+function routeIntersectsAnyObstacle(pts: Point[], obstacles: Obstacle[]): boolean {
+  for (let i = 0; i < pts.length - 1; i++) {
+    for (const obs of obstacles) {
+      if (segmentIntersectsObstacle(pts[i], pts[i + 1], obs)) return true;
     }
-    // Z-route through midpoint
-    const midY = (sy + ty) / 2;
-    return [
-      { x: sx, y: sy },
-      { x: sx, y: midY },
-      { x: tx, y: midY },
-      { x: tx, y: ty },
+  }
+  return false;
+}
+
+/** Build orthogonal route from exit anchor to entry anchor, avoiding obstacles.
+ *  `sourceObs`/`targetObs` are the inflated bboxes of source/target — intermediate
+ *  segments must not cross them (only the first step-out and last step-in may). */
+function buildOrthogonalRoute(
+  exit: Anchor,
+  entry: Anchor,
+  obstacles: Obstacle[],
+  sourceBlock: LayoutBlock,
+  targetBlock: LayoutBlock,
+  sourceObs?: Obstacle,
+  targetObs?: Obstacle,
+): Point[] {
+  const gap = ROUTE_GAP;
+
+  // All obstacles including source/target for intermediate segment checks
+  const allObs = [...obstacles];
+  if (sourceObs) allObs.push(sourceObs);
+  if (targetObs) allObs.push(targetObs);
+
+  // ---- Fast path: simple straight connection ----
+  const isDirectVertical =
+    exit.side === "bottom" && entry.side === "top" &&
+    Math.abs(exit.x - entry.x) < 2;
+  const isDirectHorizontal =
+    ((exit.side === "right" && entry.side === "left") ||
+     (exit.side === "left" && entry.side === "right")) &&
+    Math.abs(exit.y - entry.y) < 2;
+
+  if (isDirectVertical || isDirectHorizontal) {
+    const straight = [
+      { x: exit.x, y: exit.y },
+      { x: entry.x, y: entry.y },
     ];
+    // For straight connections only check other-block obstacles (not source/target)
+    if (!routeIntersectsAnyObstacle(straight, obstacles)) {
+      return straight;
+    }
   }
 
-  // Backward or same-level flow - route around the side
-  const gap = 35;
-  const isRight = tx > sx;
-  const sideX = isRight
-    ? Math.max(source.x + source.w, target.x + target.w) + gap
-    : Math.min(source.x, target.x) - gap;
+  // ---- Near-straight: blocks stacked vertically (bottom→top) ----
+  if (exit.side === "bottom" && entry.side === "top") {
+    const midY = (exit.y + entry.y) / 2;
+    const simple: Point[] = [
+      { x: exit.x, y: exit.y },
+      { x: exit.x, y: midY },
+      { x: entry.x, y: midY },
+      { x: entry.x, y: entry.y },
+    ];
+    // Check against other-block obstacles only (first/last connect to source/target)
+    if (!routeIntersectsAnyObstacle(simple, obstacles)) {
+      return simplifyPath(simple);
+    }
+  }
 
-  return [
-    { x: sx, y: sy },
-    { x: sx, y: sy + gap },
-    { x: sideX, y: sy + gap },
-    { x: sideX, y: ty - gap },
-    { x: tx, y: ty - gap },
-    { x: tx, y: ty },
-  ];
+  // ---- General orthogonal routing ----
+  const points: Point[] = [];
+
+  // Step out from exit anchor
+  let ex: Point;
+  switch (exit.side) {
+    case "bottom":
+      ex = { x: exit.x, y: exit.y + gap };
+      break;
+    case "top":
+      ex = { x: exit.x, y: exit.y - gap };
+      break;
+    case "left":
+      ex = { x: exit.x - gap, y: exit.y };
+      break;
+    case "right":
+      ex = { x: exit.x + gap, y: exit.y };
+      break;
+  }
+
+  // Step in to entry anchor
+  let en: Point;
+  switch (entry.side) {
+    case "top":
+      en = { x: entry.x, y: entry.y - gap };
+      break;
+    case "bottom":
+      en = { x: entry.x, y: entry.y + gap };
+      break;
+    case "left":
+      en = { x: entry.x - gap, y: entry.y };
+      break;
+    case "right":
+      en = { x: entry.x + gap, y: entry.y };
+      break;
+  }
+
+  points.push({ x: exit.x, y: exit.y });
+  points.push(ex);
+
+  const isExHorizontal = exit.side === "left" || exit.side === "right";
+  const isEnHorizontal = entry.side === "left" || entry.side === "right";
+
+  // Detect U-route: both same axis AND target is behind the exit direction
+  const needsURoute = (() => {
+    if (isExHorizontal && isEnHorizontal) {
+      if (exit.side === "right" && en.x < ex.x) return true;
+      if (exit.side === "left" && en.x > ex.x) return true;
+    }
+    if (!isExHorizontal && !isEnHorizontal) {
+      if (exit.side === "bottom" && en.y < ex.y) return true;
+      if (exit.side === "top" && en.y > ex.y) return true;
+    }
+    return false;
+  })();
+
+  if (needsURoute) {
+    // U-route: go out, perpendicular bypass around source+target, come back to entry
+    const sObs = sourceObs || blockToObstacle(sourceBlock, gap);
+    const tObs = targetObs || blockToObstacle(targetBlock, gap);
+    if (isExHorizontal) {
+      const bypassAbove = Math.min(sObs.y1, tObs.y1) - gap;
+      const bypassBelow = Math.max(sObs.y2, tObs.y2) + gap;
+      const distAbove = Math.abs(ex.y - bypassAbove) + Math.abs(en.y - bypassAbove);
+      const distBelow = Math.abs(ex.y - bypassBelow) + Math.abs(en.y - bypassBelow);
+      const bypassY = findSafeHorizontalY(
+        distAbove < distBelow ? bypassAbove : bypassBelow,
+        ex, en, allObs, sourceBlock, targetBlock,
+      );
+      points.push({ x: ex.x, y: bypassY });
+      points.push({ x: en.x, y: bypassY });
+    } else {
+      const bypassLeft = Math.min(sObs.x1, tObs.x1) - gap;
+      const bypassRight = Math.max(sObs.x2, tObs.x2) + gap;
+      const distLeft = Math.abs(ex.x - bypassLeft) + Math.abs(en.x - bypassLeft);
+      const distRight = Math.abs(ex.x - bypassRight) + Math.abs(en.x - bypassRight);
+      const bypassX = findSafeVerticalX(
+        distLeft < distRight ? bypassLeft : bypassRight,
+        ex, en, allObs, sourceBlock, targetBlock,
+      );
+      points.push({ x: bypassX, y: ex.y });
+      points.push({ x: bypassX, y: en.y });
+    }
+  } else if (isExHorizontal === isEnHorizontal) {
+    // Both on same axis → Z-route (3 segments)
+    if (isExHorizontal) {
+      const midX = (ex.x + en.x) / 2;
+      const safeMidX = findSafeVerticalX(midX, ex, en, allObs, sourceBlock, targetBlock);
+      points.push({ x: safeMidX, y: ex.y });
+      points.push({ x: safeMidX, y: en.y });
+    } else {
+      const midY = (ex.y + en.y) / 2;
+      const safeMidY = findSafeHorizontalY(midY, ex, en, allObs, sourceBlock, targetBlock);
+      points.push({ x: ex.x, y: safeMidY });
+      points.push({ x: en.x, y: safeMidY });
+    }
+  } else {
+    // Different axes → L-route
+    const corner1: Point = { x: en.x, y: ex.y };
+    const corner2: Point = { x: ex.x, y: en.y };
+
+    const c1Blocked = allObs.some(
+      (o) =>
+        segmentIntersectsObstacle(ex, corner1, o) ||
+        segmentIntersectsObstacle(corner1, en, o),
+    );
+    const c2Blocked = allObs.some(
+      (o) =>
+        segmentIntersectsObstacle(ex, corner2, o) ||
+        segmentIntersectsObstacle(corner2, en, o),
+    );
+
+    if (!c1Blocked) {
+      points.push(corner1);
+    } else if (!c2Blocked) {
+      points.push(corner2);
+    } else {
+      // Both blocked → Z-route via mid
+      if (isExHorizontal) {
+        const midX = (ex.x + en.x) / 2;
+        const safeMidX = findSafeVerticalX(midX, ex, en, allObs, sourceBlock, targetBlock);
+        points.push({ x: safeMidX, y: ex.y });
+        points.push({ x: safeMidX, y: en.y });
+      } else {
+        const midY = (ex.y + en.y) / 2;
+        const safeMidY = findSafeHorizontalY(midY, ex, en, allObs, sourceBlock, targetBlock);
+        points.push({ x: ex.x, y: safeMidY });
+        points.push({ x: en.x, y: safeMidY });
+      }
+    }
+  }
+
+  points.push(en);
+  points.push({ x: entry.x, y: entry.y });
+
+  return simplifyPath(points);
+}
+
+/** Try to find an X coordinate for a vertical segment that doesn't cross obstacles */
+function findSafeVerticalX(
+  preferred: number,
+  from: Point,
+  to: Point,
+  obstacles: Obstacle[],
+  _source: LayoutBlock,
+  _target: LayoutBlock,
+): number {
+  const minY = Math.min(from.y, to.y);
+  const maxY = Math.max(from.y, to.y);
+  const testSeg = (x: number) =>
+    obstacles.some((o) =>
+      segmentIntersectsObstacle({ x, y: minY }, { x, y: maxY }, o),
+    );
+
+  if (!testSeg(preferred)) return preferred;
+
+  // Try shifting left and right with wider range
+  for (let offset = 20; offset <= 400; offset += 15) {
+    if (!testSeg(preferred - offset)) return preferred - offset;
+    if (!testSeg(preferred + offset)) return preferred + offset;
+  }
+  return preferred;
+}
+
+/** Try to find a Y coordinate for a horizontal segment that doesn't cross obstacles */
+function findSafeHorizontalY(
+  preferred: number,
+  from: Point,
+  to: Point,
+  obstacles: Obstacle[],
+  _source: LayoutBlock,
+  _target: LayoutBlock,
+): number {
+  const minX = Math.min(from.x, to.x);
+  const maxX = Math.max(from.x, to.x);
+  const testSeg = (y: number) =>
+    obstacles.some((o) =>
+      segmentIntersectsObstacle({ x: minX, y }, { x: maxX, y }, o),
+    );
+
+  if (!testSeg(preferred)) return preferred;
+
+  for (let offset = 20; offset <= 400; offset += 15) {
+    if (!testSeg(preferred - offset)) return preferred - offset;
+    if (!testSeg(preferred + offset)) return preferred + offset;
+  }
+  return preferred;
+}
+
+/** Remove redundant collinear points and duplicates */
+function simplifyPath(pts: Point[]): Point[] {
+  if (pts.length <= 2) return pts;
+
+  // Remove duplicate consecutive points
+  const dedup: Point[] = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {
+    if (
+      Math.abs(pts[i].x - dedup[dedup.length - 1].x) > 0.5 ||
+      Math.abs(pts[i].y - dedup[dedup.length - 1].y) > 0.5
+    ) {
+      dedup.push(pts[i]);
+    }
+  }
+
+  if (dedup.length <= 2) return dedup;
+
+  // Remove collinear middle points
+  const result: Point[] = [dedup[0]];
+  for (let i = 1; i < dedup.length - 1; i++) {
+    const prev = result[result.length - 1];
+    const curr = dedup[i];
+    const next = dedup[i + 1];
+    const sameX = Math.abs(prev.x - curr.x) < 1 && Math.abs(curr.x - next.x) < 1;
+    const sameY = Math.abs(prev.y - curr.y) < 1 && Math.abs(curr.y - next.y) < 1;
+    // Skip only if collinear (all 3 on same X or same Y line)
+    if (!sameX && !sameY) {
+      result.push(curr);
+    }
+  }
+  result.push(dedup[dedup.length - 1]);
+  return result;
+}
+
+// ---- Crossing detection and nudging -----------------------------------------
+
+interface RoutedConnection {
+  sourceId: string;
+  targetId: string;
+  connIndex: number;
+  points: Point[];
+  isBackward: boolean;
+}
+
+function segmentsIntersect(
+  a1: Point,
+  a2: Point,
+  b1: Point,
+  b2: Point,
+): boolean {
+  // Only check orthogonal segment crossings (H vs V)
+  const aHoriz = Math.abs(a1.y - a2.y) < 1;
+  const bHoriz = Math.abs(b1.y - b2.y) < 1;
+
+  if (aHoriz === bHoriz) return false; // parallel, no crossing
+
+  const h = aHoriz ? { y: a1.y, x1: Math.min(a1.x, a2.x), x2: Math.max(a1.x, a2.x) } : { y: b1.y, x1: Math.min(b1.x, b2.x), x2: Math.max(b1.x, b2.x) };
+  const v = aHoriz ? { x: b1.x, y1: Math.min(b1.y, b2.y), y2: Math.max(b1.y, b2.y) } : { x: a1.x, y1: Math.min(a1.y, a2.y), y2: Math.max(a1.y, a2.y) };
+
+  return v.x > h.x1 + 2 && v.x < h.x2 - 2 && h.y > v.y1 + 2 && h.y < v.y2 - 2;
+}
+
+/** Count total crossings among all routed connections */
+function countCrossings(routes: RoutedConnection[]): number {
+  let count = 0;
+  for (let i = 0; i < routes.length; i++) {
+    for (let j = i + 1; j < routes.length; j++) {
+      const a = routes[i].points;
+      const b = routes[j].points;
+      for (let ai = 0; ai < a.length - 1; ai++) {
+        for (let bi = 0; bi < b.length - 1; bi++) {
+          if (segmentsIntersect(a[ai], a[ai + 1], b[bi], b[bi + 1])) {
+            count++;
+          }
+        }
+      }
+    }
+  }
+  return count;
+}
+
+/** Nudge parallel overlapping horizontal segments apart */
+function nudgeParallelSegments(routes: RoutedConnection[]): void {
+  // Find horizontal segments that share the same Y
+  const hSegs: { routeIdx: number; segIdx: number; y: number; x1: number; x2: number }[] = [];
+  for (let ri = 0; ri < routes.length; ri++) {
+    const pts = routes[ri].points;
+    for (let si = 0; si < pts.length - 1; si++) {
+      if (Math.abs(pts[si].y - pts[si + 1].y) < 1) {
+        hSegs.push({
+          routeIdx: ri,
+          segIdx: si,
+          y: pts[si].y,
+          x1: Math.min(pts[si].x, pts[si + 1].x),
+          x2: Math.max(pts[si].x, pts[si + 1].x),
+        });
+      }
+    }
+  }
+
+  // Group by similar Y (within 3px)
+  type HSeg = typeof hSegs[number];
+  const groups: HSeg[][] = [];
+  const used = new Set<number>();
+  for (let i = 0; i < hSegs.length; i++) {
+    if (used.has(i)) continue;
+    const group = [hSegs[i]];
+    used.add(i);
+    for (let j = i + 1; j < hSegs.length; j++) {
+      if (used.has(j)) continue;
+      if (Math.abs(hSegs[i].y - hSegs[j].y) < 3) {
+        // Check if they overlap on X
+        if (hSegs[i].x1 < hSegs[j].x2 && hSegs[j].x1 < hSegs[i].x2) {
+          group.push(hSegs[j]);
+          used.add(j);
+        }
+      }
+    }
+    if (group.length > 1) groups.push(group);
+  }
+
+  // Spread each group
+  for (const group of groups) {
+    const totalSpread = (group.length - 1) * PARALLEL_SPACING;
+    const baseY = group[0].y;
+    for (let i = 0; i < group.length; i++) {
+      const offsetY = -totalSpread / 2 + i * PARALLEL_SPACING;
+      const { routeIdx, segIdx } = group[i];
+      const pts = routes[routeIdx].points;
+      pts[segIdx].y = baseY + offsetY;
+      pts[segIdx + 1].y = baseY + offsetY;
+    }
+  }
+}
+
+// ---- Main routing entry point -----------------------------------------------
+
+// Resolve the next active target by following connections through inactive blocks
+function resolveActiveTargets(blockId: string, allBlocks: ProcessBlock[], visited: Set<string> = new Set()): string[] {
+  if (visited.has(blockId)) return [];
+  visited.add(blockId);
+  const block = allBlocks.find((b) => b.id === blockId);
+  if (!block) return [];
+  if (block.isActive !== false) return [blockId];
+  // Block is inactive — follow its connections to find the next active
+  const results: string[] = [];
+  for (const connId of block.connections) {
+    results.push(...resolveActiveTargets(connId, allBlocks, visited));
+  }
+  return results;
+}
+
+function routeAllConnections(
+  allBlocks: ProcessBlock[],
+  blockMap: Record<string, LayoutBlock>,
+): RoutedConnection[] {
+  const routes: RoutedConnection[] = [];
+
+  // Build obstacles from all blocks (inflated by margin so lines route around blocks)
+  const allObstacles: { blockId: string; obs: Obstacle }[] = [];
+  for (const lb of Object.values(blockMap)) {
+    allObstacles.push({ blockId: lb.block.id, obs: blockToObstacle(lb, ROUTE_GAP) });
+  }
+
+  // Build effective connections that bypass inactive blocks
+  type EffConn = { sourceId: string; targetId: string; connIndex: number };
+  const effectiveConnections: EffConn[] = [];
+
+  for (const block of allBlocks) {
+    if (block.isActive === false) continue; // Skip inactive sources
+    for (let ci = 0; ci < block.connections.length; ci++) {
+      const rawTargetId = block.connections[ci];
+      const rawTarget = allBlocks.find((b) => b.id === rawTargetId);
+      if (rawTarget && rawTarget.isActive === false) {
+        // Bypass through inactive block
+        const activeTargets = resolveActiveTargets(rawTargetId, allBlocks);
+        for (const at of activeTargets) {
+          effectiveConnections.push({ sourceId: block.id, targetId: at, connIndex: ci });
+        }
+      } else {
+        effectiveConnections.push({ sourceId: block.id, targetId: rawTargetId, connIndex: ci });
+      }
+    }
+  }
+
+  for (const { sourceId, targetId, connIndex: ci } of effectiveConnections) {
+    const block = allBlocks.find((b) => b.id === sourceId);
+    if (!block) continue;
+    const source = blockMap[sourceId];
+    if (!source) continue;
+
+    const totalConns = effectiveConnections.filter((c) => c.sourceId === sourceId).length;
+
+    // Pre-compute all target LayoutBlocks for decision blocks (needed for pair divergence)
+    const allTargets: LayoutBlock[] = effectiveConnections
+      .filter((c) => c.sourceId === sourceId)
+      .map((c) => blockMap[c.targetId])
+      .filter(Boolean);
+
+    {
+      const target = blockMap[targetId];
+      if (!target) continue;
+
+      const sc = getBlockCenter(source);
+      const tc = getBlockCenter(target);
+      const isBackward = tc.y < sc.y - source.h / 2;
+
+      // Choose anchor sides
+      const exitSide = chooseBestExitSide(source, target, ci, totalConns, allTargets);
+      const entrySide = chooseBestEntrySide(source, target, exitSide);
+
+      // Compute exit offset for multiple connections from same side
+      const sameSideConns = block.connections
+        .map((cid, idx) => ({ cid, idx }))
+        .filter((c) => {
+          const t = blockMap[c.cid];
+          if (!t) return false;
+          return chooseBestExitSide(source, t, c.idx, totalConns, allTargets) === exitSide;
+        });
+      const sameSideIdx = sameSideConns.findIndex((c) => c.idx === ci);
+      const exitOffset =
+        sameSideConns.length > 1
+          ? -((sameSideConns.length - 1) * PARALLEL_SPACING) / 2 +
+            sameSideIdx * PARALLEL_SPACING
+          : 0;
+
+      // Get anchors
+      const isDiamond = source.block.type === "decision";
+      const exitAnchor = isDiamond
+        ? getDiamondAnchor(source, exitSide)
+        : getAnchorPoint(source, exitSide, exitOffset);
+
+      const entryAnchor =
+        target.block.type === "decision"
+          ? getDiamondAnchor(target, entrySide)
+          : getAnchorPoint(target, entrySide, 0);
+
+      // Build obstacle list — include ALL blocks except source/target for general obstacles,
+      // but also pass source+target obstacles separately so intermediate segments avoid them
+      const otherObstacles = allObstacles
+        .filter((o) => o.blockId !== block.id && o.blockId !== targetId)
+        .map((o) => o.obs);
+
+      // Source and target as obstacles for intermediate segments (lines shouldn't cross them)
+      const sourceObs = blockToObstacle(source, ROUTE_GAP);
+      const targetObs = blockToObstacle(target, ROUTE_GAP);
+
+      const points = buildOrthogonalRoute(
+        exitAnchor,
+        entryAnchor,
+        otherObstacles,
+        source,
+        target,
+        sourceObs,
+        targetObs,
+      );
+
+      routes.push({
+        sourceId: sourceId,
+        targetId,
+        connIndex: ci,
+        points,
+        isBackward,
+      });
+    }
+  }
+
+  // Post-process: nudge parallel segments
+  nudgeParallelSegments(routes);
+
+  return routes;
+}
+
+// ---- Drawing helpers --------------------------------------------------------
+
+/** Draw a polyline with rounded corners at each turn */
+function drawRoundedPolyline(
+  ctx: CanvasRenderingContext2D,
+  points: Point[],
+  radius: number,
+) {
+  if (points.length < 2) return;
+
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = points[i - 1];
+    const curr = points[i];
+    const next = points[i + 1];
+
+    // Distance to prev and next
+    const d1 = Math.hypot(curr.x - prev.x, curr.y - prev.y);
+    const d2 = Math.hypot(next.x - curr.x, next.y - curr.y);
+    const r = Math.min(radius, d1 / 2, d2 / 2);
+
+    if (r < 2) {
+      ctx.lineTo(curr.x, curr.y);
+      continue;
+    }
+
+    // Point before corner
+    const ratio1 = r / d1;
+    const bx = curr.x - (curr.x - prev.x) * ratio1;
+    const by = curr.y - (curr.y - prev.y) * ratio1;
+
+    // Point after corner
+    const ratio2 = r / d2;
+    const ax = curr.x + (next.x - curr.x) * ratio2;
+    const ay = curr.y + (next.y - curr.y) * ratio2;
+
+    ctx.lineTo(bx, by);
+    ctx.quadraticCurveTo(curr.x, curr.y, ax, ay);
+  }
+
+  ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+  ctx.stroke();
 }
 
 function drawArrowHead(
@@ -592,20 +1309,32 @@ function drawBlockShape(
   lb: LayoutBlock,
   isHighlighted: boolean,
   isSelected: boolean,
+  isConnectedHighlight: boolean = false,
 ) {
   const { block, x, y, w, h } = lb;
   const config = BLOCK_CONFIG[block.type];
-  const fill = getBlockFill(block.type);
-  const border = config.borderColor;
-  const lw = isHighlighted || isSelected ? 3 : 2;
+  const isInactive = block.isActive === false;
+  const fill = isInactive ? "#E5E7EB" : getBlockFill(block.type);
+  const border = isInactive ? "#9ca3af" : config.borderColor;
+  const lw = isHighlighted || isSelected ? 3 : isConnectedHighlight ? 2.5 : 2;
 
   // Shadow
   ctx.save();
-  if (isHighlighted || isSelected) {
+  if (isInactive) {
+    ctx.shadowColor = "rgba(0, 0, 0, 0.04)";
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 2;
+  } else if (isHighlighted || isSelected) {
     ctx.shadowColor = hexToRgba(border, 0.35);
     ctx.shadowBlur = 18;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 4;
+  } else if (isConnectedHighlight) {
+    ctx.shadowColor = "rgba(99, 102, 241, 0.25)";
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 3;
   } else {
     ctx.shadowColor = "rgba(0, 0, 0, 0.08)";
     ctx.shadowBlur = 10;
@@ -636,6 +1365,41 @@ function drawBlockShape(
 
   ctx.restore();
 
+  // Connected highlight: light tinted overlay
+  if (isConnectedHighlight) {
+    ctx.save();
+    ctx.globalAlpha = 0.12;
+    ctx.fillStyle = "#6366f1";
+    switch (config.shape) {
+      case "pill":
+        drawPill(ctx, x, y, w, h, "transparent", "#6366f1", 0);
+        break;
+      case "hexagon":
+        drawHexagon(ctx, x, y, w, h, "transparent", "#6366f1", 0);
+        break;
+      case "rounded-rect":
+        drawRoundedRect(ctx, x, y, w, h, "transparent", "#6366f1", 0);
+        break;
+      case "diamond":
+        drawDiamond(ctx, x, y, w, h, "transparent", "#6366f1", 0);
+        break;
+      case "triangle":
+        drawInvertedTriangle(ctx, x, y, w, h, "transparent", "#6366f1", 0);
+        break;
+      case "double-rect":
+        drawDoubleRect(ctx, x, y, w, h, "transparent", "#6366f1", 0);
+        break;
+    }
+    ctx.globalAlpha = 1;
+    // Subtle colored border on top
+    ctx.strokeStyle = "rgba(99, 102, 241, 0.4)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(x - 2, y - 2, w + 4, h + 4, 14);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // Selected indicator: dashed outline
   if (isSelected) {
     ctx.save();
@@ -654,6 +1418,13 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
   const { block, x, y, w, h } = lb;
   const config = BLOCK_CONFIG[block.type];
   const cx = x + w / 2;
+  const isInactive = block.isActive === false;
+
+  // Reduce opacity for inactive blocks
+  if (isInactive) {
+    ctx.save();
+    ctx.globalAlpha = 0.45;
+  }
 
   // Calculate text area constraints based on shape
   let textMaxW: number;
@@ -696,7 +1467,7 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
 
     ctx.font = `bold 12px ${FONT_FAMILY}`;
     ctx.fillStyle = "#1e3a5f";
-    const nameLines = wrapText(ctx, block.name, textMaxW, 2);
+    const nameLines = wrapText(ctx, block.name, textMaxW, MAX_NAME_LINES);
     for (const line of nameLines) {
       ctx.fillText(line, cx, curY);
       curY += 15;
@@ -707,7 +1478,7 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
   // Block name
   ctx.fillStyle = "#111827";
   ctx.font = `bold 13px ${FONT_FAMILY}`;
-  const nameLines = wrapText(ctx, block.name, textMaxW, 2);
+  const nameLines = wrapText(ctx, block.name, textMaxW, MAX_NAME_LINES);
   for (const line of nameLines) {
     ctx.fillText(line, cx, curY);
     curY += 17;
@@ -775,6 +1546,30 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
       ctx.textBaseline = "top";
     }
   }
+
+  // Restore opacity for inactive blocks
+  if (isInactive) {
+    ctx.restore();
+
+    // Draw "ВЫКЛ" badge at top-right
+    const badgeText = "ВЫКЛ";
+    ctx.save();
+    ctx.font = "bold 9px Inter, system-ui, sans-serif";
+    const tw = ctx.measureText(badgeText).width;
+    const bw = tw + 8;
+    const bh = 16;
+    const bx = x + w - bw - 4;
+    const by = y + 4;
+    ctx.fillStyle = "#6b7280";
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, 4);
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(badgeText, bx + bw / 2, by + bh / 2);
+    ctx.restore();
+  }
 }
 
 // ============================================================
@@ -802,101 +1597,173 @@ function drawAllConnections(
   hoveredBlockId: string | null,
   selectedBlockId: string | null | undefined,
 ) {
-  for (const block of allBlocks) {
-    const source = blockMap[block.id];
-    if (!source) continue;
+  // Route all connections with the new algorithm
+  const routes = routeAllConnections(allBlocks, blockMap);
 
-    const totalConns = block.connections.length;
-    for (let ci = 0; ci < block.connections.length; ci++) {
-      const targetId = block.connections[ci];
-      const target = blockMap[targetId];
-      if (!target) continue;
+  // Z-order: draw normal connections first, then highlighted on top
+  const normal: typeof routes = [];
+  const highlighted: typeof routes = [];
 
-      const isHL =
-        block.id === hoveredBlockId ||
-        block.id === selectedBlockId ||
-        targetId === hoveredBlockId ||
-        targetId === selectedBlockId;
+  for (const route of routes) {
+    const isHL =
+      route.sourceId === hoveredBlockId ||
+      route.sourceId === selectedBlockId ||
+      route.targetId === hoveredBlockId ||
+      route.targetId === selectedBlockId;
+    if (isHL) highlighted.push(route);
+    else normal.push(route);
+  }
 
-      const points = routeConnection(source, target, ci, totalConns);
+  // Draw function for a single route
+  const drawRoute = (route: RoutedConnection, isHL: boolean) => {
+    const { points, isBackward, sourceId, targetId, connIndex: ci } = route;
+    if (points.length < 2) return;
 
-      // Draw the polyline path
-      ctx.strokeStyle = isHL ? "#3b82f6" : "#6b7280";
-      ctx.lineWidth = isHL ? 2.5 : 2;
-      ctx.setLineDash([]);
+    const sourceBlock = allBlocks.find((b) => b.id === sourceId);
+    if (!sourceBlock) return;
 
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      for (let i = 1; i < points.length; i++) {
-        ctx.lineTo(points[i].x, points[i].y);
+    // Line style
+    ctx.strokeStyle = isHL ? "#3b82f6" : isBackward ? "#9ca3af" : "#6b7280";
+    ctx.lineWidth = isHL ? 2.5 : 1.8;
+    ctx.setLineDash(isBackward ? [6, 4] : []);
+
+    // Draw with rounded corners
+    drawRoundedPolyline(ctx, points, CORNER_RADIUS);
+    ctx.setLineDash([]);
+
+    // Arrow head
+    const last = points[points.length - 1];
+    const prev = points[points.length - 2];
+    ctx.fillStyle = isHL ? "#3b82f6" : isBackward ? "#9ca3af" : "#6b7280";
+    drawArrowHead(ctx, last.x, last.y, prev.x, prev.y, isHL ? 11 : 9);
+
+    // ---- Condition labels ----
+    const targetBlock = allBlocks.find((b) => b.id === targetId);
+    const autoDecisionLabels = ["Да", "Нет"];
+    const shouldShowLabel =
+      sourceBlock.type === "decision" ||
+      (sourceBlock.type === "split" && targetBlock?.conditionLabel);
+
+    if (shouldShowLabel) {
+      const exitPt = points[0];
+      const nextPt = points.length > 1 ? points[1] : exitPt;
+
+      let rawLabel: string;
+      if (targetBlock?.conditionLabel) {
+        rawLabel = targetBlock.conditionLabel;
+      } else if (sourceBlock.type === "decision" && ci < autoDecisionLabels.length) {
+        rawLabel = autoDecisionLabels[ci];
+      } else {
+        rawLabel = `Ветвь ${ci + 1}`;
       }
+
+      // Measure label text first so placement can adapt to dimensions
+      ctx.font = `italic 11px ${FONT_FAMILY}`;
+      const MAX_LABEL_WIDTH = 140;
+      const labelLineH = 14;
+      const labelPadH = 8;
+      const labelPadV = 4;
+
+      const innerLines = wrapText(ctx, rawLabel, MAX_LABEL_WIDTH, 3);
+      if (innerLines.length === 1) {
+        innerLines[0] = truncateText(ctx, innerLines[0], MAX_LABEL_WIDTH);
+      }
+      const labelLines = innerLines.map((line, idx) => {
+        const prefix = idx === 0 ? "[" : "";
+        const suffix = idx === innerLines.length - 1 ? "]" : "";
+        return prefix + line + suffix;
+      });
+
+      const maxLineW = Math.max(...labelLines.map((l) => ctx.measureText(l).width));
+      const tw = Math.min(maxLineW + labelPadH * 2, MAX_LABEL_WIDTH + labelPadH * 2);
+      const th = labelLines.length * labelLineH + labelPadV * 2;
+
+      // Place label near exit, adaptive to dimensions and exit direction
+      const dx = nextPt.x - exitPt.x;
+      const dy = nextPt.y - exitPt.y;
+      let labelPt: Point;
+
+      if (sourceBlock.type === "decision") {
+        // Diamond-specific: each exit vertex gets its own label zone — no overlaps
+        if (Math.abs(dy) >= Math.abs(dx)) {
+          // Bottom exit → label to the right of the vertical line
+          labelPt = {
+            x: exitPt.x + tw / 2 + 8,
+            y: exitPt.y + th / 2 + 6,
+          };
+        } else if (dx < 0) {
+          // Left exit → label above-left of the left vertex
+          labelPt = {
+            x: exitPt.x - tw / 2 - 6,
+            y: exitPt.y - th / 2 - 6,
+          };
+        } else {
+          // Right exit → label above-right of the right vertex
+          labelPt = {
+            x: exitPt.x + tw / 2 + 6,
+            y: exitPt.y - th / 2 - 6,
+          };
+        }
+      } else {
+        // Generic placement for split blocks
+        if (Math.abs(dx) > Math.abs(dy)) {
+          labelPt = {
+            x: exitPt.x + Math.sign(dx) * (tw / 2 + 12),
+            y: exitPt.y - th / 2 - 4,
+          };
+        } else {
+          labelPt = {
+            x: exitPt.x + tw / 2 + 8,
+            y: exitPt.y + Math.sign(dy) * (th / 2 + 8),
+          };
+        }
+      }
+
+      // Draw label background
+      ctx.fillStyle = "#ffffff";
+      ctx.globalAlpha = 0.95;
+      ctx.beginPath();
+      ctx.roundRect(labelPt.x - tw / 2, labelPt.y - th / 2, tw, th, 4);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = "#d1d5db";
+      ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Arrow head at end
-      const last = points[points.length - 1];
-      const prev = points[points.length - 2];
-      ctx.fillStyle = isHL ? "#3b82f6" : "#6b7280";
-      drawArrowHead(ctx, last.x, last.y, prev.x, prev.y, 10);
-
-      // Condition label for decision/split branches
-      const targetBlock = allBlocks.find((b) => b.id === targetId);
-      if (
-        targetBlock?.conditionLabel &&
-        (block.type === "decision" || block.type === "split")
-      ) {
-        const labelPt =
-          points.length >= 3
-            ? {
-                x: (points[0].x + points[1].x) / 2 + 20,
-                y: (points[0].y + points[1].y) / 2,
-              }
-            : {
-                x: (points[0].x + last.x) / 2 + 20,
-                y: (points[0].y + last.y) / 2,
-              };
-
-        const labelText = "[" + targetBlock.conditionLabel + "]";
-        ctx.font = `italic 11px ${FONT_FAMILY}`;
-        const tw = ctx.measureText(labelText).width + 12;
-        const th = 20;
-
-        // Label background
-        ctx.fillStyle = "#ffffff";
-        ctx.globalAlpha = 0.92;
-        ctx.beginPath();
-        ctx.roundRect(labelPt.x - tw / 2, labelPt.y - th / 2, tw, th, 4);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = "#d1d5db";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        // Label text
-        ctx.fillStyle = "#3b82f6";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(labelText, labelPt.x, labelPt.y);
-      }
-
-      // Default branch slash mark
-      if (
-        targetBlock?.isDefault &&
-        (block.type === "decision" || block.type === "split")
-      ) {
-        const midIdx = Math.min(1, points.length - 1);
-        const mp = {
-          x: (points[0].x + points[midIdx].x) / 2,
-          y: (points[0].y + points[midIdx].y) / 2,
-        };
-        ctx.strokeStyle = isHL ? "#3b82f6" : "#6b7280";
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(mp.x - 6, mp.y - 6);
-        ctx.lineTo(mp.x + 6, mp.y + 6);
-        ctx.stroke();
+      // Draw label text
+      ctx.fillStyle = "#3b82f6";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      const labelTextStartY = labelPt.y - ((labelLines.length - 1) * labelLineH) / 2;
+      for (let li = 0; li < labelLines.length; li++) {
+        ctx.fillText(labelLines[li], labelPt.x, labelTextStartY + li * labelLineH);
       }
     }
-  }
+
+    // Default branch slash mark
+    if (
+      targetBlock?.isDefault &&
+      (sourceBlock.type === "decision" || sourceBlock.type === "split")
+    ) {
+      const midIdx = Math.min(1, points.length - 1);
+      const mp = {
+        x: (points[0].x + points[midIdx].x) / 2,
+        y: (points[0].y + points[midIdx].y) / 2,
+      };
+      ctx.strokeStyle = isHL ? "#3b82f6" : "#6b7280";
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(mp.x - 6, mp.y - 6);
+      ctx.lineTo(mp.x + 6, mp.y + 6);
+      ctx.stroke();
+    }
+  };
+
+  // Draw normal (background) layer first
+  for (const route of normal) drawRoute(route, false);
+  // Draw highlighted (foreground) layer on top
+  for (const route of highlighted) drawRoute(route, true);
 }
 
 // ============================================================
@@ -1092,14 +1959,19 @@ function renderDiagram(
   );
 
   // ---- Blocks ----
+  // Determine the "active" block (hovered or selected) for connected highlighting
+  const activeBlockId = hoveredBlockId || selectedBlockId || null;
+
   for (const lb of layoutBlocks) {
     const isHovered = lb.block.id === hoveredBlockId;
     const isSelected = lb.block.id === selectedBlockId;
-    const isConnHL = hoveredBlockId
-      ? isConnectedTo(lb.block.id, hoveredBlockId, data.blocks)
+
+    // Check if this block is connected to the active (hovered or selected) block
+    const isConnHL = activeBlockId && lb.block.id !== activeBlockId
+      ? isConnectedTo(lb.block.id, activeBlockId, data.blocks)
       : false;
 
-    drawBlockShape(ctx, lb, isHovered || isConnHL, isSelected);
+    drawBlockShape(ctx, lb, isHovered, isSelected, !!isConnHL);
     drawBlockContent(ctx, lb);
   }
 }

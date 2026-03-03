@@ -4,11 +4,19 @@ import { trpc } from "@/lib/trpc";
 import { getQuestionsByMode } from "@shared/questions";
 import type { InterviewQuestion } from "@shared/types";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { useGenerationProgress } from "@/hooks/useGenerationProgress";
 import {
   ChevronLeft,
   ChevronRight,
@@ -21,7 +29,196 @@ import {
   Sparkles,
   SkipForward,
   Save,
+  Paperclip,
+  FileText,
+  Trash2,
+  AlertCircle,
+  Upload,
+  Check,
+  Plus,
 } from "lucide-react";
+
+interface UploadedFile {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  storedName: string;
+  url: string;
+  uploadedAt: string;
+}
+
+const MAX_FILES = 10;
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + " Б";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " КБ";
+  return (bytes / (1024 * 1024)).toFixed(1) + " МБ";
+}
+
+// Suggested roles with average monthly salaries (question e1)
+const ROLE_SUGGESTIONS: { role: string; salary: number }[] = [
+  { role: "Менеджер", salary: 75000 },
+  { role: "Аналитик", salary: 95000 },
+  { role: "Руководитель", salary: 150000 },
+  { role: "Бухгалтер", salary: 60000 },
+  { role: "Юрист", salary: 85000 },
+  { role: "Технический специалист", salary: 90000 },
+];
+
+interface RoleRow {
+  role: string;
+  salary: string;
+}
+
+function parseRoleRows(value: string): RoleRow[] {
+  if (!value.trim()) return [{ role: "", salary: "" }];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+  } catch {
+    // Legacy comma-separated format — migrate
+    const roles = value.split(",").map((s) => s.trim()).filter(Boolean);
+    if (roles.length > 0) return roles.map((r) => ({ role: r, salary: "" }));
+  }
+  return [{ role: "", salary: "" }];
+}
+
+function serializeRoleRows(rows: RoleRow[]): string {
+  const filled = rows.filter((r) => r.role.trim() || r.salary.trim());
+  if (filled.length === 0) return "";
+  return JSON.stringify(filled);
+}
+
+function RoleSalaryTable({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const rows = parseRoleRows(value);
+
+  const updateRow = (index: number, field: keyof RoleRow, val: string) => {
+    const updated = [...rows];
+    updated[index] = { ...updated[index], [field]: val };
+    onChange(serializeRoleRows(updated));
+  };
+
+  const addRow = () => {
+    const updated = [...rows, { role: "", salary: "" }];
+    onChange(serializeRoleRows(updated));
+  };
+
+  const removeRow = (index: number) => {
+    if (rows.length <= 1) {
+      onChange("");
+      return;
+    }
+    const updated = rows.filter((_, i) => i !== index);
+    onChange(serializeRoleRows(updated));
+  };
+
+  const addSuggestion = (suggestion: { role: string; salary: number }) => {
+    const exists = rows.some((r) => r.role.trim().toLowerCase() === suggestion.role.toLowerCase());
+    if (exists) return;
+    // If there's exactly one empty row, fill it; otherwise append
+    const emptyIdx = rows.findIndex((r) => !r.role.trim() && !r.salary.trim());
+    const updated = [...rows];
+    if (emptyIdx !== -1) {
+      updated[emptyIdx] = { role: suggestion.role, salary: String(suggestion.salary) };
+    } else {
+      updated.push({ role: suggestion.role, salary: String(suggestion.salary) });
+    }
+    onChange(serializeRoleRows(updated));
+  };
+
+  const isSuggestionUsed = (role: string) =>
+    rows.some((r) => r.role.trim().toLowerCase() === role.toLowerCase());
+
+  return (
+    <div className="ml-10 space-y-3">
+      {/* Suggestion chips */}
+      <div className="flex flex-wrap gap-1.5">
+        {ROLE_SUGGESTIONS.map((s) => {
+          const used = isSuggestionUsed(s.role);
+          return (
+            <button
+              key={s.role}
+              type="button"
+              onClick={() => !used && addSuggestion(s)}
+              disabled={used}
+              className={cn(
+                "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border transition-colors",
+                used
+                  ? "bg-purple-50 text-purple-400 border-purple-200 cursor-default"
+                  : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-purple-50 hover:text-purple-600 hover:border-purple-300"
+              )}
+            >
+              {used && <Check className="w-3 h-3" />}
+              {s.role}
+              <span className="text-gray-400">— {s.salary.toLocaleString("ru-RU")} ₽</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Table */}
+      <div className="border border-gray-200 rounded-lg overflow-hidden">
+        <div className="grid grid-cols-[1fr_160px_36px] bg-gray-50 border-b border-gray-200">
+          <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Должность</div>
+          <div className="px-3 py-2 text-xs font-medium text-gray-500 uppercase">Зарплата, ₽</div>
+          <div />
+        </div>
+        {rows.map((row, i) => (
+          <div
+            key={i}
+            className={cn(
+              "grid grid-cols-[1fr_160px_36px] items-center",
+              i > 0 && "border-t border-gray-100"
+            )}
+          >
+            <div className="px-2 py-1.5">
+              <Input
+                value={row.role}
+                onChange={(e) => updateRow(i, "role", e.target.value)}
+                placeholder="Название должности"
+                className="h-8 text-sm border-0 shadow-none focus-visible:ring-1"
+              />
+            </div>
+            <div className="px-2 py-1.5">
+              <Input
+                type="number"
+                value={row.salary}
+                onChange={(e) => updateRow(i, "salary", e.target.value)}
+                placeholder="0"
+                min={0}
+                className="h-8 text-sm border-0 shadow-none focus-visible:ring-1 tabular-nums"
+              />
+            </div>
+            <div className="flex items-center justify-center">
+              <button
+                type="button"
+                onClick={() => removeRow(i)}
+                className="p-1 rounded text-gray-300 hover:text-red-500 hover:bg-red-50 transition-colors"
+                title="Удалить строку"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Add row button */}
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={addRow}
+        className="text-xs"
+      >
+        <Plus className="w-3.5 h-3.5 mr-1" />
+        Добавить должность
+      </Button>
+    </div>
+  );
+}
 
 export function InterviewPage() {
   const { id } = useParams<{ id: string }>();
@@ -31,9 +228,14 @@ export function InterviewPage() {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [currentBlockIndex, setCurrentBlockIndex] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
+  const genProgress = useGenerationProgress({ duration: 120000 });
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [recordingQuestionId, setRecordingQuestionId] = useState<string | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -77,12 +279,13 @@ export function InterviewPage() {
 
   const currentBlock = blocks[currentBlockIndex];
 
-  // Initialize answers from interview data
+  // Initialize answers and files from interview data
   useEffect(() => {
     if (interview?.answers) {
       setAnswers((prev) => {
         const merged = { ...prev };
         for (const [key, value] of Object.entries(interview.answers)) {
+          if (key === "__files__") continue; // Skip file metadata
           if (!(key in merged) || !merged[key]) {
             merged[key] = value;
           }
@@ -92,6 +295,11 @@ export function InterviewPage() {
           ? prev
           : merged;
       });
+      // Load uploaded files
+      const files = (interview.answers as Record<string, unknown>).__files__;
+      if (Array.isArray(files)) {
+        setUploadedFiles(files as UploadedFile[]);
+      }
     }
   }, [interview?.answers]);
 
@@ -183,6 +391,74 @@ export function InterviewPage() {
     }
   }, []);
 
+  // File upload
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploadError(null);
+
+    const remainingSlots = MAX_FILES - uploadedFiles.length;
+    if (remainingSlots <= 0) {
+      setUploadError(`Достигнут лимит: максимум ${MAX_FILES} файлов на анкету`);
+      e.target.value = "";
+      return;
+    }
+
+    const filesToUpload = Array.from(files).slice(0, remainingSlots);
+
+    for (const file of filesToUpload) {
+      if (file.size > MAX_FILE_SIZE) {
+        setUploadError(`Файл "${file.name}" превышает максимальный размер 10 МБ`);
+        continue;
+      }
+
+      setIsUploading(true);
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const token = localStorage.getItem("auth_token");
+        const response = await fetch(`/api/interview/${interviewId}/upload`, {
+          method: "POST",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          setUploadError(err.error || "Ошибка при загрузке файла");
+          continue;
+        }
+
+        const fileMeta: UploadedFile = await response.json();
+        setUploadedFiles((prev) => [...prev, fileMeta]);
+      } catch {
+        setUploadError("Ошибка сети при загрузке файла");
+      }
+    }
+
+    setIsUploading(false);
+    e.target.value = "";
+  }, [interviewId, uploadedFiles.length]);
+
+  const handleFileDelete = useCallback(async (fileId: string) => {
+    try {
+      const token = localStorage.getItem("auth_token");
+      const response = await fetch(`/api/interview/${interviewId}/file/${fileId}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      if (response.ok) {
+        setUploadedFiles((prev) => prev.filter((f) => f.id !== fileId));
+        setUploadError(null);
+      }
+    } catch {
+      setUploadError("Ошибка при удалении файла");
+    }
+  }, [interviewId]);
+
   const handleNavigateBlock = useCallback(
     (direction: "prev" | "next") => {
       if (direction === "prev" && currentBlockIndex > 0) {
@@ -198,6 +474,7 @@ export function InterviewPage() {
   const handleComplete = useCallback(async () => {
     try {
       setIsGenerating(true);
+      genProgress.start();
 
       // Save current answers first
       if (pendingSaveRef.current && saveTimerRef.current) {
@@ -210,12 +487,24 @@ export function InterviewPage() {
 
       // Generate process
       const process = await generateMutation.mutateAsync({ interviewId });
+      genProgress.finish();
       navigate(`/process/${process.id}`);
     } catch (error) {
       console.error("Ошибка при генерации:", error);
+      genProgress.reset();
       setIsGenerating(false);
     }
-  }, [interviewId, answers, saveAnswersMutation, completeMutation, generateMutation, navigate]);
+  }, [interviewId, answers, saveAnswersMutation, completeMutation, generateMutation, navigate, genProgress]);
+
+  // Warn before leaving during generation
+  useEffect(() => {
+    if (!isGenerating) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isGenerating]);
 
   // Count answered questions
   const answeredCount = useMemo(
@@ -259,19 +548,35 @@ export function InterviewPage() {
       <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
         <div className="relative">
           <div className="w-20 h-20 rounded-full bg-purple-100 flex items-center justify-center">
-            <Sparkles className="w-10 h-10 text-purple-600 animate-pulse" />
+            {genProgress.phase === "done" ? (
+              <Check className="w-10 h-10 text-green-600" />
+            ) : (
+              <Sparkles className="w-10 h-10 text-purple-600 animate-pulse" />
+            )}
           </div>
-          <div className="absolute inset-0 rounded-full border-4 border-purple-200 border-t-purple-600 animate-spin" />
+          {genProgress.phase !== "done" && (
+            <div className="absolute inset-0 rounded-full border-4 border-purple-200 border-t-purple-600 animate-spin" />
+          )}
         </div>
         <div className="text-center space-y-2">
           <h2 className="text-xl font-semibold text-gray-900">
-            Генерация бизнес-процесса...
+            {genProgress.phase === "done"
+              ? "Готово!"
+              : `Генерация бизнес-процесса... ${genProgress.progress}%`}
           </h2>
           <p className="text-gray-500">
-            ИИ анализирует ваши ответы и формирует структуру процесса. Это может занять 1-2 минуты.
+            {genProgress.phase === "done"
+              ? "Перенаправление на страницу процесса..."
+              : "ИИ анализирует ваши ответы и формирует структуру процесса."}
           </p>
         </div>
-        <Progress value={undefined} className="w-64" />
+        <div className="w-64 space-y-2">
+          <Progress value={genProgress.progress} className="w-full" />
+          <p className="text-xs text-amber-600 text-center flex items-center justify-center gap-1">
+            <AlertCircle className="w-3 h-3" />
+            Пожалуйста, не покидайте страницу
+          </p>
+        </div>
       </div>
     );
   }
@@ -390,7 +695,7 @@ export function InterviewPage() {
                         <p className="text-sm font-medium text-gray-900">
                           {question.question}
                         </p>
-                        {question.hint && (
+                        {question.hint && question.id !== "e1" && (
                           <p className="text-xs text-gray-400 mt-0.5 italic">{question.hint}</p>
                         )}
                         <div className="flex items-center gap-2 mt-1">
@@ -409,6 +714,15 @@ export function InterviewPage() {
                     </div>
                   </div>
 
+                  {/* Role-salary table for question e1 */}
+                  {question.id === "e1" && (
+                    <RoleSalaryTable
+                      value={answers[question.id] || ""}
+                      onChange={(val) => handleAnswerChange(question.id, val)}
+                    />
+                  )}
+
+                  {question.id !== "e1" && (
                   <div className="ml-10">
                     <div className="relative">
                       <Textarea
@@ -457,12 +771,96 @@ export function InterviewPage() {
                       </Button>
                     )}
                   </div>
+                  )}
                 </div>
               );
             })}
           </CardContent>
         </Card>
       )}
+
+      {/* File upload section */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Paperclip className="w-4 h-4 text-gray-500" />
+              Прикрепленные файлы
+            </CardTitle>
+            <span className="text-sm text-gray-500">
+              {uploadedFiles.length} из {MAX_FILES}
+            </span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">
+            Прикрепите имеющиеся у вас регламенты, инструкции, описания процессов и другие документы — они будут учтены при генерации бизнес-процесса
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {/* File list */}
+          {uploadedFiles.length > 0 && (
+            <div className="space-y-2">
+              {uploadedFiles.map((file) => (
+                <div
+                  key={file.id}
+                  className="flex items-center gap-3 p-2.5 rounded-lg border border-gray-200 bg-gray-50/50 group"
+                >
+                  <FileText className="w-4 h-4 text-purple-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-800 truncate">{file.name}</p>
+                    <p className="text-xs text-gray-400">{formatFileSize(file.size)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleFileDelete(file.id)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1.5 rounded-md hover:bg-red-50 text-gray-400 hover:text-red-500"
+                    title="Удалить файл"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Error message */}
+          {uploadError && (
+            <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 border border-red-200">
+              <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+              <p className="text-sm text-red-700">{uploadError}</p>
+            </div>
+          )}
+
+          {/* Upload button */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFileSelect}
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.rtf,.odt,.ods,.ppt,.pptx,.csv,.png,.jpg,.jpeg"
+          />
+          {uploadedFiles.length < MAX_FILES && (
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+            >
+              {isUploading ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <Upload className="w-4 h-4 mr-2" />
+              )}
+              {isUploading ? "Загрузка..." : "Прикрепить файлы"}
+            </Button>
+          )}
+
+          {/* Limits info */}
+          <p className="text-[11px] text-gray-400 text-center">
+            Макс. размер файла: 10 МБ. Форматы: PDF, DOC, DOCX, XLS, XLSX, TXT, RTF, PPT, PPTX, CSV, изображения
+          </p>
+        </CardContent>
+      </Card>
 
       {/* Navigation footer */}
       <div className="flex items-center justify-between pt-4 pb-8">
@@ -477,14 +875,21 @@ export function InterviewPage() {
 
         <div className="flex items-center gap-3">
           {currentBlockIndex === blocks.length - 1 ? (
-            <Button
-              onClick={handleComplete}
-              disabled={requiredUnanswered.length > 0 || isGenerating}
-              className="bg-green-600 hover:bg-green-700"
-            >
-              <Sparkles className="w-4 h-4 mr-1" />
-              Завершить и сгенерировать
-            </Button>
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    onClick={handleComplete}
+                    disabled={requiredUnanswered.length > 0 || isGenerating}
+                    className="bg-green-600 hover:bg-green-700"
+                  >
+                    <Sparkles className="w-4 h-4 mr-1" />
+                    Завершить и сгенерировать
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Это может занять несколько минут</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
           ) : (
             <Button onClick={() => handleNavigateBlock("next")}>
               Следующий блок

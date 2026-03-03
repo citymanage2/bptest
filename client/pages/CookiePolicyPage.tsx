@@ -261,8 +261,8 @@ export function CookiePolicyPage() {
               </h2>
               <p>
                 По вопросам, связанным с использованием cookie, обращайтесь по адресу:{" "}
-                <a href="mailto:privacy@bpbuilder.ru" className="text-purple-600 hover:underline">
-                  privacy@bpbuilder.ru
+                <a href="mailto:citymanage@yandex.ru" className="text-purple-600 hover:underline">
+                  citymanage@yandex.ru
                 </a>
               </p>
             </section>

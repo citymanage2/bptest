@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ProcessData, ProcessBlock, ProcessRole, ProcessStage, ProcessPassport } from "../../shared/types";
+import type { ProcessData, ProcessBlock, ProcessRole, ProcessStage, ProcessPassport, CrmFunnel } from "../../shared/types";
 import { SWIMLANE_COLORS } from "../../shared/types";
 import { logger } from "./logger";
 
@@ -124,7 +124,7 @@ const PROCESS_GENERATION_PROMPT = `Ты — эксперт-аналитик по
   "startEvent": "Триггер запуска",
   "endEvent": "Результат/выход",
   "roles": [
-    { "id": "role_1", "name": "Роль", "description": "Зона ответственности", "department": "Отдел" }
+    { "id": "role_1", "name": "Роль", "description": "Зона ответственности", "department": "Отдел", "salary": 80000 }
   ],
   "stages": [
     { "id": "stage_1", "name": "Название этапа", "order": 1 }
@@ -141,6 +141,7 @@ const PROCESS_GENERATION_PROMPT = `Ты — эксперт-аналитик по
       "inputDocuments": ["Заявка"],
       "outputDocuments": ["Зарегистрированная заявка"],
       "infoSystems": ["CRM"],
+      "checklist": ["Проверить полноту данных", "Присвоить номер заявки", "Уведомить ответственного"],
       "connections": ["block_2"],
       "conditionLabel": "",
       "isDefault": false
@@ -157,18 +158,46 @@ const PROCESS_GENERATION_PROMPT = `Ты — эксперт-аналитик по
 6. 3-5 product-блоков (промежуточные результаты)
 7. Минимум 8-10 handoffs между ролями
 8. Паттерн согласования: Подготовить → Проверить → Gateway → Утвердить/Вернуть
-9. Каждый action: timeEstimate + inputDocuments + infoSystems
+9. Каждый action: timeEstimate + inputDocuments + infoSystems + checklist (2-5 конкретных шагов)
 10. Ответ — ТОЛЬКО валидный JSON, без markdown, без пояснений`;
+
+export interface AttachedFileMeta {
+  name: string;
+  size: number;
+  type: string;
+  storedName: string;
+  content?: string; // text content if readable
+}
 
 export async function generateProcess(
   answers: Record<string, string>,
   companyName: string,
-  industry: string
+  industry: string,
+  attachedFiles?: AttachedFileMeta[]
 ): Promise<ProcessData> {
   const answersText = Object.entries(answers)
-    .filter(([, v]) => v && v.trim())
+    .filter(([k, v]) => v && v.trim() && k !== "__files__")
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
+
+  // Build attached files section for the prompt
+  let filesSection = "";
+  if (attachedFiles && attachedFiles.length > 0) {
+    filesSection = "\n\nПрикреплённые документы пользователя:\n";
+    for (const file of attachedFiles) {
+      filesSection += `\n--- Файл: ${file.name} (${file.type}, ${(file.size / 1024).toFixed(0)} КБ) ---\n`;
+      if (file.content) {
+        // Limit content to 3000 chars per file to avoid token overflow
+        const trimmed = file.content.length > 3000
+          ? file.content.slice(0, 3000) + "\n[...текст обрезан...]"
+          : file.content;
+        filesSection += trimmed + "\n";
+      } else {
+        filesSection += "[Содержимое файла недоступно для текстового анализа]\n";
+      }
+    }
+    filesSection += "\nУчти информацию из прикреплённых документов при построении бизнес-процесса.\n";
+  }
 
   try {
     const response = await anthropic.messages.create({
@@ -183,7 +212,7 @@ export async function generateProcess(
 Отрасль: ${industry}
 
 Ответы на анкету (структурированы по BMC/VPC):
-${answersText}
+${answersText}${filesSection}
 
 Построй бизнес-процесс по 10-шаговой методологии. Ответ — ТОЛЬКО JSON.`,
         },
@@ -196,10 +225,12 @@ ${answersText}
 
     const data = JSON.parse(jsonMatch[0]) as ProcessData;
 
-    // Assign colors to roles
+    // Assign colors and merge salary data from e1 answer
+    const salaryMap = parseRoleSalaries(answers.e1);
     data.roles = data.roles.map((role, i) => ({
       ...role,
       color: SWIMLANE_COLORS[i % SWIMLANE_COLORS.length],
+      salary: role.salary || salaryMap.get(role.name.toLowerCase()) || undefined,
     }));
 
     return data;
@@ -266,6 +297,8 @@ export async function generateRecommendations(
   }>
 > {
   try {
+    // Use only active blocks for recommendations
+    const activeProcessData = { ...processData, blocks: processData.blocks.filter(b => b.isActive !== false) };
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 16000,
@@ -275,7 +308,7 @@ export async function generateRecommendations(
           content: `Ты — консультант по операционной эффективности (Lean / BPM / BPMN 2.0) и автоматизации (CRM, ERP, RPA). Твоя задача: на основе бизнес-процесса выявить слабые зоны и дать рекомендации по улучшению.
 
 ВХОДНЫЕ ДАННЫЕ:
-${JSON.stringify(processData, null, 2)}
+${JSON.stringify(activeProcessData, null, 2)}
 
 ТРЕБОВАНИЯ:
 - Пиши на русском, максимально прикладно
@@ -379,6 +412,14 @@ ${JSON.stringify(processData, null, 2)}
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
+    // Normalize escaped newlines in description fields (AI may return \\n as literal text)
+    for (const item of parsed) {
+      if (typeof item.description === "string") {
+        item.description = item.description
+          .replace(/\\n/g, "\n")
+          .replace(/\\t/g, "\t");
+      }
+    }
     logger.info("AI", "Recommendations parsed successfully", { count: parsed.length });
     return parsed;
   } catch (error) {
@@ -400,16 +441,19 @@ ${JSON.stringify(processData, null, 2)}
 // ═══════════════════════════════════════════════════════════════════
 
 export function generatePassport(data: ProcessData): ProcessPassport {
+  // Use only active blocks for passport generation
+  const activeBlocks = data.blocks.filter(b => b.isActive !== false);
+
   // Extract unique documents
   const inputDocs = new Set<string>();
   const outputDocs = new Set<string>();
   const allSystems = new Set<string>();
   const triggers: string[] = [data.startEvent];
 
-  const actionBlocks = data.blocks.filter(b => b.type === "action");
-  const productBlocks = data.blocks.filter(b => b.type === "product");
+  const actionBlocks = activeBlocks.filter(b => b.type === "action");
+  const productBlocks = activeBlocks.filter(b => b.type === "product");
 
-  for (const block of data.blocks) {
+  for (const block of activeBlocks) {
     block.inputDocuments?.forEach(d => inputDocs.add(d));
     block.outputDocuments?.forEach(d => outputDocs.add(d));
     block.infoSystems?.forEach(s => allSystems.add(s));
@@ -428,9 +472,9 @@ export function generatePassport(data: ProcessData): ProcessPassport {
 
   // Extract exceptions from decision branches
   const exceptions: string[] = [];
-  for (const block of data.blocks) {
+  for (const block of activeBlocks) {
     if (block.type === "decision") {
-      const nonDefaultBranches = data.blocks.filter(
+      const nonDefaultBranches = activeBlocks.filter(
         b => block.connections.includes(b.id) && !b.isDefault && b.conditionLabel
       );
       for (const branch of nonDefaultBranches) {
@@ -472,7 +516,7 @@ export function generatePassport(data: ProcessData): ProcessPassport {
 
   // Risks from decision points and exceptions
   const risks: ProcessPassport["risks"] = [];
-  const decisionBlocks = data.blocks.filter(b => b.type === "decision");
+  const decisionBlocks = activeBlocks.filter(b => b.type === "decision");
   for (const d of decisionBlocks) {
     risks.push({
       description: `Точка принятия решения: ${d.name}`,
@@ -489,7 +533,7 @@ export function generatePassport(data: ProcessData): ProcessPassport {
     boundaries: {
       start: data.startEvent,
       end: data.endEvent,
-      scope: `${data.blocks.length} блоков, ${data.roles.length} ролей, ${data.stages.length} этапов`,
+      scope: `${activeBlocks.length} блоков, ${data.roles.length} ролей, ${data.stages.length} этапов`,
     },
     triggers,
     inputs: Array.from(inputDocs),
@@ -508,6 +552,28 @@ export function generatePassport(data: ProcessData): ProcessPassport {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// Parse role salaries from interview answer e1
+// ═══════════════════════════════════════════════════════════════════
+
+function parseRoleSalaries(e1Answer: string | undefined): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!e1Answer) return map;
+  try {
+    const parsed = JSON.parse(e1Answer);
+    if (Array.isArray(parsed)) {
+      for (const row of parsed) {
+        if (row.role && row.salary) {
+          map.set(row.role.trim().toLowerCase(), Number(row.salary));
+        }
+      }
+    }
+  } catch {
+    // Old comma-separated format — no salary data
+  }
+  return map;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // Fallback Process Generator (BMC/VPC-aligned)
 // ═══════════════════════════════════════════════════════════════════
 
@@ -520,12 +586,23 @@ function generateFallbackProcess(
   const owner = answers.a5 || "Руководитель";
   const trigger = answers.a3 || "Поступление заявки от клиента";
   const result = answers.a4 || "Выполненная задача";
-  const rolesStr = answers.e1 || "Руководитель, Менеджер по продажам, Аналитик, Бухгалтер, Специалист, Юрист";
+  const salaryMap = parseRoleSalaries(answers.e1);
+  let roleNames: string[];
+  if (salaryMap.size > 0) {
+    // New JSON format — extract role names from parsed data
+    try {
+      const parsed = JSON.parse(answers.e1);
+      roleNames = (parsed as { role: string }[]).map((r) => r.role.trim()).filter(Boolean);
+    } catch {
+      roleNames = [];
+    }
+  } else {
+    const rolesStr = answers.e1 || "Руководитель, Менеджер по продажам, Аналитик, Бухгалтер, Специалист, Юрист";
+    roleNames = rolesStr.split(/[,;]/).map((r) => r.trim()).filter(Boolean);
+  }
   const stepsStr = answers.d1 || "Инициация, Квалификация, Подготовка предложения, Согласование, Исполнение, Контроль качества, Закрытие";
   const channels = answers.c1 || "Сайт, Телефон, Email";
   const partners = answers.e3 || "";
-
-  const roleNames = rolesStr.split(/[,;]/).map((r) => r.trim()).filter(Boolean);
   const stageNames = stepsStr.split(/[,;.]/).map((s) => s.trim()).filter(Boolean);
 
   // Ensure at least 6 roles
@@ -549,6 +626,7 @@ function generateFallbackProcess(
     name,
     description: `Участник процесса: ${name}`,
     department: "",
+    salary: salaryMap.get(name.toLowerCase()) || undefined,
     color: SWIMLANE_COLORS[i % SWIMLANE_COLORS.length],
   }));
 
@@ -654,4 +732,239 @@ function generateFallbackProcess(
     stages,
     blocks,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Regulation / Job Description Generation
+// ═══════════════════════════════════════════════════════════════════
+
+export async function generateRegulationDocument(
+  processData: ProcessData,
+  roleName: string,
+  docType: "regulation" | "job_description",
+  companyName: string,
+): Promise<string> {
+  const roleBlocks = processData.blocks.filter((b) => {
+    if (b.isActive === false) return false;
+    const role = processData.roles.find((r) => r.id === b.role);
+    return role?.name === roleName;
+  });
+
+  const roleStages = [...new Set(roleBlocks.map((b) => {
+    const stage = processData.stages.find((s) => s.id === b.stage);
+    return stage?.name || b.stage;
+  }))];
+
+  const roleActions = roleBlocks
+    .filter((b) => b.type === "action")
+    .map((b) => ({
+      name: b.name,
+      description: b.description,
+      timeEstimate: b.timeEstimate,
+      inputDocuments: b.inputDocuments,
+      outputDocuments: b.outputDocuments,
+      infoSystems: b.infoSystems,
+    }));
+
+  const prompt = docType === "regulation"
+    ? `Ты — эксперт по организационному проектированию и стандартизации бизнес-процессов.
+
+Сгенерируй РЕГЛАМЕНТ для должности "${roleName}" в компании "${companyName}".
+
+Процесс: "${processData.name}"
+Цель процесса: ${processData.goal}
+Владелец процесса: ${processData.owner}
+
+Этапы, в которых участвует ${roleName}: ${roleStages.join(", ")}
+
+Действия сотрудника в процессе:
+${JSON.stringify(roleActions, null, 2)}
+
+Структура регламента (используй markdown-форматирование):
+
+# Регламент: ${roleName}
+## Компания: ${companyName}
+## Процесс: ${processData.name}
+
+### 1. Общие положения
+- Назначение регламента
+- Область применения
+- Нормативные ссылки
+
+### 2. Термины и определения
+- Ключевые термины процесса
+
+### 3. Описание процедур
+Для каждого действия сотрудника:
+- Название процедуры
+- Входные данные/документы
+- Порядок выполнения (пошагово)
+- Выходные данные/документы
+- Используемые информационные системы
+- Нормативное время выполнения
+
+### 4. Взаимодействие с другими ролями
+- С кем взаимодействует и по каким вопросам
+
+### 5. Ответственность и контроль
+- Зона ответственности
+- Критерии качества выполнения
+- Контрольные точки
+
+### 6. Порядок внесения изменений
+
+Пиши подробно, профессионально, на русском языке. Используй markdown.`
+    : `Ты — HR-эксперт и специалист по организационному проектированию.
+
+Сгенерируй ДОЛЖНОСТНУЮ ИНСТРУКЦИЮ для должности "${roleName}" в компании "${companyName}".
+
+Процесс: "${processData.name}"
+Цель процесса: ${processData.goal}
+Владелец процесса: ${processData.owner}
+
+Этапы, в которых участвует ${roleName}: ${roleStages.join(", ")}
+
+Действия сотрудника в процессе:
+${JSON.stringify(roleActions, null, 2)}
+
+Структура должностной инструкции (используй markdown):
+
+# Должностная инструкция: ${roleName}
+## Компания: ${companyName}
+
+### 1. Общие положения
+- Полное наименование должности
+- Подразделение
+- Подчинённость
+- Порядок назначения и освобождения
+
+### 2. Квалификационные требования
+- Образование
+- Опыт работы
+- Знания и навыки
+- Владение ПО и системами
+
+### 3. Должностные обязанности
+На основе действий в процессе — детальный список обязанностей
+
+### 4. Права
+- Права в рамках выполнения обязанностей
+
+### 5. Ответственность
+- За что несёт ответственность
+
+### 6. Взаимодействие
+- С кем и по каким вопросам взаимодействует
+
+### 7. Критерии оценки эффективности (KPI)
+На основе действий и метрик процесса
+
+### 8. Заключительные положения
+
+Пиши подробно, профессионально, на русском языке. Используй markdown.`;
+
+  try {
+    logger.info("AI", `Generating ${docType} for role "${roleName}"`);
+
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 8000,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    logger.info("AI", `${docType} generated for "${roleName}"`, { length: text.length });
+    return text;
+  } catch (error) {
+    logger.error("AI", `Failed to generate ${docType} for "${roleName}"`, error);
+    throw new Error(`Ошибка генерации документа: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CRM Funnel Variants Generation
+// ═══════════════════════════════════════════════════════════════════
+
+export async function generateCrmFunnelVariants(
+  data: ProcessData,
+  variantCount: number = 3
+): Promise<CrmFunnel[]> {
+  const activeBlocks = data.blocks.filter(b => b.isActive !== false);
+  const stagesInfo = data.stages.map((s) => `- ${s.name} (порядок: ${s.order})`).join("\n");
+  const rolesInfo = data.roles.map((r) => `- ${r.name}`).join("\n");
+  const blocksInfo = activeBlocks
+    .map((b) => {
+      const role = data.roles.find((r) => r.id === b.role)?.name || b.role;
+      const stage = data.stages.find((s) => s.id === b.stage)?.name || b.stage;
+      return `- [${b.type}] "${b.name}" (роль: ${role}, этап: ${stage}${b.timeEstimate ? `, время: ${b.timeEstimate}` : ""})`;
+    })
+    .join("\n");
+
+  const prompt = `Ты — эксперт по CRM-системам и воронкам продаж.
+
+ЗАДАЧА: На основе бизнес-процесса сгенерируй ${variantCount} РАЗЛИЧНЫХ варианта CRM-воронки.
+Каждый вариант должен предлагать РАЗНЫЙ подход к структуре воронки.
+
+ПРОЦЕСС:
+Название: ${data.name}
+Цель: ${data.goal}
+Владелец: ${data.owner}
+
+ЭТАПЫ ПРОЦЕССА:
+${stagesInfo}
+
+РОЛИ:
+${rolesInfo}
+
+БЛОКИ ПРОЦЕССА:
+${blocksInfo}
+
+ТРЕБОВАНИЯ К КАЖДОМУ ВАРИАНТУ:
+1. Вариант 1 — "Классическая воронка": Стандартная линейная воронка с 5-8 этапами L0, следующая логике процесса
+2. Вариант 2 — "Детализированная воронка": Более подробная с 8-12 L0 этапами, с акцентом на промежуточные контрольные точки
+3. Вариант 3 — "Упрощённая воронка": Компактная с 3-5 L0 этапами, ориентированная на ключевые решения клиента
+
+ДЛЯ КАЖДОГО ВАРИАНТА УКАЖИ:
+- id: уникальный id ("funnel-variant-1", "funnel-variant-2", "funnel-variant-3")
+- name: название варианта (краткое)
+- description: описание подхода (1-2 предложения)
+- stages: массив этапов (CrmFunnelStage[]), каждый со структурой:
+  - id: строка (например "stage-1-1")
+  - name: название этапа
+  - level: 0 для L0, 1 для L1 (подэтапы)
+  - order: порядковый номер
+  - parentId?: id родительского L0 этапа (для L1)
+  - exitCriteria: критерий выхода из этапа
+  - ownerRole: ответственная роль
+  - slaDays: SLA в днях (опционально)
+  - checklist: массив пунктов чек-листа
+  - relatedBlockIds: связанные блоки процесса (id из blocks)
+  - automations: массив автоматизаций
+  - conversionTarget: целевая конверсия в % (опционально)
+- statuses: 3 статуса [Pause, Lost, Won]:
+  - { id, name, type: "pause"|"lost"|"won", description }
+- qualityNotes: массив замечаний по качеству воронки
+
+Ответ — ТОЛЬКО JSON-массив из ${variantCount} объектов CrmFunnel. Без пояснений.`;
+
+  try {
+    logger.info("AI", `Generating ${variantCount} CRM funnel variants`);
+
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 12000,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error("Не удалось извлечь JSON из ответа");
+
+    const variants = JSON.parse(jsonMatch[0]) as CrmFunnel[];
+    logger.info("AI", `Generated ${variants.length} CRM funnel variants`);
+    return variants;
+  } catch (error) {
+    logger.error("AI", "Failed to generate CRM funnel variants", error);
+    throw new Error(`Ошибка генерации CRM-воронок: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
