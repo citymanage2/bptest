@@ -410,6 +410,42 @@ export function InterviewPage() {
                   </div>
 
                   <div className="ml-10">
+                    {question.options && question.options.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {question.options.map((opt) => {
+                          const currentAnswer = answers[question.id] || "";
+                          const isSelected = currentAnswer
+                            .split(/[,\n]/)
+                            .map((s) => s.trim())
+                            .includes(opt.name);
+                          return (
+                            <button
+                              key={opt.name}
+                              type="button"
+                              onClick={() => {
+                                const parts = (answers[question.id] || "")
+                                  .split(/[,\n]/)
+                                  .map((s) => s.trim())
+                                  .filter(Boolean);
+                                const next = isSelected
+                                  ? parts.filter((p) => p !== opt.name)
+                                  : [...parts, opt.name];
+                                handleAnswerChange(question.id, next.join(", "));
+                              }}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
+                                isSelected
+                                  ? "bg-purple-100 border-purple-400 text-purple-800"
+                                  : "bg-gray-50 border-gray-200 text-gray-700 hover:border-purple-300 hover:bg-purple-50"
+                              )}
+                            >
+                              {opt.name} —{" "}
+                              {opt.salary.toLocaleString("ru-RU")} ₽
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
                     <div className="relative">
                       <Textarea
                         value={answers[question.id] || ""}
