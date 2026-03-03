@@ -222,7 +222,6 @@ export const INTERVIEW_QUESTIONS: InterviewQuestion[] = [
     block: "E",
     blockName: "Участники и ресурсы (Key Resources)",
     question: "Какие роли (должности/подразделения) участвуют в процессе?",
-    hint: "Выберите из списка или введите вручную",
     options: [
       { name: "Менеджер", salary: 85000 },
       { name: "Аналитик", salary: 110000 },

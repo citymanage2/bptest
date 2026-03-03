@@ -5,6 +5,7 @@ import { getQuestionsByMode } from "@shared/questions";
 import type { InterviewQuestion } from "@shared/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,6 +22,7 @@ import {
   Sparkles,
   SkipForward,
   Save,
+  Plus,
 } from "lucide-react";
 
 export function InterviewPage() {
@@ -34,6 +36,7 @@ export function InterviewPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [recordingQuestionId, setRecordingQuestionId] = useState<string | null>(null);
+  const [optionRows, setOptionRows] = useState<Record<string, Array<{ name: string; salary: string }>>>({});
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -94,6 +97,37 @@ export function InterviewPage() {
       });
     }
   }, [interview?.answers]);
+
+  // Initialize optionRows with defaults from question.options
+  useEffect(() => {
+    const initial: Record<string, Array<{ name: string; salary: string }>> = {};
+    for (const q of questions) {
+      if (!q.options) continue;
+      initial[q.id] = q.options.slice(0, 5).map((o) => ({
+        name: o.name,
+        salary: String(o.salary),
+      }));
+    }
+    setOptionRows(initial);
+  }, [questions]);
+
+  // Override optionRows with saved JSON answers when interview loads
+  useEffect(() => {
+    if (!interview?.answers) return;
+    setOptionRows((prev) => {
+      const next = { ...prev };
+      for (const q of questions) {
+        if (!q.options) continue;
+        const saved = interview.answers[q.id];
+        if (!saved) continue;
+        try {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) next[q.id] = parsed;
+        } catch {}
+      }
+      return next;
+    });
+  }, [interview?.answers, questions]);
 
   // Debounced auto-save
   const scheduleSave = useCallback(
@@ -410,75 +444,89 @@ export function InterviewPage() {
                   </div>
 
                   <div className="ml-10">
-                    {question.options && question.options.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mb-3">
-                        {question.options.map((opt) => {
-                          const currentAnswer = answers[question.id] || "";
-                          const isSelected = currentAnswer
-                            .split(/[,\n]/)
-                            .map((s) => s.trim())
-                            .includes(opt.name);
-                          return (
-                            <button
-                              key={opt.name}
-                              type="button"
-                              onClick={() => {
-                                const parts = (answers[question.id] || "")
-                                  .split(/[,\n]/)
-                                  .map((s) => s.trim())
-                                  .filter(Boolean);
-                                const next = isSelected
-                                  ? parts.filter((p) => p !== opt.name)
-                                  : [...parts, opt.name];
-                                handleAnswerChange(question.id, next.join(", "));
+                    {question.options && question.options.length > 0 ? (
+                      <div className="space-y-1.5">
+                        <div className="grid grid-cols-2 gap-2 px-1 text-xs font-medium text-gray-500">
+                          <span>Должность</span>
+                          <span>Зарплата</span>
+                        </div>
+                        {(optionRows[question.id] ?? []).map((row, i) => (
+                          <div key={i} className="grid grid-cols-2 gap-2">
+                            <Input
+                              type="text"
+                              value={row.name}
+                              onChange={(e) => {
+                                const updated = [...(optionRows[question.id] ?? [])];
+                                updated[i] = { ...updated[i], name: e.target.value };
+                                setOptionRows((prev) => ({ ...prev, [question.id]: updated }));
+                                handleAnswerChange(question.id, JSON.stringify(updated));
                               }}
-                              className={cn(
-                                "px-3 py-1.5 rounded-full text-xs font-medium border transition-colors",
-                                isSelected
-                                  ? "bg-purple-100 border-purple-400 text-purple-800"
-                                  : "bg-gray-50 border-gray-200 text-gray-700 hover:border-purple-300 hover:bg-purple-50"
-                              )}
+                              placeholder="Название должности"
+                              className="h-8 text-sm"
+                            />
+                            <Input
+                              type="number"
+                              value={row.salary}
+                              onChange={(e) => {
+                                const updated = [...(optionRows[question.id] ?? [])];
+                                updated[i] = { ...updated[i], salary: e.target.value };
+                                setOptionRows((prev) => ({ ...prev, [question.id]: updated }));
+                                handleAnswerChange(question.id, JSON.stringify(updated));
+                              }}
+                              placeholder="0"
+                              className="h-8 text-sm"
+                            />
+                          </div>
+                        ))}
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const updated = [...(optionRows[question.id] ?? []), { name: "", salary: "" }];
+                            setOptionRows((prev) => ({ ...prev, [question.id]: updated }));
+                          }}
+                          className="mt-1 text-gray-400 hover:text-purple-600"
+                        >
+                          <Plus className="w-3.5 h-3.5 mr-1" />
+                          Добавить ещё
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <Textarea
+                          value={answers[question.id] || ""}
+                          onChange={(e) => handleAnswerChange(question.id, e.target.value)}
+                          placeholder="Введите ваш ответ..."
+                          rows={3}
+                          className={cn(
+                            "pr-12 resize-y",
+                            isRecording && "border-red-400 ring-2 ring-red-200"
+                          )}
+                        />
+                        {/* Voice recording button */}
+                        <div className="absolute right-2 top-2">
+                          {isRecording ? (
+                            <button
+                              onClick={stopRecording}
+                              className="flex items-center gap-1 px-2 py-1 rounded-md bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
+                              title="Остановить запись"
                             >
-                              {opt.name} —{" "}
-                              {opt.salary.toLocaleString("ru-RU")} ₽
+                              <Square className="w-3 h-3 fill-current" />
+                              <span className="text-xs font-medium animate-pulse">REC</span>
                             </button>
-                          );
-                        })}
+                          ) : (
+                            <button
+                              onClick={() => startRecording(question.id)}
+                              className="p-1.5 rounded-md text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors"
+                              title="Записать голос"
+                            >
+                              <Mic className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     )}
-                    <div className="relative">
-                      <Textarea
-                        value={answers[question.id] || ""}
-                        onChange={(e) => handleAnswerChange(question.id, e.target.value)}
-                        placeholder="Введите ваш ответ..."
-                        rows={3}
-                        className={cn(
-                          "pr-12 resize-y",
-                          isRecording && "border-red-400 ring-2 ring-red-200"
-                        )}
-                      />
-                      {/* Voice recording button */}
-                      <div className="absolute right-2 top-2">
-                        {isRecording ? (
-                          <button
-                            onClick={stopRecording}
-                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-red-100 text-red-600 hover:bg-red-200 transition-colors"
-                            title="Остановить запись"
-                          >
-                            <Square className="w-3 h-3 fill-current" />
-                            <span className="text-xs font-medium animate-pulse">REC</span>
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => startRecording(question.id)}
-                            className="p-1.5 rounded-md text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition-colors"
-                            title="Записать голос"
-                          >
-                            <Mic className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
 
                     {/* Skip button for non-required questions */}
                     {!question.required && !isAnswered && (
