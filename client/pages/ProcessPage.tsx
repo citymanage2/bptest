@@ -2383,6 +2383,69 @@ function StagesTab({ data }: { data: ProcessData }) {
     [data.stages]
   );
 
+  const handleExportWord = useCallback(async () => {
+    const children: Paragraph[] = [
+      new Paragraph({ text: data.name, heading: HeadingLevel.HEADING_1 }),
+      new Paragraph({ text: "Этапы бизнес-процесса", heading: HeadingLevel.HEADING_2 }),
+      new Paragraph({ text: "" }),
+    ];
+
+    const stageBlockMap = new Map<string, ProcessBlock[]>();
+    for (const stage of sortedStages) {
+      const stageBlocks = data.blocks.filter(
+        (b) => b.stage === stage.name || b.stage === stage.id
+      );
+      stageBlockMap.set(stage.id, orderBlocksByConnections(stageBlocks, data.blocks));
+    }
+
+    for (let i = 0; i < sortedStages.length; i++) {
+      const stage = sortedStages[i];
+      const blocks = stageBlockMap.get(stage.id) || [];
+      children.push(
+        new Paragraph({ text: `${i + 1}. ${stage.name}`, heading: HeadingLevel.HEADING_3 })
+      );
+      if (blocks.length === 0) {
+        children.push(new Paragraph({ text: "Нет блоков на этом этапе", style: "Normal" }));
+      }
+      for (const block of blocks) {
+        const status = block.isActive === false ? " [выкл.]" : "";
+        children.push(
+          new Paragraph({
+            bullet: { level: 0 },
+            children: [
+              new TextRun({ text: `${block.name}${status}`, bold: true }),
+              new TextRun({ text: `  (${BLOCK_CONFIG[block.type]?.label || block.type})` }),
+            ],
+          })
+        );
+        const meta: string[] = [];
+        if (block.role) meta.push(`Роль: ${roleMap.get(block.role) || block.role}`);
+        if (block.timeEstimate) meta.push(`Время: ${block.timeEstimate}`);
+        if (meta.length > 0) {
+          children.push(
+            new Paragraph({
+              bullet: { level: 1 },
+              children: [new TextRun({ text: meta.join("  |  "), color: "555555" })],
+            })
+          );
+        }
+        if (block.description) {
+          children.push(
+            new Paragraph({
+              bullet: { level: 1 },
+              children: [new TextRun({ text: block.description })],
+            })
+          );
+        }
+      }
+      children.push(new Paragraph({ text: "" }));
+    }
+
+    const doc = new Document({ sections: [{ properties: {}, children }] });
+    const blob = await Packer.toBlob(doc);
+    triggerDownload(blob, `Этапы — ${data.name}.docx`);
+  }, [data, sortedStages, roleMap]);
+
   const blocksByStage = useMemo(() => {
     const map = new Map<string, ProcessBlock[]>();
     for (const stage of sortedStages) {
@@ -2397,6 +2460,12 @@ function StagesTab({ data }: { data: ProcessData }) {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={handleExportWord} className="gap-2">
+          <Download className="w-4 h-4" />
+          Экспорт в Word
+        </Button>
+      </div>
       {sortedStages.map((stage, stageIdx) => {
         const blocks = blocksByStage.get(stage.id) || [];
         return (
