@@ -224,10 +224,47 @@ function computeLayout(data: ProcessData): LayoutInfo {
     return Math.max(MIN_STAGE_HEIGHT, maxCellH);
   });
 
+  // ── Dynamic routing space ─────────────────────────────────────
+  // Count how many connection lines need to pass THROUGH each stage
+  // (bypass = соединение перепрыгивает через стадию; own = исходит из стадии).
+  // Чем больше линий — тем больше вертикального пространства нужно для маршрутизации.
+  const blockStageIdx: Record<string, number> = {};
+  for (const block of data.blocks) {
+    const si = stageIndexMap[block.stage];
+    if (si !== undefined) blockStageIdx[block.id] = si;
+  }
+
+  // connLoad[i] = суммарное число соединений, которым нужно место в стадии i
+  const connLoad: number[] = new Array(stageOrder.length).fill(0);
+  for (const block of data.blocks) {
+    const fromSi = blockStageIdx[block.id];
+    if (fromSi === undefined) continue;
+    for (const targetId of block.connections) {
+      const toSi = blockStageIdx[targetId];
+      if (toSi === undefined) continue;
+      // Стадия-источник: соединениям нужно место для выхода из блока вниз
+      connLoad[fromSi]++;
+      // Промежуточные стадии: соединение пролетает насквозь и требует свободного коридора
+      const lo = Math.min(fromSi, toSi);
+      const hi = Math.max(fromSi, toSi);
+      for (let s = lo + 1; s < hi; s++) {
+        connLoad[s]++;
+      }
+    }
+  }
+
+  // Добавляем дополнительную высоту: 26 px за каждое соединение сверх первых двух
+  const ROUTE_UNIT = 26;
+  const ROUTE_FREE = 2; // первые N соединений умещаются без доп. места
+  const adjustedStageHeights = stageHeights.map((h, i) => {
+    const extra = Math.max(0, connLoad[i] - ROUTE_FREE) * ROUTE_UNIT;
+    return h + extra;
+  });
+
   // Cumulative stage Y positions
   const stagePositions: number[] = [];
   let cumY = ROLE_HEADER_HEIGHT;
-  for (const h of stageHeights) {
+  for (const h of adjustedStageHeights) {
     stagePositions.push(cumY);
     cumY += h;
   }
@@ -253,7 +290,7 @@ function computeLayout(data: ProcessData): LayoutInfo {
       totalH += (blocks.length - 1) * BLOCK_PADDING;
 
       const cellTop = stagePositions[si];
-      const cellHeight = stageHeights[si];
+      const cellHeight = adjustedStageHeights[si];
       let yStart = cellTop + (cellHeight - totalH) / 2;
 
       for (const block of blocks) {
@@ -271,7 +308,7 @@ function computeLayout(data: ProcessData): LayoutInfo {
     totalHeight: cumY,
     lanePositions,
     stagePositions,
-    stageHeights,
+    stageHeights: adjustedStageHeights,
     roleOrder,
     stageOrder,
     laneWidth: LANE_WIDTH,
