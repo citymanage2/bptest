@@ -783,20 +783,28 @@ function computeProcessDiff(
 // ============================================
 
 const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = {
+  h1: ({ children }) => (
+    <h3 className="text-base font-bold text-gray-900 mt-5 mb-2 first:mt-0">{children}</h3>
+  ),
   h2: ({ children }) => (
-    <h4 className="text-sm font-semibold text-gray-900 mt-4 mb-2 first:mt-0">{children}</h4>
+    <h4 className="text-sm font-semibold text-gray-900 mt-4 mb-2 first:mt-0 border-b border-gray-100 pb-1">{children}</h4>
   ),
   h3: ({ children }) => (
-    <h5 className="text-sm font-medium text-gray-800 mt-3 mb-1.5">{children}</h5>
+    <h5 className="text-sm font-semibold text-gray-800 mt-3 mb-1.5">{children}</h5>
   ),
-  p: ({ children }) => <p className="text-sm text-gray-600 mb-2">{children}</p>,
+  h4: ({ children }) => (
+    <h6 className="text-sm font-medium text-gray-700 mt-2 mb-1">{children}</h6>
+  ),
+  p: ({ children }) => <p className="text-sm text-gray-600 mb-2 leading-relaxed">{children}</p>,
   ul: ({ children }) => (
-    <ul className="text-sm text-gray-600 list-disc list-inside mb-2 space-y-0.5">{children}</ul>
+    <ul className="text-sm text-gray-600 mb-2 space-y-0.5 pl-1">{children}</ul>
   ),
   ol: ({ children }) => (
     <ol className="text-sm text-gray-600 list-decimal list-inside mb-2 space-y-0.5">{children}</ol>
   ),
-  li: ({ children }) => <li className="text-sm text-gray-600">{children}</li>,
+  li: ({ children }) => (
+    <li className="text-sm text-gray-600 ml-4 list-disc">{children}</li>
+  ),
   strong: ({ children }) => (
     <strong className="font-semibold text-gray-900">{children}</strong>
   ),
@@ -855,10 +863,17 @@ function PipeTable({ lines }: { lines: string[] }) {
   );
 }
 
+function preprocessMarkdown(text: string): string {
+  return text
+    .replace(/^(\s*)- \[x\] /gim, "$1- ☑ ")
+    .replace(/^(\s*)- \[ \] /gm, "$1- ☐ ");
+}
+
 function MarkdownContent({ text }: { text: string }) {
+  const processedText = preprocessMarkdown(text);
   const segments: Array<{ type: "md" | "table"; lines: string[] }> = [];
   let current: { type: "md" | "table"; lines: string[] } | null = null;
-  for (const line of text.split("\n")) {
+  for (const line of processedText.split("\n")) {
     const isTable = line.trimStart().startsWith("|");
     if (isTable) {
       if (current?.type === "table") {
@@ -4570,14 +4585,32 @@ async function createDocxBlob(markdown: string, title: string): Promise<Blob> {
   for (const line of markdown.split("\n")) {
     if (!line.trim()) {
       children.push(new Paragraph({ text: "" }));
-    } else if (line.startsWith("# ")) {
-      children.push(new Paragraph({ text: line.slice(2), heading: HeadingLevel.HEADING_1 }));
-    } else if (line.startsWith("## ")) {
-      children.push(new Paragraph({ text: line.slice(3), heading: HeadingLevel.HEADING_2 }));
+    } else if (line.startsWith("#### ")) {
+      children.push(new Paragraph({ text: line.slice(5), heading: HeadingLevel.HEADING_4 }));
     } else if (line.startsWith("### ")) {
       children.push(new Paragraph({ text: line.slice(4), heading: HeadingLevel.HEADING_3 }));
-    } else if (/^[-*] /.test(line)) {
-      children.push(new Paragraph({ bullet: { level: 0 }, children: parseBoldRuns(line.slice(2)) }));
+    } else if (line.startsWith("## ")) {
+      children.push(new Paragraph({ text: line.slice(3), heading: HeadingLevel.HEADING_2 }));
+    } else if (line.startsWith("# ")) {
+      children.push(new Paragraph({ text: line.slice(2), heading: HeadingLevel.HEADING_1 }));
+    } else if (/^(\s*)- \[[ x]\] /.test(line)) {
+      // Checklist item: render as indented bullet with checkbox symbol
+      const indent = line.match(/^(\s*)/)?.[1].length ?? 0;
+      const checked = /- \[x\]/i.test(line);
+      const text = line.replace(/^\s*- \[[ x]\] /i, "");
+      children.push(new Paragraph({
+        bullet: { level: Math.min(Math.floor(indent / 2), 2) },
+        children: [
+          new TextRun({ text: (checked ? "☑ " : "☐ ") + text }),
+        ],
+      }));
+    } else if (/^(\s*)[-*] /.test(line)) {
+      const indent = line.match(/^(\s*)/)?.[1].length ?? 0;
+      const text = line.replace(/^\s*[-*] /, "");
+      children.push(new Paragraph({
+        bullet: { level: Math.min(Math.floor(indent / 2), 2) },
+        children: parseBoldRuns(text),
+      }));
     } else {
       children.push(new Paragraph({ children: parseBoldRuns(line) }));
     }
