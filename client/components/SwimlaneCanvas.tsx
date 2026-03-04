@@ -993,9 +993,9 @@ function renderDiagram(
   for (const lb of layoutBlocks) {
     const isHovered = lb.block.id === hoveredBlockId;
     const isSelected = lb.block.id === selectedBlockId;
-    const isConnHL = hoveredBlockId
-      ? isConnectedTo(lb.block.id, hoveredBlockId, data.blocks)
-      : false;
+    const isConnHL =
+      (hoveredBlockId ? isConnectedTo(lb.block.id, hoveredBlockId, data.blocks) : false) ||
+      (!!selectedBlockId && isConnectedTo(lb.block.id, selectedBlockId, data.blocks));
 
     drawBlockShape(ctx, lb, isHovered || isConnHL, isSelected);
     drawBlockContent(ctx, lb);
