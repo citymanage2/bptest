@@ -484,7 +484,7 @@ function drawBlockShape(
 ) {
   const { block, x, y, w, h } = lb;
   const config = BLOCK_CONFIG[block.type];
-  const fill = getBlockFill(block.type);
+  const fill = isConnected ? "#f5f3ff" : getBlockFill(block.type);
   const border = isConnected ? CONNECTED_COLOR : config.borderColor;
   const lw = isHighlighted || isSelected || isConnected ? 3 : 2;
 
