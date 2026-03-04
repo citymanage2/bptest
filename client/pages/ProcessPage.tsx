@@ -2474,6 +2474,11 @@ function StagesTab({ data }: { data: ProcessData }) {
                               </span>
                             )}
                           </div>
+                          {block.description && (
+                            <p className={cn("mt-1.5 text-xs leading-relaxed", isInactive ? "text-gray-400" : "text-gray-600")}>
+                              {block.description}
+                            </p>
+                          )}
                         </div>
                       </div>
                       {block.connections.length > 0 && (
