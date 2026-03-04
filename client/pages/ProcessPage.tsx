@@ -4395,7 +4395,17 @@ function QualityTab({ processId }: { processId: number }) {
   }
 
   const result = qualityQuery.data!;
-  const categories = [...new Set(result.items.map(i => i.category))];
+  // Sort categories: those with errors first, then warnings, then all-passed
+  const categories = [...new Set(result.items.map(i => i.category))].sort((a, b) => {
+    const aItems = result.items.filter(i => i.category === a);
+    const bItems = result.items.filter(i => i.category === b);
+    const severity = (items: typeof result.items) => {
+      if (items.some(i => !i.passed && i.severity === "error")) return 0;
+      if (items.some(i => !i.passed && i.severity === "warning")) return 1;
+      return 2;
+    };
+    return severity(aItems) - severity(bItems);
+  });
   const scoreColor = result.score >= 80 ? "text-green-600" : result.score >= 60 ? "text-yellow-600" : "text-red-600";
   const scoreBg = result.score >= 80 ? "bg-green-50" : result.score >= 60 ? "bg-yellow-50" : "bg-red-50";
 
@@ -4442,17 +4452,32 @@ function QualityTab({ processId }: { processId: number }) {
       {categories.map((category) => {
         const catItems = result.items.filter(i => i.category === category);
         const catPassed = catItems.filter(i => i.passed).length;
+        const catErrors = catItems.filter(i => !i.passed && i.severity === "error").length;
+        const catWarnings = catItems.filter(i => !i.passed && i.severity === "warning").length;
+        const allOk = catPassed === catItems.length;
         return (
-          <Card key={category}>
+          <Card key={category} className={cn(catErrors > 0 ? "border-red-200" : catWarnings > 0 ? "border-yellow-200" : "")}>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <FileCheck className="w-4 h-4" />
+                  <FileCheck className={cn("w-4 h-4", catErrors > 0 ? "text-red-500" : catWarnings > 0 ? "text-yellow-500" : "text-green-500")} />
                   {category}
                 </CardTitle>
-                <Badge variant={catPassed === catItems.length ? "default" : "secondary"}>
-                  {catPassed}/{catItems.length}
-                </Badge>
+                <div className="flex items-center gap-1.5">
+                  {catErrors > 0 && (
+                    <span className="flex items-center gap-1 text-xs text-red-600 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">
+                      <XCircle className="w-3 h-3" />{catErrors}
+                    </span>
+                  )}
+                  {catWarnings > 0 && (
+                    <span className="flex items-center gap-1 text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5">
+                      <AlertCircle className="w-3 h-3" />{catWarnings}
+                    </span>
+                  )}
+                  <Badge variant={allOk ? "default" : "secondary"}>
+                    {catPassed}/{catItems.length}
+                  </Badge>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -4461,11 +4486,17 @@ function QualityTab({ processId }: { processId: number }) {
                   <div
                     key={item.id}
                     className={cn(
-                      "flex items-start gap-3 py-2 px-3 rounded-lg text-sm",
-                      item.passed ? "bg-green-50" : item.severity === "error" ? "bg-red-50" : item.severity === "warning" ? "bg-yellow-50" : "bg-gray-50"
+                      "flex items-start gap-3 py-3 px-3 rounded-lg text-sm",
+                      item.passed
+                        ? "bg-green-50"
+                        : item.severity === "error"
+                          ? "bg-red-50 border border-red-200"
+                          : item.severity === "warning"
+                            ? "bg-yellow-50 border border-yellow-200"
+                            : "bg-gray-50"
                     )}
                   >
-                    <div className="mt-0.5">
+                    <div className="mt-0.5 shrink-0">
                       {item.passed ? (
                         <CheckCircle2 className="w-4 h-4 text-green-600" />
                       ) : item.severity === "error" ? (
@@ -4476,11 +4507,34 @@ function QualityTab({ processId }: { processId: number }) {
                         <AlertCircle className="w-4 h-4 text-gray-400" />
                       )}
                     </div>
-                    <div className="flex-1">
-                      <p className={cn("font-medium", item.passed ? "text-green-800" : item.severity === "error" ? "text-red-800" : "text-gray-800")}>
+                    <div className="flex-1 min-w-0">
+                      <p className={cn(
+                        "font-medium",
+                        item.passed
+                          ? "text-green-800"
+                          : item.severity === "error"
+                            ? "text-red-800"
+                            : item.severity === "warning"
+                              ? "text-yellow-900"
+                              : "text-gray-800"
+                      )}>
                         {item.rule}
                       </p>
-                      <p className="text-xs text-gray-500 mt-0.5">{item.details}</p>
+                      <p className={cn(
+                        "text-xs mt-1 leading-relaxed",
+                        item.passed ? "text-green-700" : item.severity === "error" ? "text-red-700" : item.severity === "warning" ? "text-yellow-800" : "text-gray-500"
+                      )}>
+                        {item.details}
+                      </p>
+                      {!item.passed && item.howToFix && (
+                        <div className={cn(
+                          "mt-2 pt-2 border-t text-xs leading-relaxed",
+                          item.severity === "error" ? "border-red-200 text-red-900" : "border-yellow-200 text-yellow-900"
+                        )}>
+                          <span className="font-semibold">Как исправить: </span>
+                          {item.howToFix}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

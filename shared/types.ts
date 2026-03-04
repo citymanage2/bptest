@@ -254,6 +254,7 @@ export interface QualityCheckItem {
   rule: string;
   passed: boolean;
   details: string;
+  howToFix?: string; // Actionable fix guidance (only for failed items)
   severity: "error" | "warning" | "info";
 }
 
