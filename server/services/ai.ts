@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ProcessData, ProcessBlock, ProcessRole, ProcessStage, ProcessPassport } from "../../shared/types";
+import type { ProcessData, ProcessBlock, ProcessRole, ProcessStage, ProcessPassport, CrmFunnel } from "../../shared/types";
 import { SWIMLANE_COLORS } from "../../shared/types";
 import { logger } from "./logger";
 
@@ -409,6 +409,118 @@ ${JSON.stringify(processData, null, 2)}
         relatedSteps: [],
       },
     ];
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CRM Funnel Variants Generation (2-3 variants for user to choose)
+// ═══════════════════════════════════════════════════════════════════
+
+export async function generateCrmFunnelVariants(
+  data: ProcessData,
+  description: string
+): Promise<CrmFunnel[]> {
+  const blockList = data.blocks
+    .map((b) => `${b.id}: ${b.name} (${b.type}, role: ${b.role})`)
+    .join("\n");
+
+  const prompt = `Ты — эксперт по CRM и воронкам продаж. На основе бизнес-процесса сгенерируй ровно 3 ВАРИАНТА CRM-воронки.
+Каждый вариант — отдельный подход к организации воронки: консервативный, сбалансированный, инновационный.
+
+ПРОЦЕСС: ${data.name}
+ЦЕЛЬ: ${data.goal}
+БЛОКИ:
+${blockList}
+
+ЗАПРОС ПОЛЬЗОВАТЕЛЯ: ${description}
+
+Верни JSON-массив из РОВНО 3 объектов CrmFunnel (без лишнего текста):
+[
+  {
+    "id": "variant-1",
+    "name": "Вариант 1: Консервативный",
+    "description": "Описание подхода...",
+    "stages": [
+      {
+        "id": "stage-1-1",
+        "name": "Название этапа",
+        "level": 0,
+        "order": 1,
+        "exitCriteria": "Критерий выхода",
+        "ownerRole": "Роль",
+        "slaDays": 3,
+        "checklist": ["Шаг 1", "Шаг 2"],
+        "relatedBlockIds": ["blockId1"],
+        "automations": ["CRM уведомление"],
+        "conversionTarget": 80
+      }
+    ],
+    "statuses": [
+      {"id": "s1", "name": "В работе", "type": "pause", "description": "..."},
+      {"id": "s2", "name": "Отказ", "type": "lost", "description": "..."},
+      {"id": "s3", "name": "Сделка закрыта", "type": "won", "description": "..."}
+    ],
+    "qualityNotes": ["Примечание к качеству"]
+  },
+  { "id": "variant-2", "name": "Вариант 2: Сбалансированный", ... },
+  { "id": "variant-3", "name": "Вариант 3: Инновационный", ... }
+]
+
+Используй реальные blockId из процесса в relatedBlockIds. Только JSON, без пояснений.`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 8000,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error("Не удалось извлечь JSON из ответа");
+    const variants = JSON.parse(jsonMatch[0]) as CrmFunnel[];
+    return variants.slice(0, 3);
+  } catch (error) {
+    logger.error("AI", "CRM variants generation failed", error);
+    throw new Error("Не удалось сгенерировать варианты CRM-воронки");
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Recommendations Change Request
+// ═══════════════════════════════════════════════════════════════════
+
+export async function applyRecommendationChanges(
+  currentRecs: Array<{ category: string; title: string; description: string; priority: string; relatedSteps: string[] }>,
+  processData: ProcessData,
+  changeDescription: string
+): Promise<Array<{ category: string; title: string; description: string; priority: string; relatedSteps: string[] }>> {
+  const prompt = `Ты — консультант по оптимизации бизнес-процессов. Тебе даны текущие рекомендации по процессу и запрос на их изменение.
+Верни ОБНОВЛЁННЫЙ список рекомендаций в том же JSON-формате, применив изменения согласно запросу.
+
+ПРОЦЕСС: ${processData.name}
+
+ТЕКУЩИЕ РЕКОМЕНДАЦИИ:
+${JSON.stringify(currentRecs, null, 2)}
+
+ЗАПРОС НА ИЗМЕНЕНИЕ:
+${changeDescription}
+
+Верни JSON-массив рекомендаций (только JSON, без пояснений):
+[{"category":"...","title":"...","description":"...","priority":"high|medium|low","relatedSteps":["blockId"]}]`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 10000,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error("Не удалось извлечь JSON из ответа");
+    return JSON.parse(jsonMatch[0]);
+  } catch (error) {
+    logger.error("AI", "Recommendation change failed", error);
+    throw new Error("Не удалось применить изменения к рекомендациям");
   }
 }
 

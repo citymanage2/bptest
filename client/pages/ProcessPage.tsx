@@ -1264,15 +1264,18 @@ export function ProcessPage() {
             <DialogTrigger asChild>
               <Button variant="outline" size="sm">
                 <Send className="w-4 h-4" />
-                Запросить изменения
+                Изменить диаграмму
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
-                <DialogTitle>Запросить изменения процесса</DialogTitle>
+                <DialogTitle className="flex items-center gap-2">
+                  <GitBranch className="w-4 h-4 text-purple-600" />
+                  Изменить диаграмму процесса
+                </DialogTitle>
                 <DialogDescription>
-                  Опишите, какие изменения нужно внести. ИИ предложит обновленную
-                  версию процесса. Стоимость: {TOKEN_COSTS.change_request} токенов.
+                  Изменения затронут только диаграмму (блоки, связи, роли).
+                  После генерации будет показан предпросмотр. Стоимость: {TOKEN_COSTS.change_request} токенов.
                 </DialogDescription>
               </DialogHeader>
 
@@ -1565,7 +1568,11 @@ export function ProcessPage() {
 
         {/* ======== Tab: CRM Funnels ======== */}
         <TabsContent value="crm">
-          <CrmFunnelsTab funnels={crmFunnels} data={data} />
+          <CrmFunnelsTab
+            funnels={data.crmOverride ? [data.crmOverride] : crmFunnels}
+            data={data}
+            processId={processId}
+          />
         </TabsContent>
 
         {/* ======== Tab: Regulations ======== */}
@@ -2698,12 +2705,50 @@ const STATUS_COLORS: Record<string, string> = {
 function CrmFunnelsTab({
   funnels,
   data,
+  processId,
 }: {
   funnels: CrmFunnel[];
   data: ProcessData;
+  processId: number;
 }) {
+  const utils = trpc.useUtils();
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set());
   const [showQuality, setShowQuality] = useState(false);
+  const [crmChangeOpen, setCrmChangeOpen] = useState(false);
+  const [crmDescription, setCrmDescription] = useState("");
+  const [crmVariants, setCrmVariants] = useState<CrmFunnel[] | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<number>(0);
+
+  const generateCrmVariantsMutation = trpc.process.generateCrmVariants.useMutation({
+    onSuccess: (variants) => {
+      setCrmVariants(variants);
+      setSelectedVariant(0);
+      setCrmChangeOpen(false);
+    },
+  });
+
+  const updateDataMutation = trpc.process.updateData.useMutation({
+    onSuccess: () => {
+      utils.process.getById.invalidate({ id: processId });
+      toast({ title: "CRM-воронка сохранена" });
+    },
+  });
+
+  const handleSaveVariant = useCallback(() => {
+    if (!crmVariants) return;
+    updateDataMutation.mutate({
+      id: processId,
+      data: { ...data, crmOverride: crmVariants[selectedVariant] },
+    });
+    setCrmVariants(null);
+  }, [crmVariants, selectedVariant, data, processId, updateDataMutation]);
+
+  const handleClearOverride = useCallback(() => {
+    updateDataMutation.mutate({
+      id: processId,
+      data: { ...data, crmOverride: undefined },
+    });
+  }, [data, processId, updateDataMutation]);
 
   const toggleStage = useCallback((stageId: string) => {
     setExpandedStages((prev) => {
@@ -2749,14 +2794,30 @@ function CrmFunnelsTab({
                   {funnel.description}
                 </p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowQuality((v) => !v)}
-              >
-                <ClipboardCheck className="w-4 h-4" />
-                {showQuality ? "Скрыть проверки" : "Проверки качества"}
-              </Button>
+              <div className="flex items-center gap-2">
+                {data.crmOverride && (
+                  <Button variant="ghost" size="sm" className="text-xs text-gray-400" onClick={handleClearOverride}>
+                    Сбросить к авто
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCrmChangeOpen(true)}
+                  disabled={generateCrmVariantsMutation.isPending}
+                >
+                  <Send className="w-4 h-4" />
+                  Изменить воронку
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowQuality((v) => !v)}
+                >
+                  <ClipboardCheck className="w-4 h-4" />
+                  {showQuality ? "Скрыть проверки" : "Проверки качества"}
+                </Button>
+              </div>
             </div>
 
             {/* Quality notes */}
@@ -3045,6 +3106,114 @@ function CrmFunnelsTab({
           </div>
         );
       })}
+
+      {/* ── CRM Change Request Dialog ── */}
+      <Dialog open={crmChangeOpen} onOpenChange={setCrmChangeOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-purple-600" />
+              Изменить CRM-воронку
+            </DialogTitle>
+            <DialogDescription>
+              ИИ сгенерирует 2–3 варианта воронки, из которых вы выберете лучший.
+              Стоимость: {TOKEN_COSTS.crm_variants} токенов.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            placeholder="Например: сделай воронку с 5 этапами с фокусом на квалификацию лидов..."
+            value={crmDescription}
+            onChange={(e) => setCrmDescription(e.target.value)}
+            rows={4}
+            disabled={generateCrmVariantsMutation.isPending}
+          />
+          {generateCrmVariantsMutation.error && (
+            <p className="text-sm text-red-500">{generateCrmVariantsMutation.error.message}</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCrmChangeOpen(false)} disabled={generateCrmVariantsMutation.isPending}>
+              Отмена
+            </Button>
+            <Button
+              onClick={() => generateCrmVariantsMutation.mutate({ processId, description: crmDescription })}
+              disabled={generateCrmVariantsMutation.isPending || !crmDescription.trim()}
+            >
+              {generateCrmVariantsMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Генерация...</>
+              ) : (
+                <><Sparkles className="w-4 h-4" />Сгенерировать варианты</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── CRM Variants Preview Dialog ── */}
+      <Dialog open={!!crmVariants} onOpenChange={() => {}}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Filter className="w-5 h-5 text-purple-600" />
+              Предпросмотр: выберите вариант CRM-воронки
+            </DialogTitle>
+            <DialogDescription>
+              ИИ предлагает {crmVariants?.length ?? 0} варианта. Выберите подходящий и сохраните.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              {(crmVariants ?? []).map((variant, idx) => (
+                <button
+                  key={variant.id}
+                  type="button"
+                  onClick={() => setSelectedVariant(idx)}
+                  className={cn(
+                    "text-left rounded-xl border-2 p-4 transition-all focus:outline-none",
+                    selectedVariant === idx
+                      ? "border-purple-500 bg-purple-50 shadow-md"
+                      : "border-gray-200 hover:border-purple-300 bg-white"
+                  )}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={cn(
+                      "w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0",
+                      selectedVariant === idx ? "border-purple-500 bg-purple-500" : "border-gray-300"
+                    )}>
+                      {selectedVariant === idx && <CheckCircle2 className="w-3 h-3 text-white" />}
+                    </div>
+                    <span className="font-semibold text-sm text-gray-900">{variant.name}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-3">{variant.description}</p>
+                  <div className="space-y-1">
+                    {variant.stages.filter((s) => s.level === 0).map((s) => (
+                      <div key={s.id} className="flex items-center gap-2 text-xs text-gray-700">
+                        <div className="w-2 h-2 rounded-full bg-purple-400 shrink-0" />
+                        <span>{s.name}</span>
+                        {s.conversionTarget && (
+                          <span className="ml-auto text-gray-400">{s.conversionTarget}%</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="px-6 py-4 border-t flex-shrink-0 flex justify-between">
+            <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => { setCrmVariants(null); setCrmDescription(""); }}>
+              <XCircle className="w-4 h-4" />
+              Отменить
+            </Button>
+            <Button onClick={handleSaveVariant} disabled={updateDataMutation.isPending} className="bg-green-600 hover:bg-green-700 text-white">
+              {updateDataMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Сохранение...</>
+              ) : (
+                <><CheckCircle2 className="w-4 h-4" />Сохранить вариант {selectedVariant + 1}</>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -3066,6 +3235,28 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
   const generateMutation = trpc.process.generateRecommendations.useMutation({
     onSuccess: () => {
       utils.process.getRecommendations.invalidate({ processId });
+    },
+  });
+
+  // ── Recommendations change request state ──
+  const [recChangeOpen, setRecChangeOpen] = useState(false);
+  const [recDescription, setRecDescription] = useState("");
+  type RecPreview = { category: string; title: string; description: string; priority: string; relatedSteps: string[] };
+  const [recPreview, setRecPreview] = useState<{ previous: RecPreview[]; updated: RecPreview[] } | null>(null);
+
+  const requestRecChangeMutation = trpc.process.requestRecommendationChange.useMutation({
+    onSuccess: (result) => {
+      setRecPreview(result as { previous: RecPreview[]; updated: RecPreview[] });
+      setRecChangeOpen(false);
+    },
+  });
+
+  const replaceRecsMutation = trpc.process.replaceRecommendations.useMutation({
+    onSuccess: () => {
+      utils.process.getRecommendations.invalidate({ processId });
+      setRecPreview(null);
+      setRecDescription("");
+      toast({ title: "Рекомендации обновлены" });
     },
   });
 
@@ -3127,6 +3318,19 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
                 Свернуть всё
               </Button>
             </>
+          )}
+          {recommendations.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => setRecChangeOpen(true)}
+              disabled={requestRecChangeMutation.isPending}
+            >
+              {requestRecChangeMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Генерация...</>
+              ) : (
+                <><Send className="w-4 h-4" />Изменить рекомендации</>
+              )}
+            </Button>
           )}
           <Button
             onClick={() => generateMutation.mutate({ processId })}
@@ -3268,6 +3472,101 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
           })}
         </div>
       )}
+
+      {/* ── Rec Change Request Dialog ── */}
+      <Dialog open={recChangeOpen} onOpenChange={setRecChangeOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Brain className="w-4 h-4 text-purple-600" />
+              Изменить рекомендации
+            </DialogTitle>
+            <DialogDescription>
+              ИИ обновит рекомендации согласно вашему запросу с возможностью предпросмотра.
+              Стоимость: {TOKEN_COSTS.recommendations} токенов.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            placeholder="Например: сделай акцент на автоматизации, убери раздел про управление данными..."
+            value={recDescription}
+            onChange={(e) => setRecDescription(e.target.value)}
+            rows={4}
+            disabled={requestRecChangeMutation.isPending}
+          />
+          {requestRecChangeMutation.error && (
+            <p className="text-sm text-red-500">{requestRecChangeMutation.error.message}</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRecChangeOpen(false)} disabled={requestRecChangeMutation.isPending}>
+              Отмена
+            </Button>
+            <Button
+              onClick={() => requestRecChangeMutation.mutate({ processId, description: recDescription })}
+              disabled={requestRecChangeMutation.isPending || !recDescription.trim()}
+            >
+              {requestRecChangeMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Генерация...</>
+              ) : (
+                <><Sparkles className="w-4 h-4" />Сгенерировать изменения</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Rec Preview Dialog ── */}
+      <Dialog open={!!recPreview} onOpenChange={() => {}}>
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="w-5 h-5 text-purple-600" />
+              Предпросмотр: изменения рекомендаций
+            </DialogTitle>
+            <DialogDescription>
+              Ознакомьтесь с изменениями перед сохранением.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Текущие ({recPreview?.previous.length ?? 0})</p>
+                {(recPreview?.previous ?? []).map((r, i) => (
+                  <div key={i} className="p-2 rounded-lg bg-gray-50 border border-gray-100">
+                    <p className="text-xs font-medium text-gray-700">{r.title}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">{r.category}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide">Новые ({recPreview?.updated.length ?? 0})</p>
+                {(recPreview?.updated ?? []).map((r, i) => (
+                  <div key={i} className="p-2 rounded-lg bg-purple-50 border border-purple-100">
+                    <p className="text-xs font-medium text-gray-800">{r.title}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">{r.category}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="px-6 py-4 border-t flex-shrink-0 flex justify-between">
+            <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => { setRecPreview(null); setRecDescription(""); }}>
+              <XCircle className="w-4 h-4" />
+              Отменить
+            </Button>
+            <Button
+              onClick={() => recPreview && replaceRecsMutation.mutate({ processId, newRecs: recPreview.updated })}
+              disabled={replaceRecsMutation.isPending}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              {replaceRecsMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Сохранение...</>
+              ) : (
+                <><CheckCircle2 className="w-4 h-4" />Сохранить изменения</>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

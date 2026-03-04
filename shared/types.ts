@@ -107,6 +107,7 @@ export interface ProcessData {
   roles: ProcessRole[];
   stages: ProcessStage[];
   blocks: ProcessBlock[];
+  crmOverride?: CrmFunnel; // User-selected CRM funnel override (replaces auto-generated)
 }
 
 export interface Process {
@@ -345,6 +346,7 @@ export const TOKEN_COSTS = {
   recommendations: 200,
   transcription_per_minute: 10,
   document: 100,
+  crm_variants: 300,
 } as const;
 
 // Block visual config

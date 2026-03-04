@@ -12,7 +12,7 @@ import {
   users,
   tokenOperations,
 } from "../db/schema";
-import { generateProcess, applyChanges, generateRecommendations, generatePassport, generateRegulationDocument } from "../services/ai";
+import { generateProcess, applyChanges, generateRecommendations, generatePassport, generateRegulationDocument, generateCrmFunnelVariants, applyRecommendationChanges } from "../services/ai";
 import { validateProcess } from "../services/validation";
 import type { ProcessData } from "../../shared/types";
 import { TOKEN_COSTS } from "../../shared/types";
@@ -408,6 +408,107 @@ export const processRouter = router({
         saved.push(r);
       }
 
+      return saved.map((r) => ({
+        id: r.id,
+        processId: r.processId,
+        category: r.category,
+        title: r.title,
+        description: r.description,
+        priority: r.priority,
+        relatedSteps: r.relatedSteps as string[],
+        createdAt: r.createdAt.toISOString(),
+      }));
+    }),
+
+  // ── CRM Funnel Variants ─────────────────────────────────────────
+  generateCrmVariants: protectedProcedure
+    .input(z.object({
+      processId: z.number(),
+      description: z.string().min(5, "Опишите изменения подробнее"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      await deductTokens(ctx.userId, TOKEN_COSTS.crm_variants, "change_request", "Генерация вариантов CRM-воронки");
+
+      const variants = await generateCrmFunnelVariants(process.data as ProcessData, input.description);
+      return variants;
+    }),
+
+  // ── Recommendations Change Request (preview only, no DB save) ───
+  requestRecommendationChange: protectedProcedure
+    .input(z.object({
+      processId: z.number(),
+      description: z.string().min(5, "Опишите изменения подробнее"),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      await deductTokens(ctx.userId, TOKEN_COSTS.recommendations, "recommendations", "Запрос изменений рекомендаций");
+
+      const currentRecs = await db.query.recommendations.findMany({
+        where: eq(recommendations.processId, input.processId),
+        orderBy: desc(recommendations.createdAt),
+      });
+
+      const recData = currentRecs.map((r) => ({
+        category: r.category,
+        title: r.title,
+        description: r.description,
+        priority: r.priority,
+        relatedSteps: r.relatedSteps as string[],
+      }));
+
+      const newRecs = await applyRecommendationChanges(recData, process.data as ProcessData, input.description);
+      return { previous: recData, updated: newRecs };
+    }),
+
+  // ── Replace Recommendations (called after preview confirmation) ──
+  replaceRecommendations: protectedProcedure
+    .input(z.object({
+      processId: z.number(),
+      newRecs: z.array(z.object({
+        category: z.string(),
+        title: z.string(),
+        description: z.string(),
+        priority: z.string(),
+        relatedSteps: z.array(z.string()),
+      })),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      // Delete existing
+      await db.delete(recommendations).where(eq(recommendations.processId, input.processId));
+
+      // Insert new
+      const saved = [];
+      for (const rec of input.newRecs) {
+        const [r] = await db.insert(recommendations).values({
+          processId: input.processId,
+          category: rec.category as any,
+          title: rec.title,
+          description: rec.description,
+          priority: rec.priority as any,
+          relatedSteps: rec.relatedSteps,
+        }).returning();
+        saved.push(r);
+      }
       return saved.map((r) => ({
         id: r.id,
         processId: r.processId,
