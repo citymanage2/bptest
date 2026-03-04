@@ -117,6 +117,7 @@ import {
   GitBranch,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 // ============================================
 // Helper Functions
@@ -2819,6 +2820,7 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
                   <CardContent className="pt-0 pb-4 px-4">
                     <div className="pl-12 prose prose-sm prose-gray max-w-none">
                       <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
                         components={{
                           h2: ({ children }) => (
                             <h4 className="text-sm font-semibold text-gray-900 mt-4 mb-2 first:mt-0">
@@ -2874,11 +2876,22 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
                               {children}
                             </th>
                           ),
-                          td: ({ children }) => (
-                            <td className="px-3 py-2 text-sm text-gray-700">
-                              {children}
-                            </td>
-                          ),
+                          td: ({ children }) => {
+                            const text = typeof children === "string" ? children : "";
+                            const priority =
+                              text === "Высокий"
+                                ? "bg-red-50 text-red-700 font-medium"
+                                : text === "Средний"
+                                  ? "bg-yellow-50 text-yellow-700 font-medium"
+                                  : text === "Низкий"
+                                    ? "bg-green-50 text-green-700 font-medium"
+                                    : "";
+                            return (
+                              <td className={`px-3 py-2 text-sm text-gray-700 ${priority}`}>
+                                {children}
+                              </td>
+                            );
+                          },
                         }}
                       >
                         {rec.description}
