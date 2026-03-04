@@ -28,6 +28,7 @@ export const tokenOperationTypeEnum = pgEnum("token_operation_type", [
   "recommendations",
   "transcription",
   "topup",
+  "file_upload",
 ]);
 
 // Users
@@ -241,6 +242,28 @@ export const tokenOperations = pgTable("token_operations", {
 
 export const tokenOperationsRelations = relations(tokenOperations, ({ one }) => ({
   user: one(users, { fields: [tokenOperations.userId], references: [users.id] }),
+}));
+
+// Block Files — files attached to process blocks
+export const blockFiles = pgTable("block_files", {
+  id: serial("id").primaryKey(),
+  processId: integer("process_id")
+    .notNull()
+    .references(() => processes.id, { onDelete: "cascade" }),
+  blockId: varchar("block_id", { length: 255 }).notNull(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  originalName: varchar("original_name", { length: 500 }).notNull(),
+  storedName: varchar("stored_name", { length: 500 }).notNull(),
+  mimeType: varchar("mime_type", { length: 100 }).notNull(),
+  fileSize: integer("file_size").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const blockFilesRelations = relations(blockFiles, ({ one }) => ({
+  process: one(processes, { fields: [blockFiles.processId], references: [processes.id] }),
+  user: one(users, { fields: [blockFiles.userId], references: [users.id] }),
 }));
 
 // ===== Consent & Privacy =====

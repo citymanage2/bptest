@@ -348,7 +348,20 @@ export const TOKEN_COSTS = {
   transcription_per_minute: 10,
   document: 100,
   crm_variants: 300,
+  file_upload: 100,
 } as const;
+
+export interface BlockFile {
+  id: number;
+  processId: number;
+  blockId: string;
+  userId: number;
+  originalName: string;
+  storedName: string;
+  mimeType: string;
+  fileSize: number;
+  createdAt: string;
+}
 
 // Block visual config
 export const BLOCK_CONFIG: Record<BlockType, { shape: string; borderColor: string; label: string }> = {

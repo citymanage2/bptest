@@ -59,6 +59,7 @@ import type {
   ProcessPassport,
   QualityCheckResult,
   QualityCheckItem,
+  BlockFile,
 } from "@shared/types";
 import { BLOCK_CONFIG, TOKEN_COSTS } from "@shared/types";
 
@@ -120,6 +121,9 @@ import {
   Archive,
   Undo2,
   Redo2,
+  Paperclip,
+  Upload,
+  Trash2,
 } from "lucide-react";
 import { toast } from "@/components/ui/toaster";
 import ReactMarkdown from "react-markdown";
@@ -2110,6 +2114,7 @@ function DiagramTab({
                     />
                     <p className="text-xs text-gray-400">Каждый пункт — отдельная строка</p>
                   </div>
+                  <BlockFilesSection processId={processId} blockId={editingBlock.id} />
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-gray-700">
                       Следующий этап
@@ -2314,6 +2319,8 @@ function DiagramTab({
                       </p>
                     </div>
                   )}
+
+                  <BlockFilesSection processId={processId} blockId={selectedBlock.id} />
 
                   {selectedBlock.checklist && selectedBlock.checklist.length > 0 && (
                     <div>
@@ -4626,6 +4633,156 @@ function triggerDownload(blob: Blob, filename: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ============================================
+// Block Files Section
+// ============================================
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
+function BlockFilesSection({ processId, blockId }: { processId: number; blockId: string }) {
+  const [files, setFiles] = useState<BlockFile[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const authHeader = () => {
+    const token = localStorage.getItem("auth_token");
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  const loadFiles = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/blocks/files?processId=${processId}&blockId=${encodeURIComponent(blockId)}`, {
+        headers: authHeader(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFiles(data.files ?? []);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [processId, blockId]);
+
+  useEffect(() => { loadFiles(); }, [loadFiles]);
+
+  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("processId", String(processId));
+      form.append("blockId", blockId);
+      const res = await fetch("/api/blocks/upload", {
+        method: "POST",
+        headers: authHeader(),
+        body: form,
+      });
+      if (res.ok) {
+        toast({ title: "Файл загружен", description: `${file.name} — списано ${TOKEN_COSTS.file_upload} токенов` });
+        await loadFiles();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast({ title: "Ошибка загрузки", description: err.error ?? "Неизвестная ошибка", variant: "destructive" });
+      }
+    } finally {
+      setUploading(false);
+    }
+  }, [processId, blockId, loadFiles]);
+
+  const handleDelete = useCallback(async (fileId: number, fileName: string) => {
+    if (!confirm(`Удалить файл «${fileName}»?`)) return;
+    const res = await fetch(`/api/files/${fileId}`, {
+      method: "DELETE",
+      headers: authHeader(),
+    });
+    if (res.ok) {
+      setFiles(prev => prev.filter(f => f.id !== fileId));
+      toast({ title: "Файл удалён" });
+    } else {
+      toast({ title: "Ошибка удаления", variant: "destructive" });
+    }
+  }, []);
+
+  const handleDownload = useCallback((fileId: number) => {
+    const token = localStorage.getItem("auth_token");
+    const a = document.createElement("a");
+    a.href = `/api/files/${fileId}${token ? `?token=${token}` : ""}`;
+    // Use fetch + blob to pass auth header
+    fetch(`/api/files/${fileId}`, { headers: authHeader() })
+      .then(r => r.ok ? r.blob() : Promise.reject(r))
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        a.href = url;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+  }, []);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+          <Paperclip className="w-3.5 h-3.5" />
+          Прикреплённые файлы
+        </label>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
+        >
+          {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+          Загрузить ({TOKEN_COSTS.file_upload} токенов)
+        </button>
+        <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} />
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-2">
+          <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+        </div>
+      ) : files.length === 0 ? (
+        <p className="text-xs text-gray-400 text-center py-2">Нет прикреплённых файлов</p>
+      ) : (
+        <div className="space-y-1">
+          {files.map(f => (
+            <div key={f.id} className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5">
+              <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <span className="text-xs text-gray-700 truncate flex-1" title={f.originalName}>{f.originalName}</span>
+              <span className="text-xs text-gray-400 shrink-0">{formatBytes(f.fileSize)}</span>
+              <button
+                type="button"
+                onClick={() => handleDownload(f.id)}
+                className="text-gray-400 hover:text-blue-600 shrink-0"
+                title="Скачать"
+              >
+                <Download className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(f.id, f.originalName)}
+                className="text-gray-400 hover:text-red-500 shrink-0"
+                title="Удалить"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 type DocType = "regulation" | "job_instruction";
