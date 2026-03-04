@@ -625,6 +625,8 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
     if (docCount > 0) badges.push("\uD83D\uDCC4 " + docCount);
     if (block.infoSystems?.length)
       badges.push("\uD83D\uDDA5 " + block.infoSystems.length);
+    if (block.checklist?.length)
+      badges.push("\u2713 " + block.checklist.length);
 
     if (badges.length > 0) {
       ctx.font = `11px ${FONT_FAMILY}`;

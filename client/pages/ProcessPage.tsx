@@ -989,6 +989,7 @@ export function ProcessPage() {
   const [editIsDefault, setEditIsDefault] = useState(false);
   const [editConnections, setEditConnections] = useState<string[]>([]);
   const [editFunnelStage, setEditFunnelStage] = useState("");
+  const [editChecklist, setEditChecklist] = useState("");
 
   // ---- Mutations ----
   const updateDataMutation = trpc.process.updateData.useMutation({
@@ -1082,6 +1083,7 @@ export function ProcessPage() {
       setEditIsDefault(block.isDefault || false);
       setEditConnections(block.connections || []);
       setEditFunnelStage(block.funnelStage || "");
+      setEditChecklist(block.checklist?.join("\n") || "");
     },
     []
   );
@@ -1109,6 +1111,9 @@ export function ProcessPage() {
             isDefault: editIsDefault,
             connections: editConnections,
             funnelStage: editFunnelStage || undefined,
+            checklist: editChecklist.split("\n").map((s) => s.trim()).filter(Boolean).length
+              ? editChecklist.split("\n").map((s) => s.trim()).filter(Boolean)
+              : undefined,
           }
         : b
     );
@@ -1118,7 +1123,7 @@ export function ProcessPage() {
       data: { ...data, blocks: updatedBlocks },
     });
     setEditingBlock(null);
-  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editConditionLabel, editIsDefault, editConnections, editFunnelStage, processId, updateDataMutation]);
+  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editConditionLabel, editIsDefault, editConnections, editFunnelStage, editChecklist, processId, updateDataMutation]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingBlock(null);
@@ -1519,8 +1524,10 @@ export function ProcessPage() {
             onSetEditIsDefault={setEditIsDefault}
             editConnections={editConnections}
             editFunnelStage={editFunnelStage}
+            editChecklist={editChecklist}
             onSetEditConnections={setEditConnections}
             onSetEditFunnelStage={setEditFunnelStage}
+            onSetEditChecklist={setEditChecklist}
             onScaleChange={setCanvasScale}
             onExportPNG={handleExportPNG}
             onExportBPMN={handleExportBPMN}
@@ -1619,8 +1626,10 @@ interface DiagramTabProps {
   onSetEditIsDefault: (v: boolean) => void;
   editConnections: string[];
   editFunnelStage: string;
+  editChecklist: string;
   onSetEditConnections: (v: string[]) => void;
   onSetEditFunnelStage: (v: string) => void;
+  onSetEditChecklist: (v: string) => void;
   onScaleChange: (scale: number) => void;
   onExportPNG: () => void;
   onExportBPMN: () => void;
@@ -1665,8 +1674,10 @@ function DiagramTab({
   onSetEditIsDefault,
   editConnections,
   editFunnelStage,
+  editChecklist,
   onSetEditConnections,
   onSetEditFunnelStage,
+  onSetEditChecklist,
   onScaleChange,
   onExportPNG,
   onExportBPMN,
@@ -1928,6 +1939,19 @@ function DiagramTab({
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-gray-700">
+                      Чек-лист выполнения
+                    </label>
+                    <Textarea
+                      value={editChecklist}
+                      onChange={(e) => onSetEditChecklist(e.target.value)}
+                      placeholder={"Каждый шаг — с новой строки:\nПроверить данные\nСогласовать с руководителем\nОтправить клиенту"}
+                      rows={4}
+                      className="text-sm font-mono"
+                    />
+                    <p className="text-xs text-gray-400">Каждый пункт — отдельная строка</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-700">
                       Связи
                     </label>
                     <div className="space-y-1">
@@ -2128,6 +2152,24 @@ function DiagramTab({
                       <p className="text-sm text-gray-900">
                         {selectedBlock.funnelStage}
                       </p>
+                    </div>
+                  )}
+
+                  {selectedBlock.checklist && selectedBlock.checklist.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium text-gray-500 mb-1">
+                        Чек-лист ({selectedBlock.checklist.length})
+                      </div>
+                      <ul className="space-y-1">
+                        {selectedBlock.checklist.map((item, i) => (
+                          <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                            <span className="mt-0.5 flex-shrink-0 w-4 h-4 rounded border border-gray-300 bg-white flex items-center justify-center">
+                              <span className="w-2 h-2 rounded-sm bg-transparent" />
+                            </span>
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
 

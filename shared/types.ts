@@ -76,6 +76,7 @@ export interface ProcessBlock {
   outputDocuments?: string[];
   infoSystems?: string[];
   funnelStage?: string;
+  checklist?: string[]; // Пошаговый чек-лист выполнения задачи
   connections: string[]; // IDs of next blocks
   conditionLabel?: string; // For decision branches
   isDefault?: boolean; // Default branch from decision
