@@ -209,106 +209,20 @@ function computeLayout(data: ProcessData): LayoutInfo {
     cellBlocks[key].push(block);
   }
 
-  // ── Build per-lane vertical block sequence ────────────────────
-  // Для каждой колонки (роли) собираем блоки в вертикальном порядке
-  // (сначала по стадии, затем по позиции внутри ячейки).
-  const blockStageIdx: Record<string, number> = {};
-  for (const block of data.blocks) {
-    const si = stageIndexMap[block.stage];
-    if (si !== undefined) blockStageIdx[block.id] = si;
-  }
-
-  type LaneBlock = { block: ProcessBlock; si: number; posInCell: number };
-  const laneSeq: Record<string, LaneBlock[]> = {};
-  for (const block of data.blocks) {
-    const si = blockStageIdx[block.id];
-    if (si === undefined) continue;
-    if (!laneSeq[block.role]) laneSeq[block.role] = [];
-    const posInCell = (cellBlocks[`${block.stage}__${block.role}`] ?? []).indexOf(block);
-    laneSeq[block.role].push({ block, si, posInCell });
-  }
-  for (const roleId of roleOrder) {
-    (laneSeq[roleId] ?? []).sort((a, b) =>
-      a.si !== b.si ? a.si - b.si : a.posInCell - b.posInCell,
-    );
-  }
-
-  // ── Count crossing connections for each consecutive pair ──────
-  // Для каждой пары соседних блоков (A, B) в одной колонке считаем,
-  // сколько соединений пересекает вертикальный зазор между ними:
-  // соединение «пересекает», если его диапазон стадий [fromSi..toSi]
-  // полностью охватывает [a.si .. b.si].
-  const ROUTE_PX   = 22; // дополнительных px на каждое лишнее соединение
-  const ROUTE_FREE = 2;  // первые N соединений умещаются без доп. места
-
-  const pairExtra: Record<string, number> = {};
-  for (const roleId of roleOrder) {
-    const seq = laneSeq[roleId] ?? [];
-    for (let pi = 0; pi + 1 < seq.length; pi++) {
-      const a = seq[pi];
-      const b = seq[pi + 1];
-      let crossCount = 0;
-      for (const block of data.blocks) {
-        const fromSi = blockStageIdx[block.id];
-        if (fromSi === undefined || fromSi > a.si) continue;
-        for (const targetId of block.connections) {
-          const toSi = blockStageIdx[targetId];
-          if (toSi === undefined || toSi < b.si) continue;
-          crossCount++;
-        }
-      }
-      const extra = Math.max(0, crossCount - ROUTE_FREE) * ROUTE_PX;
-      if (extra > 0) pairExtra[`${a.block.id}__${b.block.id}`] = extra;
-    }
-  }
-
-  // Зазор между двумя соседними блоками в одной ячейке (стадии)
-  const cellGap = (a: ProcessBlock, b: ProcessBlock): number =>
-    BLOCK_PADDING + (pairExtra[`${a.id}__${b.id}`] ?? 0);
-
-  // ── Per-cell content heights (переменные зазоры внутри ячейки) ─
-  const cellContentH: Record<string, number> = {};
-  for (const stageId of stageOrder) {
+  // Calculate stage heights based on tallest cell in each stage row
+  const stageHeights: number[] = stageOrder.map((stageId) => {
+    let maxCellH = 0;
     for (const roleId of roleOrder) {
       const key = `${stageId}__${roleId}`;
-      const blocks = cellBlocks[key] ?? [];
-      let h = 0;
-      for (let i = 0; i < blocks.length; i++) {
-        h += getBlockHeight(blocks[i].type);
-        if (i + 1 < blocks.length) h += cellGap(blocks[i], blocks[i + 1]);
+      const blocks = cellBlocks[key] || [];
+      let h = BLOCK_PADDING;
+      for (const b of blocks) {
+        h += getBlockHeight(b.type) + BLOCK_PADDING;
       }
-      cellContentH[key] = h;
+      maxCellH = Math.max(maxCellH, h);
     }
-  }
-
-  // ── Stage heights ─────────────────────────────────────────────
-  const stageHeights: number[] = stageOrder.map((stageId) => {
-    let maxH = 0;
-    for (const roleId of roleOrder) {
-      const h = cellContentH[`${stageId}__${roleId}`] ?? 0;
-      if (h > 0) maxH = Math.max(maxH, h + 2 * BLOCK_PADDING);
-    }
-    return Math.max(MIN_STAGE_HEIGHT, maxH);
+    return Math.max(MIN_STAGE_HEIGHT, maxCellH);
   });
-
-  // Для межстадийных пар с большим трафиком увеличиваем высоту
-  // стадии-источника, чтобы обеспечить нижний зазор для маршрутизации.
-  for (const roleId of roleOrder) {
-    const seq = laneSeq[roleId] ?? [];
-    for (let pi = 0; pi + 1 < seq.length; pi++) {
-      const a = seq[pi];
-      const b = seq[pi + 1];
-      if (a.si === b.si) continue; // одна стадия — обработано выше
-      const extra = pairExtra[`${a.block.id}__${b.block.id}`] ?? 0;
-      if (extra === 0) continue;
-      const contentA = cellContentH[`${stageOrder[a.si]}__${roleId}`] ?? 0;
-      // Обеспечиваем нижний отступ стадии a.si >= BLOCK_PADDING + extra
-      stageHeights[a.si] = Math.max(
-        stageHeights[a.si],
-        contentA + 2 * (BLOCK_PADDING + extra),
-      );
-    }
-  }
 
   // Cumulative stage Y positions
   const stagePositions: number[] = [];
@@ -330,19 +244,23 @@ function computeLayout(data: ProcessData): LayoutInfo {
     for (let ri = 0; ri < roleOrder.length; ri++) {
       const roleId = roleOrder[ri];
       const key = `${stageId}__${roleId}`;
-      const blocks = cellBlocks[key] ?? [];
+      const blocks = cellBlocks[key] || [];
       if (blocks.length === 0) continue;
 
-      const contentH = cellContentH[key] ?? 0;
-      const cellHeight = stageHeights[si];
-      let yStart = stagePositions[si] + (cellHeight - contentH) / 2;
+      // Calculate total height for vertical centering
+      let totalH = 0;
+      for (const b of blocks) totalH += getBlockHeight(b.type);
+      totalH += (blocks.length - 1) * BLOCK_PADDING;
 
-      for (let i = 0; i < blocks.length; i++) {
-        const block = blocks[i];
+      const cellTop = stagePositions[si];
+      const cellHeight = stageHeights[si];
+      let yStart = cellTop + (cellHeight - totalH) / 2;
+
+      for (const block of blocks) {
         const bh = getBlockHeight(block.type);
         const bx = lanePositions[ri] + (LANE_WIDTH - BLOCK_WIDTH) / 2;
         layoutBlocks.push({ block, x: bx, y: yStart, w: BLOCK_WIDTH, h: bh });
-        if (i + 1 < blocks.length) yStart += bh + cellGap(blocks[i], blocks[i + 1]);
+        yStart += bh + BLOCK_PADDING;
       }
     }
   }
