@@ -103,10 +103,7 @@ export function InterviewPage() {
     const initial: Record<string, Array<{ name: string; salary: string }>> = {};
     for (const q of questions) {
       if (!q.options) continue;
-      initial[q.id] = q.options.slice(0, 5).map((o) => ({
-        name: o.name,
-        salary: String(o.salary),
-      }));
+      initial[q.id] = Array.from({ length: 5 }, () => ({ name: "", salary: "" }));
     }
     setOptionRows(initial);
   }, [questions]);

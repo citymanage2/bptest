@@ -655,3 +655,28 @@ function generateFallbackProcess(
     blocks,
   };
 }
+
+export async function generateRegulationDocument(
+  roleName: string,
+  docType: "regulation" | "job_instruction",
+  companyName: string
+): Promise<string> {
+  const docTypeName =
+    docType === "regulation" ? "регламент" : "должностную инструкцию";
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 2000,
+      messages: [
+        {
+          role: "user",
+          content: `Создай ${docTypeName} для должности ${roleName} в компании ${companyName}. Структурированный формат, четкие обязанности и зоны ответственности. Используй markdown-форматирование с заголовками (##) и списками (-).`,
+        },
+      ],
+    });
+    return response.content[0].type === "text" ? response.content[0].text : "";
+  } catch (error) {
+    logger.error("AI", "Document generation failed", error);
+    throw error;
+  }
+}

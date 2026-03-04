@@ -115,8 +115,13 @@ import {
   Copy,
   Zap,
   GitBranch,
+  Download,
+  BookOpen,
+  Archive,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
+import JSZip from "jszip";
 
 // ============================================
 // Helper Functions
@@ -769,6 +774,121 @@ function computeProcessDiff(
   return items;
 }
 
+// ============================================
+// Markdown renderer with built-in pipe table support
+// (no remark-gfm required)
+// ============================================
+
+const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = {
+  h2: ({ children }) => (
+    <h4 className="text-sm font-semibold text-gray-900 mt-4 mb-2 first:mt-0">{children}</h4>
+  ),
+  h3: ({ children }) => (
+    <h5 className="text-sm font-medium text-gray-800 mt-3 mb-1.5">{children}</h5>
+  ),
+  p: ({ children }) => <p className="text-sm text-gray-600 mb-2">{children}</p>,
+  ul: ({ children }) => (
+    <ul className="text-sm text-gray-600 list-disc list-inside mb-2 space-y-0.5">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="text-sm text-gray-600 list-decimal list-inside mb-2 space-y-0.5">{children}</ol>
+  ),
+  li: ({ children }) => <li className="text-sm text-gray-600">{children}</li>,
+  strong: ({ children }) => (
+    <strong className="font-semibold text-gray-900">{children}</strong>
+  ),
+};
+
+const isSepRow = (line: string) => /^\s*\|[\s\-:|]+\|\s*$/.test(line);
+
+function PipeTable({ lines }: { lines: string[] }) {
+  const rows = lines.filter((l) => /^\s*\|/.test(l));
+  if (rows.length < 2) return null;
+  const parseRow = (line: string) =>
+    line.split("|").slice(1, -1).map((c) => c.trim());
+  const headers = parseRow(rows[0]);
+  const dataRows = rows.slice(1).filter((r) => !isSepRow(r)).map(parseRow);
+  if (!headers.length || !dataRows.length) return null;
+  const priorityCls = (cell: string) => {
+    if (cell === "Высокий" || cell === "P1")
+      return "bg-red-50 text-red-700 font-medium";
+    if (cell === "Средний" || cell === "P2")
+      return "bg-yellow-50 text-yellow-700 font-medium";
+    if (cell === "Низкий" || cell === "P3")
+      return "bg-green-50 text-green-700 font-medium";
+    return "";
+  };
+  return (
+    <div className="overflow-x-auto my-3 rounded-lg border border-gray-200">
+      <table className="min-w-full text-xs">
+        <thead className="bg-gray-50">
+          <tr>
+            {headers.map((h, i) => (
+              <th
+                key={i}
+                className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap border-b border-gray-200"
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {dataRows.map((cells, i) => (
+            <tr key={i} className="hover:bg-gray-50">
+              {cells.map((cell, j) => (
+                <td
+                  key={j}
+                  className={`px-3 py-1.5 text-xs text-gray-700 align-top ${priorityCls(cell)}`}
+                >
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MarkdownContent({ text }: { text: string }) {
+  const segments: Array<{ type: "md" | "table"; lines: string[] }> = [];
+  let current: { type: "md" | "table"; lines: string[] } | null = null;
+  for (const line of text.split("\n")) {
+    const isTable = line.trimStart().startsWith("|");
+    if (isTable) {
+      if (current?.type === "table") {
+        current.lines.push(line);
+      } else {
+        if (current) segments.push(current);
+        current = { type: "table", lines: [line] };
+      }
+    } else {
+      if (current?.type === "md") {
+        current.lines.push(line);
+      } else {
+        if (current) segments.push(current);
+        current = { type: "md", lines: [line] };
+      }
+    }
+  }
+  if (current) segments.push(current);
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.type === "table" ? (
+          <PipeTable key={i} lines={seg.lines} />
+        ) : (
+          <ReactMarkdown key={i} components={MD_COMPONENTS}>
+            {seg.lines.join("\n")}
+          </ReactMarkdown>
+        )
+      )}
+    </>
+  );
+}
+
 // Category icon mapping for recommendations
 const CATEGORY_ICONS: Record<string, typeof Brain> = {
   summary: FileText,
@@ -846,8 +966,13 @@ export function ProcessPage() {
   const [changeDialogOpen, setChangeDialogOpen] = useState(false);
   const [changeDescription, setChangeDescription] = useState("");
   const [pendingChangeRequest, setPendingChangeRequest] = useState<ChangeRequest | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewBefore, setPreviewBefore] = useState<ProcessData | null>(null);
+  const [previewAfter, setPreviewAfter] = useState<ProcessData | null>(null);
+  const [previewType, setPreviewType] = useState<"regenerate" | "change" | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const canvasHandleRef = useRef<SwimlaneCanvasHandle>(null);
+  const capturedBeforeRef = useRef<ProcessData | null>(null);
 
   // Block editing state
   const [editingBlock, setEditingBlock] = useState<ProcessBlock | null>(null);
@@ -871,14 +996,24 @@ export function ProcessPage() {
   });
 
   const regenerateMutation = trpc.process.regenerate.useMutation({
-    onSuccess: () => {
-      utils.process.getById.invalidate({ id: processId });
+    onSuccess: (result) => {
+      // Store preview instead of applying immediately
+      setPreviewBefore(capturedBeforeRef.current);
+      setPreviewAfter(result.data as ProcessData);
+      setPreviewType("regenerate");
+      setPreviewOpen(true);
     },
   });
 
   const requestChangeMutation = trpc.process.requestChange.useMutation({
     onSuccess: (changeRequest) => {
-      setPendingChangeRequest(changeRequest as ChangeRequest);
+      const cr = changeRequest as ChangeRequest;
+      setPendingChangeRequest(cr);
+      setPreviewBefore(cr.previousData);
+      setPreviewAfter(cr.newData);
+      setPreviewType("change");
+      setChangeDialogOpen(false);
+      setPreviewOpen(true);
     },
   });
 
@@ -887,6 +1022,10 @@ export function ProcessPage() {
       setPendingChangeRequest(null);
       setChangeDialogOpen(false);
       setChangeDescription("");
+      setPreviewOpen(false);
+      setPreviewBefore(null);
+      setPreviewAfter(null);
+      setPreviewType(null);
       utils.process.getById.invalidate({ id: processId });
     },
   });
@@ -894,6 +1033,10 @@ export function ProcessPage() {
   const rejectChangeMutation = trpc.process.rejectChange.useMutation({
     onSuccess: () => {
       setPendingChangeRequest(null);
+      setPreviewOpen(false);
+      setPreviewBefore(null);
+      setPreviewAfter(null);
+      setPreviewType(null);
     },
   });
 
@@ -1001,15 +1144,46 @@ export function ProcessPage() {
     });
   }, [changeDescription, processId, requestChangeMutation]);
 
-  const handleApplyChange = useCallback(() => {
-    if (!pendingChangeRequest) return;
-    applyChangeMutation.mutate({ changeRequestId: pendingChangeRequest.id });
-  }, [pendingChangeRequest, applyChangeMutation]);
+  const clearPreview = useCallback(() => {
+    setPreviewOpen(false);
+    setPreviewBefore(null);
+    setPreviewAfter(null);
+    setPreviewType(null);
+  }, []);
 
-  const handleRejectChange = useCallback(() => {
-    if (!pendingChangeRequest) return;
-    rejectChangeMutation.mutate({ changeRequestId: pendingChangeRequest.id });
-  }, [pendingChangeRequest, rejectChangeMutation]);
+  const handlePreviewSave = useCallback(() => {
+    if (previewType === "regenerate") {
+      clearPreview();
+      utils.process.getById.invalidate({ id: processId });
+    } else if (previewType === "change" && pendingChangeRequest) {
+      applyChangeMutation.mutate({ changeRequestId: pendingChangeRequest.id });
+    }
+  }, [previewType, pendingChangeRequest, processId, utils, applyChangeMutation, clearPreview]);
+
+  const handlePreviewCancel = useCallback(() => {
+    if (previewType === "regenerate" && previewBefore) {
+      updateDataMutation.mutate({ id: processId, data: previewBefore });
+    } else if (previewType === "change" && pendingChangeRequest) {
+      rejectChangeMutation.mutate({ changeRequestId: pendingChangeRequest.id });
+      return; // rejectChangeMutation.onSuccess will call clearPreview
+    }
+    clearPreview();
+    setPendingChangeRequest(null);
+  }, [previewType, previewBefore, processId, updateDataMutation, pendingChangeRequest, rejectChangeMutation, clearPreview]);
+
+  const handlePreviewRetry = useCallback(() => {
+    const type = previewType;
+    const before = previewBefore;
+    const cr = pendingChangeRequest;
+    clearPreview();
+    setPendingChangeRequest(null);
+    if (type === "regenerate" && before) {
+      updateDataMutation.mutate({ id: processId, data: before });
+    } else if (type === "change" && cr) {
+      rejectChangeMutation.mutate({ changeRequestId: cr.id });
+      setChangeDialogOpen(true);
+    }
+  }, [previewType, previewBefore, pendingChangeRequest, processId, updateDataMutation, rejectChangeMutation, clearPreview]);
 
   // ---- Loading State ----
   if (processQuery.isLoading) {
@@ -1039,9 +1213,6 @@ export function ProcessPage() {
   }
 
   // ---- Diff view for pending change request ----
-  const diffItems = pendingChangeRequest
-    ? computeProcessDiff(pendingChangeRequest.previousData, pendingChangeRequest.newData)
-    : [];
 
   return (
     <div className="space-y-6">
@@ -1077,126 +1248,171 @@ export function ProcessPage() {
                 </DialogDescription>
               </DialogHeader>
 
-              {!pendingChangeRequest ? (
-                <div className="space-y-4">
-                  <Textarea
-                    placeholder="Например: Добавить этап согласования с юридическим отделом перед подписанием договора..."
-                    value={changeDescription}
-                    onChange={(e) => setChangeDescription(e.target.value)}
-                    rows={4}
+              <div className="space-y-4">
+                <Textarea
+                  placeholder="Например: Добавить этап согласования с юридическим отделом перед подписанием договора..."
+                  value={changeDescription}
+                  onChange={(e) => setChangeDescription(e.target.value)}
+                  rows={4}
+                  disabled={requestChangeMutation.isPending}
+                />
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setChangeDialogOpen(false);
+                      setChangeDescription("");
+                    }}
                     disabled={requestChangeMutation.isPending}
-                  />
-                  <DialogFooter>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setChangeDialogOpen(false);
-                        setChangeDescription("");
-                      }}
-                      disabled={requestChangeMutation.isPending}
-                    >
-                      Отмена
-                    </Button>
-                    <Button
-                      onClick={handleRequestChange}
-                      disabled={requestChangeMutation.isPending || !changeDescription.trim()}
-                    >
-                      {requestChangeMutation.isPending ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Генерация...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          Сгенерировать изменения
-                        </>
-                      )}
-                    </Button>
-                  </DialogFooter>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="text-sm text-gray-600 font-medium mb-2">
-                    Предлагаемые изменения:
-                  </div>
-                  <div className="max-h-80 overflow-y-auto space-y-2 rounded-lg border border-gray-200 p-3">
-                    {diffItems.length === 0 ? (
-                      <p className="text-sm text-gray-400 italic">
-                        Изменений не обнаружено
-                      </p>
+                  >
+                    Отмена
+                  </Button>
+                  <Button
+                    onClick={handleRequestChange}
+                    disabled={requestChangeMutation.isPending || !changeDescription.trim()}
+                  >
+                    {requestChangeMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Генерация...
+                      </>
                     ) : (
-                      diffItems.map((item, idx) => (
-                        <div
-                          key={idx}
-                          className={cn(
-                            "flex items-start gap-2 px-3 py-2 rounded-md text-sm",
-                            item.type === "added" && "bg-green-50 border border-green-200",
-                            item.type === "removed" && "bg-red-50 border border-red-200",
-                            item.type === "changed" && "bg-blue-50 border border-blue-200"
-                          )}
-                        >
-                          {item.type === "added" && (
-                            <Plus className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
-                          )}
-                          {item.type === "removed" && (
-                            <Minus className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-                          )}
-                          {item.type === "changed" && (
-                            <ArrowRightLeft className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
-                          )}
-                          <div>
-                            <div
-                              className={cn(
-                                "font-medium",
-                                item.type === "added" && "text-green-700",
-                                item.type === "removed" && "text-red-700",
-                                item.type === "changed" && "text-blue-700"
-                              )}
-                            >
-                              {item.label}
-                            </div>
-                            {item.details && (
-                              <div className="text-gray-500 mt-0.5">{item.details}</div>
-                            )}
-                          </div>
-                        </div>
-                      ))
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        Сгенерировать изменения
+                      </>
                     )}
+                  </Button>
+                </DialogFooter>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Preview Dialog */}
+          <Dialog open={previewOpen} onOpenChange={() => {}}>
+            <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden">
+              <DialogHeader className="px-6 pt-6 pb-4 border-b border-gray-100">
+                <DialogTitle className="flex items-center gap-2 text-base">
+                  <Eye className="w-5 h-5 text-purple-600" />
+                  Предпросмотр изменений
+                </DialogTitle>
+                <DialogDescription className="text-sm text-gray-500">
+                  {previewType === "regenerate"
+                    ? "AI сгенерировал новую версию процесса. Проверьте изменения перед сохранением."
+                    : "AI предлагает следующие изменения. Проверьте их перед применением."}
+                </DialogDescription>
+              </DialogHeader>
+
+              {previewBefore && previewAfter && (
+                <div className="flex-1 overflow-hidden flex flex-col min-h-0 px-6 py-4 gap-4">
+                  {/* Before / After stats header */}
+                  <div className="grid grid-cols-2 gap-3 flex-shrink-0">
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0" />
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Текущая версия</span>
+                      </div>
+                      <div className="text-sm font-semibold text-gray-800 truncate">{previewBefore.name}</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {previewBefore.blocks.length} блоков · {previewBefore.stages.length} этапов · {previewBefore.roles.length} ролей
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-purple-200 bg-purple-50 p-3">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="w-2 h-2 rounded-full bg-purple-500 flex-shrink-0" />
+                        <span className="text-xs font-medium text-purple-600 uppercase tracking-wide">Новая версия</span>
+                      </div>
+                      <div className="text-sm font-semibold text-purple-900 truncate">{previewAfter.name}</div>
+                      <div className="text-xs text-purple-600 mt-1">
+                        {previewAfter.blocks.length} блоков · {previewAfter.stages.length} этапов · {previewAfter.roles.length} ролей
+                      </div>
+                    </div>
                   </div>
 
-                  <DialogFooter>
-                    <Button
-                      variant="outline"
-                      onClick={handleRejectChange}
-                      disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending}
-                    >
-                      {rejectChangeMutation.isPending ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <XCircle className="w-4 h-4" />
-                      )}
-                      Отменить
-                    </Button>
-                    <Button
-                      onClick={handleApplyChange}
-                      disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending}
-                    >
-                      {applyChangeMutation.isPending ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Применение...
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-4 h-4" />
-                          Применить
-                        </>
-                      )}
-                    </Button>
-                  </DialogFooter>
+                  {/* Diff list */}
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <div className="text-sm font-medium text-gray-700 mb-2 flex-shrink-0">Список изменений:</div>
+                    <div className="flex-1 overflow-y-auto space-y-1.5 rounded-lg border border-gray-200 p-3">
+                      {(() => {
+                        const items = computeProcessDiff(previewBefore, previewAfter);
+                        return items.length === 0 ? (
+                          <p className="text-sm text-gray-400 italic text-center py-6">Значимых изменений не обнаружено</p>
+                        ) : (
+                          items.map((item, idx) => (
+                            <div
+                              key={idx}
+                              className={cn(
+                                "flex items-start gap-2 px-3 py-2 rounded-md text-sm",
+                                item.type === "added" && "bg-green-50 border border-green-200",
+                                item.type === "removed" && "bg-red-50 border border-red-200",
+                                item.type === "changed" && "bg-blue-50 border border-blue-200"
+                              )}
+                            >
+                              {item.type === "added" && <Plus className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />}
+                              {item.type === "removed" && <Minus className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />}
+                              {item.type === "changed" && <ArrowRightLeft className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />}
+                              <div>
+                                <div className={cn(
+                                  "font-medium",
+                                  item.type === "added" && "text-green-700",
+                                  item.type === "removed" && "text-red-700",
+                                  item.type === "changed" && "text-blue-700"
+                                )}>
+                                  {item.label}
+                                </div>
+                                {item.details && <div className="text-gray-500 mt-0.5 text-xs">{item.details}</div>}
+                              </div>
+                            </div>
+                          ))
+                        );
+                      })()}
+                    </div>
+                  </div>
                 </div>
               )}
+
+              <DialogFooter className="px-6 py-4 border-t border-gray-100 flex-shrink-0 flex items-center justify-between gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handlePreviewCancel}
+                  disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending || updateDataMutation.isPending}
+                  className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
+                >
+                  {(rejectChangeMutation.isPending || updateDataMutation.isPending) ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <XCircle className="w-4 h-4" />
+                  )}
+                  Отменить
+                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handlePreviewRetry}
+                    disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending || updateDataMutation.isPending}
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Запросить заново
+                  </Button>
+                  <Button
+                    onClick={handlePreviewSave}
+                    disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    {applyChangeMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Сохранение...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        Сохранить изменения
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
 
@@ -1220,7 +1436,10 @@ export function ProcessPage() {
               <AlertDialogFooter>
                 <AlertDialogCancel>Отмена</AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={() => regenerateMutation.mutate({ id: processId })}
+                  onClick={() => {
+                    capturedBeforeRef.current = data ?? null;
+                    regenerateMutation.mutate({ id: processId });
+                  }}
                   disabled={regenerateMutation.isPending}
                   className="bg-red-600 hover:bg-red-700"
                 >
@@ -1246,6 +1465,7 @@ export function ProcessPage() {
           <TabsTrigger value="stages">Этапы</TabsTrigger>
           <TabsTrigger value="metrics">Метрики</TabsTrigger>
           <TabsTrigger value="crm">CRM-воронки</TabsTrigger>
+          <TabsTrigger value="regulations">Регламенты</TabsTrigger>
           <TabsTrigger value="passport">Паспорт</TabsTrigger>
           <TabsTrigger value="quality">Качество</TabsTrigger>
           <TabsTrigger value="recommendations">Рекомендации</TabsTrigger>
@@ -1311,6 +1531,15 @@ export function ProcessPage() {
         {/* ======== Tab: CRM Funnels ======== */}
         <TabsContent value="crm">
           <CrmFunnelsTab funnels={crmFunnels} data={data} />
+        </TabsContent>
+
+        {/* ======== Tab: Regulations ======== */}
+        <TabsContent value="regulations">
+          <RegulationsTab
+            data={data}
+            processId={processId}
+            companyName={process?.companyName ?? ""}
+          />
         </TabsContent>
 
         {/* ======== Tab: Passport ======== */}
@@ -2817,72 +3046,8 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
 
                 {isExpanded && (
                   <CardContent className="pt-0 pb-4 px-4">
-                    <div className="pl-12 prose prose-sm prose-gray max-w-none">
-                      <ReactMarkdown
-                        components={{
-                          h2: ({ children }) => (
-                            <h4 className="text-sm font-semibold text-gray-900 mt-4 mb-2 first:mt-0">
-                              {children}
-                            </h4>
-                          ),
-                          h3: ({ children }) => (
-                            <h5 className="text-sm font-medium text-gray-800 mt-3 mb-1.5">
-                              {children}
-                            </h5>
-                          ),
-                          p: ({ children }) => (
-                            <p className="text-sm text-gray-600 mb-2">{children}</p>
-                          ),
-                          ul: ({ children }) => (
-                            <ul className="text-sm text-gray-600 list-disc list-inside mb-2 space-y-0.5">
-                              {children}
-                            </ul>
-                          ),
-                          ol: ({ children }) => (
-                            <ol className="text-sm text-gray-600 list-decimal list-inside mb-2 space-y-0.5">
-                              {children}
-                            </ol>
-                          ),
-                          li: ({ children }) => (
-                            <li className="text-sm text-gray-600">{children}</li>
-                          ),
-                          strong: ({ children }) => (
-                            <strong className="font-semibold text-gray-900">
-                              {children}
-                            </strong>
-                          ),
-                          table: ({ children }) => (
-                            <div className="overflow-x-auto my-3">
-                              <table className="min-w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
-                                {children}
-                              </table>
-                            </div>
-                          ),
-                          thead: ({ children }) => (
-                            <thead className="bg-gray-50">{children}</thead>
-                          ),
-                          tbody: ({ children }) => (
-                            <tbody className="divide-y divide-gray-100">
-                              {children}
-                            </tbody>
-                          ),
-                          tr: ({ children }) => (
-                            <tr className="hover:bg-gray-50">{children}</tr>
-                          ),
-                          th: ({ children }) => (
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200">
-                              {children}
-                            </th>
-                          ),
-                          td: ({ children }) => (
-                            <td className="px-3 py-2 text-sm text-gray-700">
-                              {children}
-                            </td>
-                          ),
-                        }}
-                      >
-                        {rec.description}
-                      </ReactMarkdown>
+                    <div className="pl-12">
+                      <MarkdownContent text={rec.description} />
                     </div>
                     {rec.relatedSteps.length > 0 && (
                       <div className="pl-12 mt-3 pt-3 border-t border-gray-100">
@@ -3578,6 +3743,231 @@ function QualityTab({ processId }: { processId: number }) {
                   </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================
+// Tab: Regulations
+// ============================================
+
+function parseBoldRuns(text: string): TextRun[] {
+  return text
+    .split(/(\*\*[^*]+\*\*)/)
+    .filter(Boolean)
+    .map((part) =>
+      part.startsWith("**") && part.endsWith("**")
+        ? new TextRun({ text: part.slice(2, -2), bold: true })
+        : new TextRun({ text: part })
+    );
+}
+
+async function createDocxBlob(markdown: string, title: string): Promise<Blob> {
+  const children: Paragraph[] = [
+    new Paragraph({ text: title, heading: HeadingLevel.HEADING_1 }),
+    new Paragraph({ text: "" }),
+  ];
+  for (const line of markdown.split("\n")) {
+    if (!line.trim()) {
+      children.push(new Paragraph({ text: "" }));
+    } else if (line.startsWith("# ")) {
+      children.push(new Paragraph({ text: line.slice(2), heading: HeadingLevel.HEADING_1 }));
+    } else if (line.startsWith("## ")) {
+      children.push(new Paragraph({ text: line.slice(3), heading: HeadingLevel.HEADING_2 }));
+    } else if (line.startsWith("### ")) {
+      children.push(new Paragraph({ text: line.slice(4), heading: HeadingLevel.HEADING_3 }));
+    } else if (/^[-*] /.test(line)) {
+      children.push(new Paragraph({ bullet: { level: 0 }, children: parseBoldRuns(line.slice(2)) }));
+    } else {
+      children.push(new Paragraph({ children: parseBoldRuns(line) }));
+    }
+  }
+  const doc = new Document({ sections: [{ properties: {}, children }] });
+  return Packer.toBlob(doc);
+}
+
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+type DocType = "regulation" | "job_instruction";
+
+function RegulationsTab({
+  data,
+  processId,
+  companyName,
+}: {
+  data?: ProcessData;
+  processId: number;
+  companyName: string;
+}) {
+  const [documents, setDocuments] = useState<Record<string, string>>({});
+  const [generating, setGenerating] = useState<Record<string, boolean>>({});
+  const generateMutation = trpc.process.generateDocument.useMutation();
+
+  const handleGenerate = useCallback(
+    async (roleName: string, docType: DocType) => {
+      const key = `${roleName}:${docType}`;
+      setGenerating((prev) => ({ ...prev, [key]: true }));
+      try {
+        const result = await generateMutation.mutateAsync({ processId, roleName, docType });
+        setDocuments((prev) => ({ ...prev, [key]: result.text }));
+      } finally {
+        setGenerating((prev) => ({ ...prev, [key]: false }));
+      }
+    },
+    [processId, generateMutation]
+  );
+
+  const handleDownload = useCallback(
+    async (roleName: string, docType: DocType) => {
+      const text = documents[`${roleName}:${docType}`];
+      if (!text) return;
+      const label = docType === "regulation" ? "Регламент" : "Должностная инструкция";
+      const blob = await createDocxBlob(text, `${label}: ${roleName}`);
+      triggerDownload(blob, `${label} ${roleName} ${companyName}.docx`);
+    },
+    [documents, companyName]
+  );
+
+  const handleDownloadAll = useCallback(async () => {
+    const entries = Object.entries(documents);
+    if (!entries.length) return;
+    const zip = new JSZip();
+    for (const [key, text] of entries) {
+      const colonIdx = key.indexOf(":");
+      const roleName = key.slice(0, colonIdx);
+      const docType = key.slice(colonIdx + 1) as DocType;
+      const label = docType === "regulation" ? "Регламент" : "Должностная инструкция";
+      const blob = await createDocxBlob(text, `${label}: ${roleName}`);
+      zip.file(`${label} ${roleName} ${companyName}.docx`, blob);
+    }
+    const content = await zip.generateAsync({ type: "blob" });
+    triggerDownload(content, `Регламенты ${companyName}.zip`);
+  }, [documents, companyName]);
+
+  const roles = data?.roles ?? [];
+  const generatedCount = Object.keys(documents).length;
+
+  if (!roles.length) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <BookOpen className="w-12 h-12 text-gray-300 mb-4" />
+        <h3 className="text-lg font-semibold text-gray-900 mb-1">Нет должностей</h3>
+        <p className="text-gray-500">В процессе не определены роли</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">
+            Регламенты и должностные инструкции
+          </h2>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Стоимость: {TOKEN_COSTS.document} токенов за документ
+          </p>
+        </div>
+        {generatedCount > 0 && (
+          <Button variant="outline" size="sm" onClick={handleDownloadAll}>
+            <Archive className="w-4 h-4" />
+            Скачать все архивом ({generatedCount})
+          </Button>
+        )}
+      </div>
+
+      {roles.map((role) => {
+        const regKey = `${role.name}:regulation`;
+        const jiKey = `${role.name}:job_instruction`;
+        const hasReg = !!documents[regKey];
+        const hasJI = !!documents[jiKey];
+        return (
+          <Card key={role.id} className="overflow-hidden">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: role.color }}
+                  />
+                  <div>
+                    <span className="font-medium text-gray-900">{role.name}</span>
+                    {role.department && (
+                      <span className="text-xs text-gray-500 ml-2">{role.department}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant={hasReg ? "outline" : "default"}
+                    onClick={() => handleGenerate(role.name, "regulation")}
+                    disabled={!!generating[regKey]}
+                    className="gap-1.5"
+                  >
+                    {generating[regKey] ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <BookOpen className="w-3.5 h-3.5" />
+                    )}
+                    {hasReg ? "Обновить регламент" : "Регламент"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={hasJI ? "outline" : "default"}
+                    onClick={() => handleGenerate(role.name, "job_instruction")}
+                    disabled={!!generating[jiKey]}
+                    className="gap-1.5"
+                  >
+                    {generating[jiKey] ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <ScrollText className="w-3.5 h-3.5" />
+                    )}
+                    {hasJI ? "Обновить инструкцию" : "Должностная инструкция"}
+                  </Button>
+                </div>
+              </div>
+
+              {(hasReg || hasJI) && (
+                <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
+                  {(["regulation", "job_instruction"] as DocType[]).map((dt) => {
+                    const text = documents[`${role.name}:${dt}`];
+                    if (!text) return null;
+                    const label = dt === "regulation" ? "Регламент" : "Должностная инструкция";
+                    return (
+                      <div key={dt}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-gray-700">{label}</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDownload(role.name, dt)}
+                            className="text-blue-600 hover:text-blue-700 gap-1.5 h-7"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Скачать .docx
+                          </Button>
+                        </div>
+                        <div className="max-h-52 overflow-y-auto rounded-md border border-gray-200 bg-gray-50 px-4 py-3">
+                          <MarkdownContent text={text} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         );
