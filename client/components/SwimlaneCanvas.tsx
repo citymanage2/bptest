@@ -473,25 +473,33 @@ function getBlockFill(type: BlockType): string {
 // ============================================================
 // Draw Single Block (shape + content)
 // ============================================================
+const CONNECTED_COLOR = "#a78bfa"; // violet-400 (light lavender)
+
 function drawBlockShape(
   ctx: CanvasRenderingContext2D,
   lb: LayoutBlock,
   isHighlighted: boolean,
   isSelected: boolean,
+  isConnected: boolean = false,
 ) {
   const { block, x, y, w, h } = lb;
   const config = BLOCK_CONFIG[block.type];
   const fill = getBlockFill(block.type);
-  const border = config.borderColor;
-  const lw = isHighlighted || isSelected ? 3 : 2;
+  const border = isConnected ? CONNECTED_COLOR : config.borderColor;
+  const lw = isHighlighted || isSelected || isConnected ? 3 : 2;
 
   // Shadow
   ctx.save();
   if (isHighlighted || isSelected) {
-    ctx.shadowColor = hexToRgba(border, 0.35);
+    ctx.shadowColor = hexToRgba(config.borderColor, 0.35);
     ctx.shadowBlur = 18;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 4;
+  } else if (isConnected) {
+    ctx.shadowColor = hexToRgba(CONNECTED_COLOR, 0.3);
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 3;
   } else {
     ctx.shadowColor = "rgba(0, 0, 0, 0.08)";
     ctx.shadowBlur = 10;
@@ -530,6 +538,19 @@ function drawBlockShape(
     ctx.setLineDash([6, 3]);
     ctx.beginPath();
     ctx.roundRect(x - 5, y - 5, w + 10, h + 10, 14);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // Connected indicator: solid lavender outer ring
+  if (isConnected) {
+    ctx.save();
+    ctx.strokeStyle = CONNECTED_COLOR;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    ctx.roundRect(x - 4, y - 4, w + 8, h + 8, 13);
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
@@ -993,11 +1014,15 @@ function renderDiagram(
   for (const lb of layoutBlocks) {
     const isHovered = lb.block.id === hoveredBlockId;
     const isSelected = lb.block.id === selectedBlockId;
-    const isConnHL =
-      (hoveredBlockId ? isConnectedTo(lb.block.id, hoveredBlockId, data.blocks) : false) ||
-      (!!selectedBlockId && isConnectedTo(lb.block.id, selectedBlockId, data.blocks));
+    const isHoverConn = hoveredBlockId
+      ? isConnectedTo(lb.block.id, hoveredBlockId, data.blocks)
+      : false;
+    const isSelConn =
+      !isSelected &&
+      !!selectedBlockId &&
+      isConnectedTo(lb.block.id, selectedBlockId, data.blocks);
 
-    drawBlockShape(ctx, lb, isHovered || isConnHL, isSelected);
+    drawBlockShape(ctx, lb, isHovered || isHoverConn, isSelected, isSelConn);
     drawBlockContent(ctx, lb);
   }
 }
