@@ -590,16 +590,17 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
     return;
   }
 
-  // Block name
+  // Block name — allow up to 3 lines (decision returns early above)
   ctx.fillStyle = "#111827";
   ctx.font = `bold 13px ${FONT_FAMILY}`;
-  const nameLines = wrapText(ctx, block.name, textMaxW, 2);
+  const nameLines = wrapText(ctx, block.name, textMaxW, 3);
   for (const line of nameLines) {
     ctx.fillText(line, cx, curY);
     curY += 17;
   }
 
   // Description (for action and product blocks)
+  // Use whatever vertical space remains after the name
   if (
     (block.type === "action" || block.type === "product") &&
     block.description
@@ -607,7 +608,11 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
     curY += 3;
     ctx.fillStyle = "#6b7280";
     ctx.font = `12px ${FONT_FAMILY}`;
-    const descLines = wrapText(ctx, block.description, textMaxW, 2);
+    // Reserve space for badges row on action blocks (gap 8 + badge 22 + bottom margin 8)
+    const reservedBottom = block.type === "action" ? 38 : 8;
+    const availH = y + h - curY - reservedBottom;
+    const descMaxLines = Math.max(1, Math.min(2, Math.floor(availH / 15)));
+    const descLines = wrapText(ctx, block.description, textMaxW, descMaxLines);
     for (const line of descLines) {
       ctx.fillText(line, cx, curY);
       curY += 15;
