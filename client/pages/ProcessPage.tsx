@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from "react";
+import { useState, useRef, useMemo, useCallback, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/lib/auth";
@@ -118,7 +118,9 @@ import {
   Download,
   BookOpen,
   Archive,
+  Power,
 } from "lucide-react";
+import { toast } from "@/components/ui/toaster";
 import ReactMarkdown from "react-markdown";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 import JSZip from "jszip";
@@ -1129,6 +1131,22 @@ export function ProcessPage() {
     setEditingBlock(null);
   }, []);
 
+  const handleToggleActive = useCallback((blockId: string) => {
+    if (!data) return;
+    const updatedBlocks = data.blocks.map((b) =>
+      b.id === blockId ? { ...b, isActive: b.isActive === false ? true : false } : b
+    );
+    toast({ title: "Применяем изменения…" });
+    updateDataMutation.mutate(
+      { id: processId, data: { ...data, blocks: updatedBlocks } },
+      {
+        onSuccess: () => {
+          toast({ title: "Изменения сохранены" });
+        },
+      }
+    );
+  }, [data, processId, updateDataMutation]);
+
   const handleExportPNG = useCallback(() => {
     if (canvasContainerRef.current) {
       exportToPNG(canvasContainerRef.current, `${data?.name || "process"}.png`);
@@ -1532,6 +1550,7 @@ export function ProcessPage() {
             onExportPNG={handleExportPNG}
             onExportBPMN={handleExportBPMN}
             onExportPDF={handleExportPDF}
+            onToggleActive={handleToggleActive}
           />
         </TabsContent>
 
@@ -1634,6 +1653,7 @@ interface DiagramTabProps {
   onExportPNG: () => void;
   onExportBPMN: () => void;
   onExportPDF: () => void;
+  onToggleActive: (blockId: string) => void;
 }
 
 function DiagramTab({
@@ -1682,6 +1702,7 @@ function DiagramTab({
   onExportPNG,
   onExportBPMN,
   onExportPDF,
+  onToggleActive,
 }: DiagramTabProps) {
   return (
     <div className="flex gap-4">
@@ -1768,15 +1789,34 @@ function DiagramTab({
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Блок</CardTitle>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={onClosePanel}
-                >
-                  <X className="w-4 h-4" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      "h-7 w-7 transition-colors",
+                      selectedBlock.isActive === false
+                        ? "text-gray-400 hover:text-gray-600"
+                        : "text-green-600 hover:text-green-700"
+                    )}
+                    title={selectedBlock.isActive === false ? "Включить блок" : "Выключить блок"}
+                    onClick={() => onToggleActive(selectedBlock.id)}
+                  >
+                    <Power className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={onClosePanel}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
+              {selectedBlock.isActive === false && (
+                <p className="text-xs text-gray-400 mt-1">Блок выключен</p>
+              )}
             </CardHeader>
             <CardContent className="space-y-4">
               {editingBlock?.id === selectedBlock.id ? (
@@ -2281,22 +2321,30 @@ function StagesTab({ data }: { data: ProcessData }) {
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {blocks.map((block) => (
+                  {blocks.map((block) => {
+                    const isInactive = block.isActive === false;
+                    return (
                     <div
                       key={block.id}
-                      className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors bg-gray-50/50"
+                      className={cn(
+                        "flex items-center justify-between p-3 rounded-lg border transition-colors",
+                        isInactive
+                          ? "border-gray-100 bg-gray-100/70 opacity-60"
+                          : "border-gray-100 hover:border-gray-200 bg-gray-50/50"
+                      )}
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div
                           className="w-2 h-8 rounded-full shrink-0"
                           style={{
-                            backgroundColor:
-                              BLOCK_CONFIG[block.type]?.borderColor || "#6b7280",
+                            backgroundColor: isInactive
+                              ? "#9ca3af"
+                              : BLOCK_CONFIG[block.type]?.borderColor || "#6b7280",
                           }}
                         />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-900 truncate">
+                            <span className={cn("text-sm font-medium truncate", isInactive ? "text-gray-400 line-through" : "text-gray-900")}>
                               {block.name}
                             </span>
                             <Badge
@@ -2305,6 +2353,9 @@ function StagesTab({ data }: { data: ProcessData }) {
                             >
                               {BLOCK_CONFIG[block.type]?.label}
                             </Badge>
+                            {isInactive && (
+                              <span className="text-[10px] text-gray-400 shrink-0">выкл.</span>
+                            )}
                           </div>
                           <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
                             <span className="flex items-center gap-1">
@@ -2324,7 +2375,7 @@ function StagesTab({ data }: { data: ProcessData }) {
                         <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />
                       )}
                     </div>
-                  ))}
+                  )})}
                 </div>
               )}
             </CardContent>

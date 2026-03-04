@@ -483,10 +483,14 @@ function drawBlockShape(
   isConnected: boolean = false,
 ) {
   const { block, x, y, w, h } = lb;
+  const inactive = block.isActive === false;
   const config = BLOCK_CONFIG[block.type];
-  const fill = isConnected ? "#f5f3ff" : getBlockFill(block.type);
-  const border = isConnected ? CONNECTED_COLOR : config.borderColor;
+  const fill = inactive ? "#f3f4f6" : isConnected ? "#f5f3ff" : getBlockFill(block.type);
+  const border = inactive ? "#9ca3af" : isConnected ? CONNECTED_COLOR : config.borderColor;
   const lw = isHighlighted || isSelected || isConnected ? 3 : 2;
+
+  // Inactive blocks rendered at reduced opacity
+  if (inactive) ctx.globalAlpha = 0.55;
 
   // Shadow
   ctx.save();
@@ -529,6 +533,7 @@ function drawBlockShape(
   }
 
   ctx.restore();
+  ctx.globalAlpha = 1;
 
   // Selected indicator: dashed outline
   if (isSelected) {
@@ -736,42 +741,65 @@ function drawAllConnections(
   const helperBlockMap: Record<string, HLayoutBlock> = {};
   for (const hb of allLayoutBlocks) helperBlockMap[hb.id] = hb;
 
+  // Build effective edges: skip inactive blocks, bypass them in routing
+  const activeSet = new Set(allBlocks.filter((b) => b.isActive !== false).map((b) => b.id));
+  function resolveActiveTargets(targetId: string, visited = new Set<string>()): string[] {
+    if (visited.has(targetId)) return [];
+    visited.add(targetId);
+    if (activeSet.has(targetId)) return [targetId];
+    const b = allBlocks.find((x) => x.id === targetId);
+    if (!b) return [];
+    const out: string[] = [];
+    for (const nxt of b.connections) out.push(...resolveActiveTargets(nxt, new Set(visited)));
+    return out;
+  }
+  type DrawEdge = { sourceBlock: ProcessBlock; targetId: string; bypassed: boolean };
+  const drawEdges: DrawEdge[] = [];
+  for (const block of allBlocks) {
+    if (!activeSet.has(block.id)) continue;
+    for (const connId of block.connections) {
+      if (activeSet.has(connId)) {
+        drawEdges.push({ sourceBlock: block, targetId: connId, bypassed: false });
+      } else {
+        for (const tid of resolveActiveTargets(connId)) {
+          drawEdges.push({ sourceBlock: block, targetId: tid, bypassed: true });
+        }
+      }
+    }
+  }
+
   // Pass 1: compute all routes with lane offsets
   const laner = new SegmentLaner();
   const routeCache = new Map<string, Point[]>();
 
-  for (const block of allBlocks) {
-    const source = helperBlockMap[block.id];
-    if (!source) continue;
-    const totalConns = block.connections.length;
-    for (let ci = 0; ci < totalConns; ci++) {
-      const targetId = block.connections[ci];
-      const target = helperBlockMap[targetId];
-      if (!target) continue;
-      const rawPts = routeConnectionHelper(source, target, ci, totalConns, allLayoutBlocks);
-      const adjPts = applyLaneOffsets(rawPts, laner);
-      routeCache.set(`${block.id}->${targetId}`, adjPts);
-    }
+  for (let ei = 0; ei < drawEdges.length; ei++) {
+    const { sourceBlock, targetId } = drawEdges[ei];
+    const source = helperBlockMap[sourceBlock.id];
+    const target = helperBlockMap[targetId];
+    if (!source || !target) continue;
+    const edgesFromSource = drawEdges.filter((e) => e.sourceBlock.id === sourceBlock.id);
+    const ci = edgesFromSource.indexOf(drawEdges[ei]);
+    const rawPts = routeConnectionHelper(source, target, ci, edgesFromSource.length, allLayoutBlocks);
+    const adjPts = applyLaneOffsets(rawPts, laner);
+    routeCache.set(`${sourceBlock.id}->${targetId}`, adjPts);
   }
 
   // Pass 2: draw
-  for (const block of allBlocks) {
-    const totalConns = block.connections.length;
-    for (let ci = 0; ci < totalConns; ci++) {
-      const targetId = block.connections[ci];
-      const points = routeCache.get(`${block.id}->${targetId}`);
-      if (!points) continue;
+  for (const { sourceBlock: block, targetId, bypassed } of drawEdges) {
+    const points = routeCache.get(`${block.id}->${targetId}`);
+    if (!points) continue;
 
-      const isHL =
-        block.id === hoveredBlockId ||
-        block.id === selectedBlockId ||
-        targetId === hoveredBlockId ||
-        targetId === selectedBlockId;
+    const isHL =
+      block.id === hoveredBlockId ||
+      block.id === selectedBlockId ||
+      targetId === hoveredBlockId ||
+      targetId === selectedBlockId;
 
-      // Draw the polyline path
-      ctx.strokeStyle = isHL ? "#3b82f6" : "#6b7280";
+      // Draw the polyline path (dashed for bypass arrows that skip inactive blocks)
+      const arrowColor = bypassed ? "#9ca3af" : isHL ? "#3b82f6" : "#6b7280";
+      ctx.strokeStyle = arrowColor;
       ctx.lineWidth = isHL ? 2.5 : 2;
-      ctx.setLineDash([]);
+      ctx.setLineDash(bypassed ? [6, 4] : []);
 
       ctx.beginPath();
       ctx.moveTo(points[0].x, points[0].y);
@@ -779,11 +807,12 @@ function drawAllConnections(
         ctx.lineTo(points[i].x, points[i].y);
       }
       ctx.stroke();
+      ctx.setLineDash([]);
 
       // Arrow head at end
       const last = points[points.length - 1];
       const prev = points[points.length - 2];
-      ctx.fillStyle = isHL ? "#3b82f6" : "#6b7280";
+      ctx.fillStyle = arrowColor;
       drawArrowHead(ctx, last.x, last.y, prev.x, prev.y, 10);
 
       const targetBlock = allBlocks.find((b) => b.id === targetId);
@@ -814,7 +843,6 @@ function drawAllConnections(
         ctx.lineTo(mp.x + 6, mp.y + 6);
         ctx.stroke();
       }
-    }
   }
 }
 

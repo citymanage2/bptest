@@ -80,6 +80,7 @@ export interface ProcessBlock {
   connections: string[]; // IDs of next blocks
   conditionLabel?: string; // For decision branches
   isDefault?: boolean; // Default branch from decision
+  isActive?: boolean; // false = block is disabled (skipped in routing)
   position?: { x: number; y: number };
 }
 
