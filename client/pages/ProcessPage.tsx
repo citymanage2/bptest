@@ -2677,6 +2677,11 @@ function MetricsTab({
   metrics: ProcessMetrics | null;
   data: ProcessData;
 }) {
+  // salary per roleId (monthly, RUB) — local state for cost calculation
+  const [salaries, setSalaries] = useState<Record<string, string>>(() =>
+    Object.fromEntries(data.roles.map((r) => [r.id, ""]))
+  );
+
   if (!metrics) return null;
 
   const metricCards = [
@@ -2733,18 +2738,24 @@ function MetricsTab({
     {} as Record<string, number>
   );
 
-  // Role workload
+  // Role workload — match blocks by role.id OR role.name
   const roleWorkload = data.roles.map((role) => {
-    const roleBlocks = data.blocks.filter((b) => b.role === role.name);
+    const roleBlocks = data.blocks.filter(
+      (b) => b.role === role.id || b.role === role.name
+    );
     const totalMinutes = roleBlocks.reduce(
       (sum, b) => sum + parseTimeEstimate(b.timeEstimate),
       0
     );
+    const monthlySalary = parseFloat(salaries[role.id] || "0") || 0;
+    const hourlyRate = monthlySalary / 168;
+    const cost = (totalMinutes / 60) * hourlyRate;
     return {
       role,
       blockCount: roleBlocks.length,
       totalTime: formatMinutes(totalMinutes),
       totalMinutes,
+      cost,
     };
   });
 
@@ -2825,29 +2836,104 @@ function MetricsTab({
                   ...roleWorkload.map((r) => r.totalMinutes),
                   1
                 );
-                const barWidth = Math.round((totalMinutes / maxMinutes) * 100);
+                const maxBlocks = Math.max(
+                  ...roleWorkload.map((r) => r.blockCount),
+                  1
+                );
+                const timeBarWidth = Math.round((totalMinutes / maxMinutes) * 100);
+                const blockBarWidth = Math.round((blockCount / maxBlocks) * 100);
                 return (
-                  <div key={role.id} className="flex items-center gap-3">
-                    <div className="w-32 text-sm text-gray-600 truncate shrink-0">
-                      {role.name}
+                  <div key={role.id} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-700 font-medium truncate max-w-[180px]">{role.name}</span>
+                      <span className="text-gray-500 shrink-0 ml-2">{blockCount} бл. / {totalTime}</span>
                     </div>
-                    <div className="flex-1 h-6 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{
-                          width: `${barWidth || 2}%`,
-                          backgroundColor: role.color || "#7c3aed",
-                          minWidth: "24px",
-                        }}
-                      />
+                    <div className="flex gap-2 items-center">
+                      <span className="text-[10px] text-gray-400 w-12 shrink-0">Блоков</span>
+                      <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${blockBarWidth || 2}%`,
+                            backgroundColor: role.color || "#7c3aed",
+                            opacity: 0.55,
+                            minWidth: "12px",
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div className="w-28 text-sm text-gray-500 text-right shrink-0">
-                      {blockCount} бл. / {totalTime}
+                    <div className="flex gap-2 items-center">
+                      <span className="text-[10px] text-gray-400 w-12 shrink-0">Время</span>
+                      <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${timeBarWidth || 2}%`,
+                            backgroundColor: role.color || "#7c3aed",
+                            minWidth: "12px",
+                          }}
+                        />
+                      </div>
                     </div>
                   </div>
                 );
               })}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Process Cost */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Стоимость процесса</CardTitle>
+          <CardDescription>
+            Укажите месячную зарплату (руб.) для каждой роли. Стоимость = время роли × (зарплата / 168)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {roleWorkload
+              .sort((a, b) => b.totalMinutes - a.totalMinutes)
+              .map(({ role, totalTime, totalMinutes, cost }) => (
+                <div key={role.id} className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 w-40 shrink-0">
+                    <div
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: role.color || "#7c3aed" }}
+                    />
+                    <span className="text-sm text-gray-700 truncate">{role.name}</span>
+                  </div>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="Зарплата/мес"
+                    className="w-36 h-8 text-sm shrink-0"
+                    value={salaries[role.id] ?? ""}
+                    onChange={(e) =>
+                      setSalaries((prev) => ({ ...prev, [role.id]: e.target.value }))
+                    }
+                  />
+                  <div className="text-xs text-gray-400 shrink-0 w-20">{totalTime}</div>
+                  <div className="flex-1 text-right text-sm font-medium text-gray-800">
+                    {cost > 0
+                      ? `${cost.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽`
+                      : <span className="text-gray-300">—</span>}
+                  </div>
+                </div>
+              ))}
+          </div>
+
+          {/* Total */}
+          {roleWorkload.some((r) => r.cost > 0) && (
+            <div className="mt-4 pt-4 border-t flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-700">Итого стоимость процесса</span>
+              <span className="text-lg font-bold text-purple-700">
+                {roleWorkload
+                  .reduce((sum, r) => sum + r.cost, 0)
+                  .toLocaleString("ru-RU", { maximumFractionDigits: 0 })}{" "}₽
+              </span>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
