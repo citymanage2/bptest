@@ -342,6 +342,7 @@ export const TOKEN_COSTS = {
   change_request: 500,
   recommendations: 200,
   transcription_per_minute: 10,
+  document: 100,
 } as const;
 
 // Block visual config

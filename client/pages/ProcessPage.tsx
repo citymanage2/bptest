@@ -115,8 +115,13 @@ import {
   Copy,
   Zap,
   GitBranch,
+  Download,
+  BookOpen,
+  Archive,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
+import JSZip from "jszip";
 
 // ============================================
 // Helper Functions
@@ -1460,6 +1465,7 @@ export function ProcessPage() {
           <TabsTrigger value="stages">Этапы</TabsTrigger>
           <TabsTrigger value="metrics">Метрики</TabsTrigger>
           <TabsTrigger value="crm">CRM-воронки</TabsTrigger>
+          <TabsTrigger value="regulations">Регламенты</TabsTrigger>
           <TabsTrigger value="passport">Паспорт</TabsTrigger>
           <TabsTrigger value="quality">Качество</TabsTrigger>
           <TabsTrigger value="recommendations">Рекомендации</TabsTrigger>
@@ -1525,6 +1531,15 @@ export function ProcessPage() {
         {/* ======== Tab: CRM Funnels ======== */}
         <TabsContent value="crm">
           <CrmFunnelsTab funnels={crmFunnels} data={data} />
+        </TabsContent>
+
+        {/* ======== Tab: Regulations ======== */}
+        <TabsContent value="regulations">
+          <RegulationsTab
+            data={data}
+            processId={processId}
+            companyName={process?.companyName ?? ""}
+          />
         </TabsContent>
 
         {/* ======== Tab: Passport ======== */}
@@ -3728,6 +3743,231 @@ function QualityTab({ processId }: { processId: number }) {
                   </div>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================
+// Tab: Regulations
+// ============================================
+
+function parseBoldRuns(text: string): TextRun[] {
+  return text
+    .split(/(\*\*[^*]+\*\*)/)
+    .filter(Boolean)
+    .map((part) =>
+      part.startsWith("**") && part.endsWith("**")
+        ? new TextRun({ text: part.slice(2, -2), bold: true })
+        : new TextRun({ text: part })
+    );
+}
+
+async function createDocxBlob(markdown: string, title: string): Promise<Blob> {
+  const children: Paragraph[] = [
+    new Paragraph({ text: title, heading: HeadingLevel.HEADING_1 }),
+    new Paragraph({ text: "" }),
+  ];
+  for (const line of markdown.split("\n")) {
+    if (!line.trim()) {
+      children.push(new Paragraph({ text: "" }));
+    } else if (line.startsWith("# ")) {
+      children.push(new Paragraph({ text: line.slice(2), heading: HeadingLevel.HEADING_1 }));
+    } else if (line.startsWith("## ")) {
+      children.push(new Paragraph({ text: line.slice(3), heading: HeadingLevel.HEADING_2 }));
+    } else if (line.startsWith("### ")) {
+      children.push(new Paragraph({ text: line.slice(4), heading: HeadingLevel.HEADING_3 }));
+    } else if (/^[-*] /.test(line)) {
+      children.push(new Paragraph({ bullet: { level: 0 }, children: parseBoldRuns(line.slice(2)) }));
+    } else {
+      children.push(new Paragraph({ children: parseBoldRuns(line) }));
+    }
+  }
+  const doc = new Document({ sections: [{ properties: {}, children }] });
+  return Packer.toBlob(doc);
+}
+
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+type DocType = "regulation" | "job_instruction";
+
+function RegulationsTab({
+  data,
+  processId,
+  companyName,
+}: {
+  data?: ProcessData;
+  processId: number;
+  companyName: string;
+}) {
+  const [documents, setDocuments] = useState<Record<string, string>>({});
+  const [generating, setGenerating] = useState<Record<string, boolean>>({});
+  const generateMutation = trpc.process.generateDocument.useMutation();
+
+  const handleGenerate = useCallback(
+    async (roleName: string, docType: DocType) => {
+      const key = `${roleName}:${docType}`;
+      setGenerating((prev) => ({ ...prev, [key]: true }));
+      try {
+        const result = await generateMutation.mutateAsync({ processId, roleName, docType });
+        setDocuments((prev) => ({ ...prev, [key]: result.text }));
+      } finally {
+        setGenerating((prev) => ({ ...prev, [key]: false }));
+      }
+    },
+    [processId, generateMutation]
+  );
+
+  const handleDownload = useCallback(
+    async (roleName: string, docType: DocType) => {
+      const text = documents[`${roleName}:${docType}`];
+      if (!text) return;
+      const label = docType === "regulation" ? "Регламент" : "Должностная инструкция";
+      const blob = await createDocxBlob(text, `${label}: ${roleName}`);
+      triggerDownload(blob, `${label} ${roleName} ${companyName}.docx`);
+    },
+    [documents, companyName]
+  );
+
+  const handleDownloadAll = useCallback(async () => {
+    const entries = Object.entries(documents);
+    if (!entries.length) return;
+    const zip = new JSZip();
+    for (const [key, text] of entries) {
+      const colonIdx = key.indexOf(":");
+      const roleName = key.slice(0, colonIdx);
+      const docType = key.slice(colonIdx + 1) as DocType;
+      const label = docType === "regulation" ? "Регламент" : "Должностная инструкция";
+      const blob = await createDocxBlob(text, `${label}: ${roleName}`);
+      zip.file(`${label} ${roleName} ${companyName}.docx`, blob);
+    }
+    const content = await zip.generateAsync({ type: "blob" });
+    triggerDownload(content, `Регламенты ${companyName}.zip`);
+  }, [documents, companyName]);
+
+  const roles = data?.roles ?? [];
+  const generatedCount = Object.keys(documents).length;
+
+  if (!roles.length) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <BookOpen className="w-12 h-12 text-gray-300 mb-4" />
+        <h3 className="text-lg font-semibold text-gray-900 mb-1">Нет должностей</h3>
+        <p className="text-gray-500">В процессе не определены роли</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">
+            Регламенты и должностные инструкции
+          </h2>
+          <p className="text-sm text-gray-500 mt-0.5">
+            Стоимость: {TOKEN_COSTS.document} токенов за документ
+          </p>
+        </div>
+        {generatedCount > 0 && (
+          <Button variant="outline" size="sm" onClick={handleDownloadAll}>
+            <Archive className="w-4 h-4" />
+            Скачать все архивом ({generatedCount})
+          </Button>
+        )}
+      </div>
+
+      {roles.map((role) => {
+        const regKey = `${role.name}:regulation`;
+        const jiKey = `${role.name}:job_instruction`;
+        const hasReg = !!documents[regKey];
+        const hasJI = !!documents[jiKey];
+        return (
+          <Card key={role.id} className="overflow-hidden">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <span
+                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: role.color }}
+                  />
+                  <div>
+                    <span className="font-medium text-gray-900">{role.name}</span>
+                    {role.department && (
+                      <span className="text-xs text-gray-500 ml-2">{role.department}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    variant={hasReg ? "outline" : "default"}
+                    onClick={() => handleGenerate(role.name, "regulation")}
+                    disabled={!!generating[regKey]}
+                    className="gap-1.5"
+                  >
+                    {generating[regKey] ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <BookOpen className="w-3.5 h-3.5" />
+                    )}
+                    {hasReg ? "Обновить регламент" : "Регламент"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={hasJI ? "outline" : "default"}
+                    onClick={() => handleGenerate(role.name, "job_instruction")}
+                    disabled={!!generating[jiKey]}
+                    className="gap-1.5"
+                  >
+                    {generating[jiKey] ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <ScrollText className="w-3.5 h-3.5" />
+                    )}
+                    {hasJI ? "Обновить инструкцию" : "Должностная инструкция"}
+                  </Button>
+                </div>
+              </div>
+
+              {(hasReg || hasJI) && (
+                <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
+                  {(["regulation", "job_instruction"] as DocType[]).map((dt) => {
+                    const text = documents[`${role.name}:${dt}`];
+                    if (!text) return null;
+                    const label = dt === "regulation" ? "Регламент" : "Должностная инструкция";
+                    return (
+                      <div key={dt}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium text-gray-700">{label}</span>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleDownload(role.name, dt)}
+                            className="text-blue-600 hover:text-blue-700 gap-1.5 h-7"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Скачать .docx
+                          </Button>
+                        </div>
+                        <div className="max-h-52 overflow-y-auto rounded-md border border-gray-200 bg-gray-50 px-4 py-3">
+                          <MarkdownContent text={text} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         );

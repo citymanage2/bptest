@@ -12,7 +12,7 @@ import {
   users,
   tokenOperations,
 } from "../db/schema";
-import { generateProcess, applyChanges, generateRecommendations, generatePassport } from "../services/ai";
+import { generateProcess, applyChanges, generateRecommendations, generatePassport, generateRegulationDocument } from "../services/ai";
 import { validateProcess } from "../services/validation";
 import type { ProcessData } from "../../shared/types";
 import { TOKEN_COSTS } from "../../shared/types";
@@ -100,6 +100,7 @@ export const processRouter = router({
         id: process.id,
         interviewId: process.interviewId,
         companyId: process.companyId,
+        companyName: process.company.name,
         status: process.status,
         data: process.data as ProcessData,
         createdAt: process.createdAt.toISOString(),
@@ -459,5 +460,42 @@ export const processRouter = router({
 
       await db.delete(processes).where(eq(processes.id, input.id));
       return { success: true };
+    }),
+
+  generateDocument: protectedProcedure
+    .input(
+      z.object({
+        processId: z.number(),
+        roleName: z.string(),
+        docType: z.enum(["regulation", "job_instruction"]),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const process = await db.query.processes.findFirst({
+        where: eq(processes.id, input.processId),
+        with: { company: true },
+      });
+      if (!process) throw new Error("Процесс не найден");
+      if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      await deductTokens(
+        ctx.userId,
+        TOKEN_COSTS.document,
+        "document",
+        `Генерация документа: ${input.roleName}`
+      );
+
+      const text = await generateRegulationDocument(
+        input.roleName,
+        input.docType,
+        process.company.name
+      );
+
+      return {
+        text,
+        roleName: input.roleName,
+        docType: input.docType,
+        companyName: process.company.name,
+      };
     }),
 });
