@@ -165,10 +165,26 @@ export async function generateProcess(
   companyName: string,
   industry: string
 ): Promise<ProcessData> {
+  // Separate attached files metadata from questionnaire answers
+  const attachedFiles = (() => {
+    try {
+      const raw = answers["__files"];
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as Array<{ name: string }>;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  })();
+
   const answersText = Object.entries(answers)
-    .filter(([, v]) => v && v.trim())
+    .filter(([k, v]) => k !== "__files" && v && v.trim())
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
+
+  const filesSection = attachedFiles.length > 0
+    ? `\nПрикреплённые документы компании: ${attachedFiles.map((f) => f.name).join(", ")}`
+    : "";
 
   try {
     const response = await anthropic.messages.create({
@@ -180,7 +196,7 @@ export async function generateProcess(
           content: `${PROCESS_GENERATION_PROMPT}
 
 Компания: ${companyName}
-Отрасль: ${industry}
+Отрасль: ${industry}${filesSection}
 
 Ответы на анкету (структурированы по BMC/VPC):
 ${answersText}
