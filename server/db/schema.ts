@@ -326,3 +326,24 @@ export const cookieConsents = pgTable("cookie_consents", {
 export const cookieConsentsRelations = relations(cookieConsents, ({ one }) => ({
   user: one(users, { fields: [cookieConsents.userId], references: [users.id] }),
 }));
+
+// Business Models — driver-based financial model + Osterwalder BMC canvas
+export const businessModels = pgTable("business_models", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 500 }).notNull(),
+  input: jsonb("input").notNull(),   // BusinessModelInput
+  output: jsonb("output").notNull(), // BusinessModelOutput
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const businessModelsRelations = relations(businessModels, ({ one }) => ({
+  company: one(companies, { fields: [businessModels.companyId], references: [companies.id] }),
+  user: one(users, { fields: [businessModels.userId], references: [users.id] }),
+}));

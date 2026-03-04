@@ -31,6 +31,18 @@ async function runMigrations() {
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS business_models (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(500) NOT NULL,
+        input JSONB NOT NULL,
+        output JSONB NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
     // Also add file_upload to the enum if not already present (Postgres DDL trick)
     await db.execute(sql`
       DO $$ BEGIN
@@ -38,7 +50,7 @@ async function runMigrations() {
       EXCEPTION WHEN duplicate_object THEN null;
       END $$;
     `);
-    console.log("[migration] block_files table ready");
+    console.log("[migration] block_files + business_models tables ready");
   } catch (err) {
     console.error("[migration] failed:", err);
   }

@@ -351,6 +351,121 @@ export const TOKEN_COSTS = {
   file_upload: 100,
 } as const;
 
+// ============================================
+// Business Model Builder
+// ============================================
+
+export type FinancialMode =
+  | "DIVIDENDS_TO_REVENUE"
+  | "REVENUE_DIRECT"
+  | "PROFIT_TO_REVENUE";
+
+export type MoneyUnit = "RUB" | "THOUSAND" | "MILLION";
+export type DealsRounding = "CEIL" | "ROUND" | "FLOOR";
+
+export interface BmCostLine {
+  name: string;
+  percent: number;
+}
+
+export interface BusinessModelInput {
+  year: number;
+  mode: FinancialMode;
+  rounding: {
+    money_unit: MoneyUnit;
+    deals: DealsRounding;
+    avg_ticket_unit: MoneyUnit;
+  };
+  tolerance: {
+    avg_ticket_vs_deals_pct: number;
+  };
+  target_profit_pct: number | null;
+  cost_lines: BmCostLine[];
+  dividends_needed_by_month: (number | null)[] | null;
+  revenue_plan_by_month: (number | null)[] | null;
+  profit_needed_by_month: (number | null)[] | null;
+  deals_count_by_month: (number | null)[] | null;
+  avg_ticket_by_month: (number | null)[] | null;
+  canvas: BusinessModelCanvasInput;
+}
+
+export interface BusinessModelCanvasInput {
+  company_name: string | null;
+  industry: string | null;
+  geography: string[] | null;
+  b2b_b2c: "B2B" | "B2C" | "B2G" | null;
+  customer_segments: string[] | null;
+  value_propositions: string[] | null;
+  channels: string[] | null;
+  customer_relationships: string[] | null;
+  revenue_streams: string[] | null;
+  key_resources: string[] | null;
+  key_activities: string[] | null;
+  key_partners: string[] | null;
+  cost_structure: string[] | null;
+  notes: string | null;
+}
+
+export interface MonthlyFinancialRow {
+  month: number; // 1..12
+  revenue: number;
+  cost_lines: { name: string; percent: number; amount: number }[];
+  total_costs: number;
+  residual_profit: number;
+  residual_profit_pct: number;
+  deals_count: number | null;
+  avg_ticket: number | null;
+}
+
+export interface FinancialModelOutput {
+  rows: MonthlyFinancialRow[];
+  annual: {
+    revenue: number;
+    cost_lines: { name: string; amount: number }[];
+    total_costs: number;
+    residual_profit: number;
+    residual_profit_pct: number;
+  };
+  errors: string[];
+  warnings: string[];
+}
+
+export interface CanvasOutput {
+  customer_segments: string[];
+  value_propositions: string[];
+  channels: string[];
+  customer_relationships: string[];
+  revenue_streams: string[];
+  key_resources: string[];
+  key_activities: string[];
+  key_partners: string[];
+  cost_structure: string[];
+  meta: {
+    company_name: string | null;
+    industry: string | null;
+    geography: string[];
+    b2b_b2c: string | null;
+    notes: string | null;
+  };
+  warnings: string[];
+}
+
+export interface BusinessModelOutput {
+  financial: FinancialModelOutput;
+  canvas: CanvasOutput;
+}
+
+export interface BusinessModel {
+  id: number;
+  companyId: number;
+  userId: number;
+  name: string;
+  input: BusinessModelInput;
+  output: BusinessModelOutput;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BlockFile {
   id: number;
   processId: number;

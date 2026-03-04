@@ -6,6 +6,7 @@ import { processRouter } from "./process";
 import { supportRouter } from "./support";
 import { adminRouter } from "./admin";
 import { consentRouter } from "./consent";
+import { businessModelRouter } from "./businessModel";
 
 export const appRouter = router({
   auth: authRouter,
@@ -15,6 +16,7 @@ export const appRouter = router({
   support: supportRouter,
   admin: adminRouter,
   consent: consentRouter,
+  businessModel: businessModelRouter,
 });
 
 export type AppRouter = typeof appRouter;

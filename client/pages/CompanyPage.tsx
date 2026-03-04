@@ -47,9 +47,11 @@ import {
   Archive,
   PenLine,
   Save,
+  BarChart3,
 } from "lucide-react";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import type { InterviewMode } from "@shared/types";
+import { BusinessModelTab } from "@/components/BusinessModelTab";
 
 export function CompanyPage() {
   const { id } = useParams<{ id: string }>();
@@ -364,6 +366,10 @@ export function CompanyPage() {
             <GitBranch className="w-4 h-4" />
             Процессы
           </TabsTrigger>
+          <TabsTrigger value="business-model" className="gap-1.5">
+            <BarChart3 className="w-4 h-4" />
+            Бизнес-модель
+          </TabsTrigger>
           <TabsTrigger value="documents" className="gap-1.5">
             <FileText className="w-4 h-4" />
             Документы
@@ -538,6 +544,14 @@ export function CompanyPage() {
               )}
             </div>
           )}
+        </TabsContent>
+
+        {/* ===== BUSINESS MODEL TAB ===== */}
+        <TabsContent value="business-model">
+          <BusinessModelTab
+            companyId={companyId}
+            processCount={processes.length}
+          />
         </TabsContent>
 
         {/* ===== DOCUMENTS TAB ===== */}
