@@ -1952,7 +1952,7 @@ function DiagramTab({
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-gray-700">
-                      Связи
+                      Следующий этап
                     </label>
                     <div className="space-y-1">
                       {editConnections.map((connId) => {
@@ -2176,7 +2176,7 @@ function DiagramTab({
                   {selectedBlock.connections.length > 0 && (
                     <div>
                       <div className="text-xs font-medium text-gray-500 mb-1">
-                        Связи ({selectedBlock.connections.length})
+                        Следующий этап ({selectedBlock.connections.length})
                       </div>
                       <div className="space-y-1">
                         {selectedBlock.connections.map((connId) => {
