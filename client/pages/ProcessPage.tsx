@@ -987,6 +987,8 @@ export function ProcessPage() {
   const [editInfoSystems, setEditInfoSystems] = useState("");
   const [editConditionLabel, setEditConditionLabel] = useState("");
   const [editIsDefault, setEditIsDefault] = useState(false);
+  const [editConnections, setEditConnections] = useState<string[]>([]);
+  const [editFunnelStage, setEditFunnelStage] = useState("");
 
   // ---- Mutations ----
   const updateDataMutation = trpc.process.updateData.useMutation({
@@ -1078,6 +1080,8 @@ export function ProcessPage() {
       setEditInfoSystems(block.infoSystems?.join(", ") || "");
       setEditConditionLabel(block.conditionLabel || "");
       setEditIsDefault(block.isDefault || false);
+      setEditConnections(block.connections || []);
+      setEditFunnelStage(block.funnelStage || "");
     },
     []
   );
@@ -1103,6 +1107,8 @@ export function ProcessPage() {
             infoSystems: parseCommaSeparated(editInfoSystems),
             conditionLabel: editConditionLabel || undefined,
             isDefault: editIsDefault,
+            connections: editConnections,
+            funnelStage: editFunnelStage || undefined,
           }
         : b
     );
@@ -1112,7 +1118,7 @@ export function ProcessPage() {
       data: { ...data, blocks: updatedBlocks },
     });
     setEditingBlock(null);
-  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editConditionLabel, editIsDefault, processId, updateDataMutation]);
+  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editConditionLabel, editIsDefault, editConnections, editFunnelStage, processId, updateDataMutation]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingBlock(null);
@@ -1511,6 +1517,10 @@ export function ProcessPage() {
             onSetEditInfoSystems={setEditInfoSystems}
             onSetEditConditionLabel={setEditConditionLabel}
             onSetEditIsDefault={setEditIsDefault}
+            editConnections={editConnections}
+            editFunnelStage={editFunnelStage}
+            onSetEditConnections={setEditConnections}
+            onSetEditFunnelStage={setEditFunnelStage}
             onScaleChange={setCanvasScale}
             onExportPNG={handleExportPNG}
             onExportBPMN={handleExportBPMN}
@@ -1607,6 +1617,10 @@ interface DiagramTabProps {
   onSetEditInfoSystems: (v: string) => void;
   onSetEditConditionLabel: (v: string) => void;
   onSetEditIsDefault: (v: boolean) => void;
+  editConnections: string[];
+  editFunnelStage: string;
+  onSetEditConnections: (v: string[]) => void;
+  onSetEditFunnelStage: (v: string) => void;
   onScaleChange: (scale: number) => void;
   onExportPNG: () => void;
   onExportBPMN: () => void;
@@ -1649,6 +1663,10 @@ function DiagramTab({
   onSetEditInfoSystems,
   onSetEditConditionLabel,
   onSetEditIsDefault,
+  editConnections,
+  editFunnelStage,
+  onSetEditConnections,
+  onSetEditFunnelStage,
   onScaleChange,
   onExportPNG,
   onExportBPMN,
@@ -1897,6 +1915,69 @@ function DiagramTab({
                       </label>
                     </div>
                   )}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-700">
+                      Этап воронки
+                    </label>
+                    <Input
+                      value={editFunnelStage}
+                      onChange={(e) => onSetEditFunnelStage(e.target.value)}
+                      placeholder="напр. Лид, Квалификация"
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-700">
+                      Связи
+                    </label>
+                    <div className="space-y-1">
+                      {editConnections.map((connId) => {
+                        const connBlock = data.blocks.find((b) => b.id === connId);
+                        return (
+                          <div
+                            key={connId}
+                            className="flex items-center justify-between bg-gray-50 rounded px-2 py-1"
+                          >
+                            <span className="text-xs text-gray-700 truncate flex-1">
+                              {connBlock?.name || connId}
+                            </span>
+                            <button
+                              type="button"
+                              className="ml-1 shrink-0 text-gray-400 hover:text-red-500"
+                              onClick={() =>
+                                onSetEditConnections(editConnections.filter((id) => id !== connId))
+                              }
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                      <select
+                        className="flex h-7 w-full rounded-md border border-gray-300 bg-transparent px-2 text-xs"
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value && !editConnections.includes(e.target.value)) {
+                            onSetEditConnections([...editConnections, e.target.value]);
+                          }
+                          e.target.value = "";
+                        }}
+                      >
+                        <option value="">+ Добавить связь</option>
+                        {data.blocks
+                          .filter(
+                            (b) =>
+                              b.id !== editingBlock.id &&
+                              !editConnections.includes(b.id),
+                          )
+                          .map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2 pt-2 border-t">
                     <Button
                       size="sm"
@@ -2035,6 +2116,17 @@ function DiagramTab({
                       </div>
                       <p className="text-sm text-gray-900">
                         {selectedBlock.conditionLabel}
+                      </p>
+                    </div>
+                  )}
+
+                  {selectedBlock.funnelStage && (
+                    <div>
+                      <div className="text-xs font-medium text-gray-500 mb-1">
+                        Этап воронки
+                      </div>
+                      <p className="text-sm text-gray-900">
+                        {selectedBlock.funnelStage}
                       </p>
                     </div>
                   )}
