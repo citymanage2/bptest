@@ -4597,6 +4597,30 @@ function triggerDownload(blob: Blob, filename: string) {
 
 type DocType = "regulation" | "job_instruction";
 
+// Pseudo-progress: smoothly advances to 90% while waiting for AI, then jumps to 100%.
+function useGenerationProgress(active: boolean) {
+  const [pct, setPct] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (active) {
+      setPct(0);
+      timerRef.current = setInterval(() => {
+        setPct((p) => {
+          if (p >= 90) { clearInterval(timerRef.current!); return 90; }
+          // Accelerate early, decelerate near 90
+          const step = p < 30 ? 3 : p < 60 ? 2 : 0.8;
+          return Math.min(90, p + step);
+        });
+      }, 400);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+      setPct(0);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [active]);
+  return active ? pct : 0;
+}
+
 function RegulationsTab({
   data,
   processId,
@@ -4608,46 +4632,95 @@ function RegulationsTab({
 }) {
   const [documents, setDocuments] = useState<Record<string, string>>({});
   const [generating, setGenerating] = useState<Record<string, boolean>>({});
+  const [genProgress, setGenProgress] = useState<Record<string, number>>({});
+  const [allGenProgress, setAllGenProgress] = useState<{ done: number; total: number } | null>(null);
   const [generatingAll, setGeneratingAll] = useState(false);
   const [expandedDocs, setExpandedDocs] = useState<Record<string, boolean>>({});
   const generateMutation = trpc.process.generateDocument.useMutation();
+  const genTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+
+  const anyGenerating = Object.values(generating).some(Boolean) || generatingAll;
+
+  // Warn before unload during generation
+  useEffect(() => {
+    if (!anyGenerating) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "Идёт генерация документов. Покинуть страницу?";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [anyGenerating]);
+
+  const startProgressTimer = useCallback((key: string) => {
+    if (genTimers.current[key]) clearInterval(genTimers.current[key]);
+    setGenProgress((p) => ({ ...p, [key]: 0 }));
+    genTimers.current[key] = setInterval(() => {
+      setGenProgress((p) => {
+        const cur = p[key] ?? 0;
+        if (cur >= 90) { clearInterval(genTimers.current[key]); return p; }
+        const step = cur < 30 ? 3 : cur < 60 ? 2 : 0.8;
+        return { ...p, [key]: Math.min(90, cur + step) };
+      });
+    }, 400);
+  }, []);
+
+  const stopProgressTimer = useCallback((key: string, done: boolean) => {
+    clearInterval(genTimers.current[key]);
+    delete genTimers.current[key];
+    setGenProgress((p) => ({ ...p, [key]: done ? 100 : 0 }));
+    if (done) setTimeout(() => setGenProgress((p) => { const n = { ...p }; delete n[key]; return n; }), 800);
+  }, []);
 
   const handleGenerate = useCallback(
     async (roleName: string, docType: DocType) => {
       const key = `${roleName}:${docType}`;
       setGenerating((prev) => ({ ...prev, [key]: true }));
+      startProgressTimer(key);
       try {
         const result = await generateMutation.mutateAsync({ processId, roleName, docType });
         setDocuments((prev) => ({ ...prev, [key]: result.text }));
         setExpandedDocs((prev) => ({ ...prev, [key]: true }));
+        stopProgressTimer(key, true);
+      } catch {
+        stopProgressTimer(key, false);
       } finally {
         setGenerating((prev) => ({ ...prev, [key]: false }));
       }
     },
-    [processId, generateMutation]
+    [processId, generateMutation, startProgressTimer, stopProgressTimer]
   );
 
   const roles = data?.roles ?? [];
 
   const handleGenerateAll = useCallback(async () => {
     setGeneratingAll(true);
+    const pairs = roles.flatMap((r) =>
+      (["regulation", "job_instruction"] as DocType[]).map((dt) => ({ role: r, dt }))
+    );
+    setAllGenProgress({ done: 0, total: pairs.length });
     try {
-      for (const role of roles) {
-        for (const docType of ["regulation", "job_instruction"] as DocType[]) {
-          const key = `${role.name}:${docType}`;
-          setGenerating((prev) => ({ ...prev, [key]: true }));
-          try {
-            const result = await generateMutation.mutateAsync({ processId, roleName: role.name, docType });
-            setDocuments((prev) => ({ ...prev, [key]: result.text }));
-          } finally {
-            setGenerating((prev) => ({ ...prev, [key]: false }));
-          }
+      for (let i = 0; i < pairs.length; i++) {
+        const { role, dt } = pairs[i];
+        const key = `${role.name}:${dt}`;
+        setGenerating((prev) => ({ ...prev, [key]: true }));
+        startProgressTimer(key);
+        try {
+          const result = await generateMutation.mutateAsync({ processId, roleName: role.name, docType: dt });
+          setDocuments((prev) => ({ ...prev, [key]: result.text }));
+          stopProgressTimer(key, true);
+        } catch {
+          stopProgressTimer(key, false);
+        } finally {
+          setGenerating((prev) => ({ ...prev, [key]: false }));
+          setAllGenProgress({ done: i + 1, total: pairs.length });
         }
       }
     } finally {
       setGeneratingAll(false);
+      setTimeout(() => setAllGenProgress(null), 1500);
     }
-  }, [roles, processId, generateMutation]);
+  }, [roles, processId, generateMutation, startProgressTimer, stopProgressTimer]);
 
   const handleDownload = useCallback(
     async (roleName: string, docType: DocType) => {
@@ -4678,7 +4751,6 @@ function RegulationsTab({
 
   const generatedCount = Object.keys(documents).length;
   const totalDocs = roles.length * 2;
-  const anyGenerating = Object.values(generating).some(Boolean) || generatingAll;
 
   if (!roles.length) {
     return (
@@ -4692,6 +4764,37 @@ function RegulationsTab({
 
   return (
     <div className="space-y-4">
+      {/* Generation warning banner */}
+      {anyGenerating && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <Loader2 className="w-4 h-4 text-amber-600 animate-spin mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-amber-800">Идёт генерация документов</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Это может занять несколько минут. Пожалуйста, не покидайте страницу до завершения.
+            </p>
+            {allGenProgress && (
+              <div className="mt-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-amber-700">
+                    {allGenProgress.done} из {allGenProgress.total} документов
+                  </span>
+                  <span className="text-xs font-semibold text-amber-800">
+                    {Math.round((allGenProgress.done / allGenProgress.total) * 100)}%
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-amber-200 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-amber-500 transition-all duration-500"
+                    style={{ width: `${(allGenProgress.done / allGenProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <Card>
         <CardContent className="p-4">
@@ -4766,31 +4869,64 @@ function RegulationsTab({
                     variant={hasReg ? "outline" : "default"}
                     onClick={() => handleGenerate(role.name, "regulation")}
                     disabled={anyGenerating}
-                    className="gap-1.5"
+                    className="gap-1.5 relative overflow-hidden"
                   >
                     {generating[regKey] ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
                       <BookOpen className="w-3.5 h-3.5" />
                     )}
-                    {hasReg ? "Обновить регламент" : "Регламент"}
+                    {generating[regKey]
+                      ? `Генерация... ${Math.round(genProgress[regKey] ?? 0)}%`
+                      : hasReg ? "Обновить регламент" : "Регламент"}
                   </Button>
                   <Button
                     size="sm"
                     variant={hasJI ? "outline" : "default"}
                     onClick={() => handleGenerate(role.name, "job_instruction")}
                     disabled={anyGenerating}
-                    className="gap-1.5"
+                    className="gap-1.5 relative overflow-hidden"
                   >
                     {generating[jiKey] ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
                       <ScrollText className="w-3.5 h-3.5" />
                     )}
-                    {hasJI ? "Обновить инструкцию" : "Должностная инструкция"}
+                    {generating[jiKey]
+                      ? `Генерация... ${Math.round(genProgress[jiKey] ?? 0)}%`
+                      : hasJI ? "Обновить инструкцию" : "Должностная инструкция"}
                   </Button>
                 </div>
               </div>
+
+              {/* Per-doc progress bars */}
+              {(generating[regKey] || generating[jiKey]) && (
+                <div className="mx-4 mb-3 space-y-1.5">
+                  {(["regulation", "job_instruction"] as DocType[]).map((dt) => {
+                    const key = `${role.name}:${dt}`;
+                    if (!generating[key]) return null;
+                    const pct = Math.round(genProgress[key] ?? 0);
+                    const label = dt === "regulation" ? "Регламент" : "Должностная инструкция";
+                    return (
+                      <div key={dt}>
+                        <div className="flex justify-between text-xs text-gray-500 mb-0.5">
+                          <span>{label}</span>
+                          <span>{pct}%</span>
+                        </div>
+                        <div className="h-1 w-full rounded-full bg-gray-200 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <p className="text-xs text-gray-400 mt-1">
+                    Это может занять несколько минут — не покидайте страницу
+                  </p>
+                </div>
+              )}
             </CardHeader>
 
             {(hasReg || hasJI) && (
