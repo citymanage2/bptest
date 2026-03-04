@@ -589,7 +589,8 @@ export const processRouter = router({
       const text = await generateRegulationDocument(
         input.roleName,
         input.docType,
-        process.company.name
+        process.company.name,
+        process.data as import("../../shared/types").ProcessData
       );
 
       return {

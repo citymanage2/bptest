@@ -4608,6 +4608,8 @@ function RegulationsTab({
 }) {
   const [documents, setDocuments] = useState<Record<string, string>>({});
   const [generating, setGenerating] = useState<Record<string, boolean>>({});
+  const [generatingAll, setGeneratingAll] = useState(false);
+  const [expandedDocs, setExpandedDocs] = useState<Record<string, boolean>>({});
   const generateMutation = trpc.process.generateDocument.useMutation();
 
   const handleGenerate = useCallback(
@@ -4617,6 +4619,7 @@ function RegulationsTab({
       try {
         const result = await generateMutation.mutateAsync({ processId, roleName, docType });
         setDocuments((prev) => ({ ...prev, [key]: result.text }));
+        setExpandedDocs((prev) => ({ ...prev, [key]: true }));
       } finally {
         setGenerating((prev) => ({ ...prev, [key]: false }));
       }
@@ -4624,12 +4627,34 @@ function RegulationsTab({
     [processId, generateMutation]
   );
 
+  const roles = data?.roles ?? [];
+
+  const handleGenerateAll = useCallback(async () => {
+    setGeneratingAll(true);
+    try {
+      for (const role of roles) {
+        for (const docType of ["regulation", "job_instruction"] as DocType[]) {
+          const key = `${role.name}:${docType}`;
+          setGenerating((prev) => ({ ...prev, [key]: true }));
+          try {
+            const result = await generateMutation.mutateAsync({ processId, roleName: role.name, docType });
+            setDocuments((prev) => ({ ...prev, [key]: result.text }));
+          } finally {
+            setGenerating((prev) => ({ ...prev, [key]: false }));
+          }
+        }
+      }
+    } finally {
+      setGeneratingAll(false);
+    }
+  }, [roles, processId, generateMutation]);
+
   const handleDownload = useCallback(
     async (roleName: string, docType: DocType) => {
       const text = documents[`${roleName}:${docType}`];
       if (!text) return;
       const label = docType === "regulation" ? "Регламент" : "Должностная инструкция";
-      const blob = await createDocxBlob(text, `${label}: ${roleName}`);
+      const blob = await createDocxBlob(text, `${label} ${roleName} — ${companyName}`);
       triggerDownload(blob, `${label} ${roleName} ${companyName}.docx`);
     },
     [documents, companyName]
@@ -4644,15 +4669,16 @@ function RegulationsTab({
       const roleName = key.slice(0, colonIdx);
       const docType = key.slice(colonIdx + 1) as DocType;
       const label = docType === "regulation" ? "Регламент" : "Должностная инструкция";
-      const blob = await createDocxBlob(text, `${label}: ${roleName}`);
+      const blob = await createDocxBlob(text, `${label} ${roleName} — ${companyName}`);
       zip.file(`${label} ${roleName} ${companyName}.docx`, blob);
     }
     const content = await zip.generateAsync({ type: "blob" });
-    triggerDownload(content, `Регламенты ${companyName}.zip`);
+    triggerDownload(content, `Документы ${companyName}.zip`);
   }, [documents, companyName]);
 
-  const roles = data?.roles ?? [];
   const generatedCount = Object.keys(documents).length;
+  const totalDocs = roles.length * 2;
+  const anyGenerating = Object.values(generating).some(Boolean) || generatingAll;
 
   if (!roles.length) {
     return (
@@ -4666,50 +4692,80 @@ function RegulationsTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-base font-semibold text-gray-900">
-            Регламенты и должностные инструкции
-          </h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Стоимость: {TOKEN_COSTS.document} токенов за документ
-          </p>
-        </div>
-        {generatedCount > 0 && (
-          <Button variant="outline" size="sm" onClick={handleDownloadAll}>
-            <Archive className="w-4 h-4" />
-            Скачать все архивом ({generatedCount})
-          </Button>
-        )}
-      </div>
+      {/* Header */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-blue-600" />
+                Регламенты и должностные инструкции
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">
+                {roles.length} должност{roles.length === 1 ? "ь" : roles.length < 5 ? "и" : "ей"} · {TOKEN_COSTS.document} токенов за документ · {roles.length * 2 * TOKEN_COSTS.document} токенов за все
+              </p>
+              {generatedCount > 0 && (
+                <p className="text-xs text-green-700 mt-1">
+                  Сгенерировано: {generatedCount} из {totalDocs} документов
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleGenerateAll}
+                disabled={anyGenerating}
+                className="gap-1.5"
+              >
+                {generatingAll ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )}
+                {generatingAll ? "Генерация..." : "Сгенерировать все"}
+              </Button>
+              {generatedCount > 0 && (
+                <Button size="sm" variant="outline" onClick={handleDownloadAll} className="gap-1.5">
+                  <Archive className="w-3.5 h-3.5" />
+                  Скачать архивом ({generatedCount})
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
+      {/* Role cards */}
       {roles.map((role) => {
         const regKey = `${role.name}:regulation`;
         const jiKey = `${role.name}:job_instruction`;
         const hasReg = !!documents[regKey];
         const hasJI = !!documents[jiKey];
+        const roleBlocks = data?.blocks.filter(b => b.role === role.id || b.role === role.name) ?? [];
+
         return (
-          <Card key={role.id} className="overflow-hidden">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: role.color }}
-                  />
+          <Card key={role.id} className={cn("overflow-hidden", (hasReg || hasJI) && "border-blue-100")}>
+            <CardHeader className="pb-3 pt-4 px-4">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-3.5 h-3.5 rounded-full flex-shrink-0 mt-0.5" style={{ backgroundColor: role.color }} />
                   <div>
-                    <span className="font-medium text-gray-900">{role.name}</span>
-                    {role.department && (
-                      <span className="text-xs text-gray-500 ml-2">{role.department}</span>
-                    )}
+                    <div className="font-semibold text-gray-900">{role.name}</div>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      {role.department && (
+                        <span className="text-xs text-gray-500">{role.department}</span>
+                      )}
+                      <span className="text-xs text-gray-400">{roleBlocks.length} шагов в процессе</span>
+                    </div>
                   </div>
                 </div>
-                <div className="flex gap-2 flex-wrap">
+                <div className="flex gap-2 flex-wrap shrink-0">
                   <Button
                     size="sm"
                     variant={hasReg ? "outline" : "default"}
                     onClick={() => handleGenerate(role.name, "regulation")}
-                    disabled={!!generating[regKey]}
+                    disabled={anyGenerating}
                     className="gap-1.5"
                   >
                     {generating[regKey] ? (
@@ -4723,7 +4779,7 @@ function RegulationsTab({
                     size="sm"
                     variant={hasJI ? "outline" : "default"}
                     onClick={() => handleGenerate(role.name, "job_instruction")}
-                    disabled={!!generating[jiKey]}
+                    disabled={anyGenerating}
                     className="gap-1.5"
                   >
                     {generating[jiKey] ? (
@@ -4735,36 +4791,50 @@ function RegulationsTab({
                   </Button>
                 </div>
               </div>
+            </CardHeader>
 
-              {(hasReg || hasJI) && (
-                <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
-                  {(["regulation", "job_instruction"] as DocType[]).map((dt) => {
-                    const text = documents[`${role.name}:${dt}`];
-                    if (!text) return null;
-                    const label = dt === "regulation" ? "Регламент" : "Должностная инструкция";
-                    return (
-                      <div key={dt}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium text-gray-700">{label}</span>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleDownload(role.name, dt)}
-                            className="text-blue-600 hover:text-blue-700 gap-1.5 h-7"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            Скачать .docx
-                          </Button>
-                        </div>
-                        <div className="max-h-52 overflow-y-auto rounded-md border border-gray-200 bg-gray-50 px-4 py-3">
+            {(hasReg || hasJI) && (
+              <CardContent className="px-4 pb-4 pt-0 space-y-4 border-t border-gray-100">
+                {(["regulation", "job_instruction"] as DocType[]).map((dt) => {
+                  const key = `${role.name}:${dt}`;
+                  const text = documents[key];
+                  if (!text) return null;
+                  const label = dt === "regulation" ? "Регламент" : "Должностная инструкция";
+                  const isExpanded = expandedDocs[key] ?? true;
+                  return (
+                    <div key={dt} className="pt-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <button
+                          className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 hover:text-gray-900"
+                          onClick={() => setExpandedDocs(p => ({ ...p, [key]: !isExpanded }))}
+                        >
+                          {dt === "regulation"
+                            ? <BookOpen className="w-4 h-4 text-blue-600" />
+                            : <ScrollText className="w-4 h-4 text-purple-600" />
+                          }
+                          {label}
+                          <ChevronDown className={cn("w-3.5 h-3.5 text-gray-400 transition-transform", isExpanded && "rotate-180")} />
+                        </button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDownload(role.name, dt)}
+                          className="text-blue-600 hover:text-blue-700 gap-1.5 h-7 text-xs"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Скачать .docx
+                        </Button>
+                      </div>
+                      {isExpanded && (
+                        <div className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 max-h-96 overflow-y-auto">
                           <MarkdownContent text={text} />
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
+                      )}
+                    </div>
+                  );
+                })}
+              </CardContent>
+            )}
           </Card>
         );
       })}

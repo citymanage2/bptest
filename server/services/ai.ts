@@ -788,20 +788,157 @@ function generateFallbackProcess(
 export async function generateRegulationDocument(
   roleName: string,
   docType: "regulation" | "job_instruction",
-  companyName: string
+  companyName: string,
+  processData?: ProcessData
 ): Promise<string> {
-  const docTypeName =
-    docType === "regulation" ? "регламент" : "должностную инструкцию";
+  // Build rich context from process data for this role
+  let processContext = "";
+  if (processData) {
+    const role = processData.roles.find(r => r.name === roleName);
+    const roleBlocks = processData.blocks.filter(b => b.role === roleName || b.role === role?.id);
+
+    // Group blocks by stage
+    const stageMap = new Map(processData.stages.map(s => [s.id, s.name]));
+    const blocksByStage = new Map<string, typeof roleBlocks>();
+    for (const block of roleBlocks) {
+      const stageName = stageMap.get(block.stage) ?? "Общее";
+      if (!blocksByStage.has(stageName)) blocksByStage.set(stageName, []);
+      blocksByStage.get(stageName)!.push(block);
+    }
+
+    // Collect unique docs and systems for this role
+    const inputDocs = [...new Set(roleBlocks.flatMap(b => b.inputDocuments ?? []))].filter(Boolean);
+    const outputDocs = [...new Set(roleBlocks.flatMap(b => b.outputDocuments ?? []))].filter(Boolean);
+    const systems = [...new Set(roleBlocks.flatMap(b => b.infoSystems ?? []))].filter(Boolean);
+    const decisionBlocks = roleBlocks.filter(b => b.type === "decision");
+
+    // Find handoffs: blocks where this role passes to another role
+    const blockMap = new Map(processData.blocks.map(b => [b.id, b]));
+    const handoffsOut: string[] = [];
+    const handoffsIn: string[] = [];
+    for (const block of roleBlocks) {
+      for (const targetId of block.connections) {
+        const target = blockMap.get(targetId);
+        if (target && target.role !== block.role && target.role !== role?.id) {
+          const targetRole = processData.roles.find(r => r.id === target.role || r.name === target.role);
+          handoffsOut.push(`«${block.name}» → ${targetRole?.name ?? target.role} («${target.name}»)`);
+        }
+      }
+    }
+    for (const block of processData.blocks) {
+      if (block.role === roleName || block.role === role?.id) continue;
+      for (const targetId of block.connections) {
+        const target = blockMap.get(targetId);
+        if (target && (target.role === roleName || target.role === role?.id)) {
+          const srcRole = processData.roles.find(r => r.id === block.role || r.name === block.role);
+          handoffsIn.push(`${srcRole?.name ?? block.role} («${block.name}») → «${target.name}»`);
+        }
+      }
+    }
+
+    const lines: string[] = [
+      `Название компании: ${companyName}`,
+      `Название процесса: ${processData.name ?? ""}`,
+      `Должность: ${roleName}`,
+      `Департамент: ${role?.department ?? "не указан"}`,
+      ``,
+      `Задачи должности в процессе (${roleBlocks.length} шагов):`,
+    ];
+
+    for (const [stageName, blocks] of blocksByStage) {
+      lines.push(`\nЭтап: ${stageName}`);
+      for (const b of blocks) {
+        lines.push(`  - [${b.type.toUpperCase()}] ${b.name}${b.description ? `: ${b.description}` : ""}${b.timeEstimate ? ` (${b.timeEstimate})` : ""}`);
+        if (b.conditionLabel) lines.push(`    Условие: ${b.conditionLabel}`);
+      }
+    }
+
+    if (decisionBlocks.length) {
+      lines.push(`\nТочки принятия решений:`);
+      for (const d of decisionBlocks) lines.push(`  - ${d.name}`);
+    }
+    if (inputDocs.length) lines.push(`\nВходящие документы: ${inputDocs.join(", ")}`);
+    if (outputDocs.length) lines.push(`\nИсходящие документы: ${outputDocs.join(", ")}`);
+    if (systems.length) lines.push(`\nИнформационные системы: ${systems.join(", ")}`);
+    if (handoffsIn.length) lines.push(`\nПолучает задачи от: ${handoffsIn.slice(0, 5).join("; ")}`);
+    if (handoffsOut.length) lines.push(`\nПередаёт задачи: ${handoffsOut.slice(0, 5).join("; ")}`);
+    if (processData.goal) lines.push(`\nЦель процесса: ${processData.goal}`);
+
+    processContext = lines.join("\n");
+  }
+
+  const isRegulation = docType === "regulation";
+
+  const systemPrompt = isRegulation
+    ? `Ты опытный бизнес-аналитик. Составляй регламенты строго структурированно, на официальном деловом русском языке. Используй markdown: ## для разделов, ### для подразделов, - для списков, **жирный** для важного. Регламент должен быть максимально конкретным и применимым на практике.`
+    : `Ты специалист по HR и корпоративному праву. Составляй должностные инструкции в строгом соответствии с российским трудовым законодательством, на официальном деловом языке. Используй markdown: ## для разделов, - для списков. Инструкция должна быть юридически грамотной и практически применимой.`;
+
+  const userPrompt = isRegulation
+    ? `Составь подробный рабочий регламент для должности «${roleName}» компании «${companyName}».
+
+${processContext ? `Данные о процессе и задачах:\n${processContext}\n` : ""}
+
+Структура регламента:
+## 1. Общие положения
+   (назначение регламента, область применения, кто ответственен за актуализацию)
+
+## 2. Термины и сокращения
+   (расшифровка всех специфических терминов, встречающихся в регламенте)
+
+## 3. Цели и задачи
+   (что должен достичь сотрудник, ключевые показатели)
+
+## 4. Порядок выполнения работ
+   (пошаговое описание каждого действия с указанием входных данных, результата и срока; если есть — описание точек принятия решений)
+
+## 5. Взаимодействие с другими подразделениями
+   (кто передаёт задачи, кому передаёт, в каком формате)
+
+## 6. Используемые документы и системы
+   (перечень документов и ИТ-систем с описанием использования)
+
+## 7. Контроль и ответственность
+   (кто контролирует, критерии качества, меры при отклонениях)
+
+## 8. Приложения
+   (чек-листы, шаблоны, ссылки)
+
+Требования: конкретные действия (глаголы), измеримые сроки, понятный язык. Объём: детальный.`
+    : `Составь должностную инструкцию для должности «${roleName}» компании «${companyName}».
+
+${processContext ? `Данные о процессе и задачах:\n${processContext}\n` : ""}
+
+Структура должностной инструкции:
+
+## 1. Общие положения
+   (полное наименование должности, категория, кому подчиняется, кем назначается, требования к замещению)
+
+## 2. Квалификационные требования
+   (образование, опыт работы, необходимые знания, навыки, профессиональные компетенции)
+
+## 3. Должностные обязанности
+   (подробный перечень всех функций и задач, сгруппированных по направлениям деятельности)
+
+## 4. Права
+   (права сотрудника в части запроса информации, участия в совещаниях, внесения предложений)
+
+## 5. Ответственность
+   (за что несёт ответственность: результаты, сроки, качество, документы, конфиденциальность)
+
+## 6. Взаимодействие
+   (с кем взаимодействует, в какой форме, с какой периодичностью)
+
+## 7. Условия работы
+   (режим, рабочее место, оборудование, ИТ-системы)
+
+Требования: строгий деловой язык, конкретные формулировки. Объём: полный.`;
+
   try {
     const response = await anthropic.messages.create({
       model: "claude-haiku-4-5-20251001",
       max_tokens: 2000,
-      messages: [
-        {
-          role: "user",
-          content: `Создай ${docTypeName} для должности ${roleName} в компании ${companyName}. Структурированный формат, четкие обязанности и зоны ответственности. Используй markdown-форматирование с заголовками (##) и списками (-).`,
-        },
-      ],
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
     });
     return response.content[0].type === "text" ? response.content[0].text : "";
   } catch (error) {
