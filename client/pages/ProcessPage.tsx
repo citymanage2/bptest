@@ -118,7 +118,6 @@ import {
   Download,
   BookOpen,
   Archive,
-  Power,
 } from "lucide-react";
 import { toast } from "@/components/ui/toaster";
 import ReactMarkdown from "react-markdown";
@@ -1789,21 +1788,26 @@ function DiagramTab({
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Блок</CardTitle>
-                <div className="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "h-7 w-7 transition-colors",
-                      selectedBlock.isActive === false
-                        ? "text-gray-400 hover:text-gray-600"
-                        : "text-green-600 hover:text-green-700"
-                    )}
+                <div className="flex items-center gap-2">
+                  {/* iOS-style toggle */}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={selectedBlock.isActive !== false}
                     title={selectedBlock.isActive === false ? "Включить блок" : "Выключить блок"}
                     onClick={() => onToggleActive(selectedBlock.id)}
+                    className={cn(
+                      "relative inline-flex h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400",
+                      selectedBlock.isActive === false ? "bg-gray-200" : "bg-green-500"
+                    )}
                   >
-                    <Power className="w-4 h-4" />
-                  </Button>
+                    <span
+                      className={cn(
+                        "pointer-events-none inline-block h-[22px] w-[22px] rounded-full bg-white shadow-md ring-0 transition-transform duration-200 ease-in-out",
+                        selectedBlock.isActive === false ? "translate-x-0" : "translate-x-[20px]"
+                      )}
+                    />
+                  </button>
                   <Button
                     variant="ghost"
                     size="icon"
