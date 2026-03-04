@@ -117,7 +117,6 @@ import {
   GitBranch,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 
 // ============================================
 // Helper Functions
@@ -768,6 +767,121 @@ function computeProcessDiff(
   }
 
   return items;
+}
+
+// ============================================
+// Markdown renderer with built-in pipe table support
+// (no remark-gfm required)
+// ============================================
+
+const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = {
+  h2: ({ children }) => (
+    <h4 className="text-sm font-semibold text-gray-900 mt-4 mb-2 first:mt-0">{children}</h4>
+  ),
+  h3: ({ children }) => (
+    <h5 className="text-sm font-medium text-gray-800 mt-3 mb-1.5">{children}</h5>
+  ),
+  p: ({ children }) => <p className="text-sm text-gray-600 mb-2">{children}</p>,
+  ul: ({ children }) => (
+    <ul className="text-sm text-gray-600 list-disc list-inside mb-2 space-y-0.5">{children}</ul>
+  ),
+  ol: ({ children }) => (
+    <ol className="text-sm text-gray-600 list-decimal list-inside mb-2 space-y-0.5">{children}</ol>
+  ),
+  li: ({ children }) => <li className="text-sm text-gray-600">{children}</li>,
+  strong: ({ children }) => (
+    <strong className="font-semibold text-gray-900">{children}</strong>
+  ),
+};
+
+const isSepRow = (line: string) => /^\s*\|[\s\-:|]+\|\s*$/.test(line);
+
+function PipeTable({ lines }: { lines: string[] }) {
+  const rows = lines.filter((l) => /^\s*\|/.test(l));
+  if (rows.length < 2) return null;
+  const parseRow = (line: string) =>
+    line.split("|").slice(1, -1).map((c) => c.trim());
+  const headers = parseRow(rows[0]);
+  const dataRows = rows.slice(1).filter((r) => !isSepRow(r)).map(parseRow);
+  if (!headers.length || !dataRows.length) return null;
+  const priorityCls = (cell: string) => {
+    if (cell === "Высокий" || cell === "P1")
+      return "bg-red-50 text-red-700 font-medium";
+    if (cell === "Средний" || cell === "P2")
+      return "bg-yellow-50 text-yellow-700 font-medium";
+    if (cell === "Низкий" || cell === "P3")
+      return "bg-green-50 text-green-700 font-medium";
+    return "";
+  };
+  return (
+    <div className="overflow-x-auto my-3 rounded-lg border border-gray-200">
+      <table className="min-w-full text-xs">
+        <thead className="bg-gray-50">
+          <tr>
+            {headers.map((h, i) => (
+              <th
+                key={i}
+                className="px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap border-b border-gray-200"
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-100">
+          {dataRows.map((cells, i) => (
+            <tr key={i} className="hover:bg-gray-50">
+              {cells.map((cell, j) => (
+                <td
+                  key={j}
+                  className={`px-3 py-1.5 text-xs text-gray-700 align-top ${priorityCls(cell)}`}
+                >
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MarkdownContent({ text }: { text: string }) {
+  const segments: Array<{ type: "md" | "table"; lines: string[] }> = [];
+  let current: { type: "md" | "table"; lines: string[] } | null = null;
+  for (const line of text.split("\n")) {
+    const isTable = line.trimStart().startsWith("|");
+    if (isTable) {
+      if (current?.type === "table") {
+        current.lines.push(line);
+      } else {
+        if (current) segments.push(current);
+        current = { type: "table", lines: [line] };
+      }
+    } else {
+      if (current?.type === "md") {
+        current.lines.push(line);
+      } else {
+        if (current) segments.push(current);
+        current = { type: "md", lines: [line] };
+      }
+    }
+  }
+  if (current) segments.push(current);
+  return (
+    <>
+      {segments.map((seg, i) =>
+        seg.type === "table" ? (
+          <PipeTable key={i} lines={seg.lines} />
+        ) : (
+          <ReactMarkdown key={i} components={MD_COMPONENTS}>
+            {seg.lines.join("\n")}
+          </ReactMarkdown>
+        )
+      )}
+    </>
+  );
 }
 
 // Category icon mapping for recommendations
@@ -2917,84 +3031,8 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
 
                 {isExpanded && (
                   <CardContent className="pt-0 pb-4 px-4">
-                    <div className="pl-12 prose prose-sm prose-gray max-w-none">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          h2: ({ children }) => (
-                            <h4 className="text-sm font-semibold text-gray-900 mt-4 mb-2 first:mt-0">
-                              {children}
-                            </h4>
-                          ),
-                          h3: ({ children }) => (
-                            <h5 className="text-sm font-medium text-gray-800 mt-3 mb-1.5">
-                              {children}
-                            </h5>
-                          ),
-                          p: ({ children }) => (
-                            <p className="text-sm text-gray-600 mb-2">{children}</p>
-                          ),
-                          ul: ({ children }) => (
-                            <ul className="text-sm text-gray-600 list-disc list-inside mb-2 space-y-0.5">
-                              {children}
-                            </ul>
-                          ),
-                          ol: ({ children }) => (
-                            <ol className="text-sm text-gray-600 list-decimal list-inside mb-2 space-y-0.5">
-                              {children}
-                            </ol>
-                          ),
-                          li: ({ children }) => (
-                            <li className="text-sm text-gray-600">{children}</li>
-                          ),
-                          strong: ({ children }) => (
-                            <strong className="font-semibold text-gray-900">
-                              {children}
-                            </strong>
-                          ),
-                          table: ({ children }) => (
-                            <div className="overflow-x-auto my-3">
-                              <table className="min-w-full text-sm border border-gray-200 rounded-lg overflow-hidden">
-                                {children}
-                              </table>
-                            </div>
-                          ),
-                          thead: ({ children }) => (
-                            <thead className="bg-gray-50">{children}</thead>
-                          ),
-                          tbody: ({ children }) => (
-                            <tbody className="divide-y divide-gray-100">
-                              {children}
-                            </tbody>
-                          ),
-                          tr: ({ children }) => (
-                            <tr className="hover:bg-gray-50">{children}</tr>
-                          ),
-                          th: ({ children }) => (
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-200">
-                              {children}
-                            </th>
-                          ),
-                          td: ({ children }) => {
-                            const text = typeof children === "string" ? children : "";
-                            const priority =
-                              text === "Высокий"
-                                ? "bg-red-50 text-red-700 font-medium"
-                                : text === "Средний"
-                                  ? "bg-yellow-50 text-yellow-700 font-medium"
-                                  : text === "Низкий"
-                                    ? "bg-green-50 text-green-700 font-medium"
-                                    : "";
-                            return (
-                              <td className={`px-3 py-2 text-sm text-gray-700 ${priority}`}>
-                                {children}
-                              </td>
-                            );
-                          },
-                        }}
-                      >
-                        {rec.description}
-                      </ReactMarkdown>
+                    <div className="pl-12">
+                      <MarkdownContent text={rec.description} />
                     </div>
                     {rec.relatedSteps.length > 0 && (
                       <div className="pl-12 mt-3 pt-3 border-t border-gray-100">
