@@ -98,19 +98,93 @@ function findClearMidY(
   return sy + span * 0.5;
 }
 
+/**
+ * Находит ближайший X (в обе стороны от startX),
+ * где вертикальный отрезок [y1,y2] не задевает ни одного блока.
+ */
 function findClearSideX(
   blocks: LayoutBlock[],
   y1: number, y2: number,
   startX: number,
-  dir: 1 | -1,
   skip: Set<string>,
 ): number {
-  for (let i = 0; i <= 8; i++) {
-    const x = startX + dir * i * 20;
-    if (!vSegCollides(blocks, x, y1, y2, skip)) return x;
+  if (!vSegCollides(blocks, startX, y1, y2, skip)) return startX;
+  // Ищем в обе стороны одновременно — берём ближайший свободный X
+  for (let i = 1; i <= 15; i++) {
+    const step = i * 12;
+    const xl = startX - step;
+    const xr = startX + step;
+    if (!vSegCollides(blocks, xl, y1, y2, skip)) return xl;
+    if (!vSegCollides(blocks, xr, y1, y2, skip)) return xr;
   }
   return startX;
 }
+
+/**
+ * Строит стандартный Z-маршрут (вперёд, ty > sy)
+ * с проверкой коллизий для ВСЕХ трёх отрезков:
+ * левого вертикального, горизонтального и правого вертикального.
+ *
+ * Если вертикальный отрезок у source или target задевает блок —
+ * добавляет горизонтальный джог в сторону, где коридор свободен.
+ */
+function buildZRoute(
+  allBlocks: LayoutBlock[],
+  sx: number, sy: number,
+  tx: number, ty: number,
+  skip: Set<string>,
+): Point[] {
+  const STUB = 22; // короткий вертикальный стаб от блока перед горизонтальным джогом
+
+  // 1. Найти midY, где горизонтальный отрезок свободен
+  const midY = findClearMidY(allBlocks, sx, tx, sy, ty, skip);
+
+  // 2. Проверить вертикальные отрезки
+  //    Стаб (sy → sy+STUB) заведомо свободен (между стадиями), поэтому
+  //    проверяем от sy+STUB до midY и от midY до ty-STUB.
+  const leftCollides  = vSegCollides(allBlocks, sx, sy + STUB, midY, skip);
+  const rightCollides = vSegCollides(allBlocks, tx, midY, ty - STUB, skip);
+
+  // 3. Построить левую часть маршрута: (sx,sy) → (?,midY)
+  let leftPts: Point[];
+  if (leftCollides) {
+    const clearX = findClearSideX(allBlocks, sy + STUB, midY, sx, skip);
+    leftPts = [
+      { x: sx,     y: sy },
+      { x: sx,     y: sy + STUB },
+      { x: clearX, y: sy + STUB },
+      { x: clearX, y: midY },
+    ];
+  } else {
+    leftPts = [
+      { x: sx, y: sy },
+      { x: sx, y: midY },
+    ];
+  }
+
+  // 4. Построить правую часть маршрута: (?,midY) → (tx,ty)
+  let rightPts: Point[];
+  if (rightCollides) {
+    const clearX = findClearSideX(allBlocks, midY, ty - STUB, tx, skip);
+    rightPts = [
+      { x: clearX, y: midY },
+      { x: clearX, y: ty - STUB },
+      { x: tx,     y: ty - STUB },
+      { x: tx,     y: ty },
+    ];
+  } else {
+    rightPts = [
+      { x: tx, y: midY },
+      { x: tx, y: ty },
+    ];
+  }
+
+  // 5. Объединить: левая часть заканчивается на (lx, midY),
+  //    правая начинается на (rx, midY).
+  //    Если lx ≠ rx — между ними автоматически нарисуется горизонтальный отрезок.
+  return [...leftPts, ...rightPts];
+}
+
 
 /* ══════════════════════════════════════════════════════════════
    2.  SEGMENT LANER  — развод параллельных линий по полосам
@@ -227,12 +301,11 @@ export function routeConnection(
     const cy = source.y + source.h / 2;
 
     if (condLbl === "да") {
+      // Выход из левого угла ромба
       const sx = source.x;
       const sy = cy;
       const baseX = Math.min(source.x - 35, tx - 20);
-      const routeX = vSegCollides(allBlocks, baseX, sy, ty - 35, skip)
-        ? findClearSideX(allBlocks, sy, ty - 35, baseX, -1, skip)
-        : baseX;
+      const routeX = findClearSideX(allBlocks, sy, ty - 35, baseX, skip);
       const approachY = hSegCollides(allBlocks, routeX, tx, ty - 35, skip)
         ? ty - 60
         : ty - 35;
@@ -246,12 +319,11 @@ export function routeConnection(
     }
 
     if (condLbl === "нет") {
+      // Выход из правого угла ромба
       const sx = source.x + source.w;
       const sy = cy;
       const baseX = Math.max(source.x + source.w + 35, tx + 20);
-      const routeX = vSegCollides(allBlocks, baseX, sy, ty - 35, skip)
-        ? findClearSideX(allBlocks, sy, ty - 35, baseX, 1, skip)
-        : baseX;
+      const routeX = findClearSideX(allBlocks, sy, ty - 35, baseX, skip);
       const approachY = hSegCollides(allBlocks, tx, routeX, ty - 35, skip)
         ? ty - 60
         : ty - 35;
@@ -268,13 +340,9 @@ export function routeConnection(
     const sx = source.x + source.w / 2;
     const sy = source.y + source.h;
     if (ty > sy + 5) {
-      if (Math.abs(sx - tx) < 8)
+      if (Math.abs(sx - tx) < 8 && !vSegCollides(allBlocks, sx, sy, ty, skip))
         return [{ x: sx, y: sy }, { x: tx, y: ty }];
-      const midY = findClearMidY(allBlocks, sx, tx, sy, ty, skip);
-      return [
-        { x: sx, y: sy }, { x: sx, y: midY },
-        { x: tx, y: midY }, { x: tx, y: ty },
-      ];
+      return buildZRoute(allBlocks, sx, sy, tx, ty, skip);
     }
   }
 
@@ -289,24 +357,19 @@ export function routeConnection(
   const sy = source.y + source.h;
 
   if (ty > sy + 5) {
-    if (Math.abs(sx - tx) < 8)
+    // Прямая вертикаль — только если путь полностью свободен
+    if (Math.abs(sx - tx) < 8 && !vSegCollides(allBlocks, sx, sy, ty, skip))
       return [{ x: sx, y: sy }, { x: tx, y: ty }];
-    const midY = findClearMidY(allBlocks, sx, tx, sy, ty, skip);
-    return [
-      { x: sx, y: sy }, { x: sx, y: midY },
-      { x: tx, y: midY }, { x: tx, y: ty },
-    ];
+    return buildZRoute(allBlocks, sx, sy, tx, ty, skip);
   }
 
-  // Боковой / обратный маршрут
+  // Боковой / обратный маршрут (target выше или на том же уровне)
   const gap = 35;
   const isRight = tx > sx;
   const baseX = isRight
     ? Math.max(source.x + source.w, target.x + target.w) + gap
     : Math.min(source.x, target.x) - gap;
-  const sideX = vSegCollides(allBlocks, baseX, sy + gap, ty - gap, skip)
-    ? findClearSideX(allBlocks, sy + gap, ty - gap, baseX, isRight ? 1 : -1, skip)
-    : baseX;
+  const sideX = findClearSideX(allBlocks, sy + gap, ty - gap, baseX, skip);
 
   return [
     { x: sx,    y: sy },
