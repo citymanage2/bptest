@@ -118,6 +118,8 @@ import {
   Download,
   BookOpen,
   Archive,
+  Undo2,
+  Redo2,
 } from "lucide-react";
 import { toast } from "@/components/ui/toaster";
 import ReactMarkdown from "react-markdown";
@@ -975,6 +977,16 @@ export function ProcessPage() {
   const canvasHandleRef = useRef<SwimlaneCanvasHandle>(null);
   const capturedBeforeRef = useRef<ProcessData | null>(null);
 
+  // ---- Undo / Redo ----
+  const undoStackRef = useRef<ProcessData[]>([]);
+  const redoStackRef = useRef<ProcessData[]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const isUndoRedoRef = useRef(false);
+
+  // Must be declared before handlers that use it
+  const pushToHistoryRef = useRef<((snapshot: ProcessData) => void) | null>(null);
+
   // Block editing state
   const [editingBlock, setEditingBlock] = useState<ProcessBlock | null>(null);
   const [editName, setEditName] = useState("");
@@ -1119,6 +1131,7 @@ export function ProcessPage() {
         : b
     );
 
+    pushToHistoryRef.current?.(data);
     updateDataMutation.mutate({
       id: processId,
       data: { ...data, blocks: updatedBlocks },
@@ -1130,11 +1143,59 @@ export function ProcessPage() {
     setEditingBlock(null);
   }, []);
 
+  const pushToHistory = useCallback((snapshot: ProcessData) => {
+    if (isUndoRedoRef.current) return;
+    undoStackRef.current = [...undoStackRef.current.slice(-19), snapshot];
+    redoStackRef.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+  }, []);
+  pushToHistoryRef.current = pushToHistory;
+
+  const handleUndo = useCallback(() => {
+    if (!data || undoStackRef.current.length === 0) return;
+    isUndoRedoRef.current = true;
+    const prev = undoStackRef.current[undoStackRef.current.length - 1];
+    undoStackRef.current = undoStackRef.current.slice(0, -1);
+    redoStackRef.current = [data, ...redoStackRef.current.slice(0, 19)];
+    setCanUndo(undoStackRef.current.length > 0);
+    setCanRedo(true);
+    updateDataMutation.mutate({ id: processId, data: prev }, {
+      onSettled: () => { isUndoRedoRef.current = false; },
+    });
+  }, [data, processId, updateDataMutation]);
+
+  const handleRedo = useCallback(() => {
+    if (!data || redoStackRef.current.length === 0) return;
+    isUndoRedoRef.current = true;
+    const next = redoStackRef.current[0];
+    redoStackRef.current = redoStackRef.current.slice(1);
+    undoStackRef.current = [...undoStackRef.current.slice(-19), data];
+    setCanUndo(true);
+    setCanRedo(redoStackRef.current.length > 0);
+    updateDataMutation.mutate({ id: processId, data: next }, {
+      onSettled: () => { isUndoRedoRef.current = false; },
+    });
+  }, [data, processId, updateDataMutation]);
+
+  // Keyboard shortcuts: Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) { e.preventDefault(); handleUndo(); }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) { e.preventDefault(); handleRedo(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleUndo, handleRedo]);
+
   const handleToggleActive = useCallback((blockId: string) => {
     if (!data) return;
     const updatedBlocks = data.blocks.map((b) =>
       b.id === blockId ? { ...b, isActive: b.isActive === false ? true : false } : b
     );
+    pushToHistoryRef.current?.(data);
     toast({ title: "Применяем изменения…" });
     updateDataMutation.mutate(
       { id: processId, data: { ...data, blocks: updatedBlocks } },
@@ -1553,6 +1614,10 @@ export function ProcessPage() {
             onExportBPMN={handleExportBPMN}
             onExportPDF={handleExportPDF}
             onToggleActive={handleToggleActive}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            canUndo={canUndo}
+            canRedo={canRedo}
           />
         </TabsContent>
 
@@ -1660,6 +1725,10 @@ interface DiagramTabProps {
   onExportBPMN: () => void;
   onExportPDF: () => void;
   onToggleActive: (blockId: string) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 function DiagramTab({
@@ -1709,6 +1778,10 @@ function DiagramTab({
   onExportBPMN,
   onExportPDF,
   onToggleActive,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
 }: DiagramTabProps) {
   return (
     <div className="flex gap-4">
@@ -1751,6 +1824,27 @@ function DiagramTab({
               title="На весь экран"
             >
               <Fullscreen className="w-4 h-4" />
+            </Button>
+
+            <div className="w-px h-5 bg-gray-200 mx-1" />
+
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onUndo}
+              disabled={!canUndo}
+              title="Отменить (Ctrl+Z)"
+            >
+              <Undo2 className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onRedo}
+              disabled={!canRedo}
+              title="Вернуть (Ctrl+Y)"
+            >
+              <Redo2 className="w-4 h-4" />
             </Button>
           </div>
 
