@@ -847,8 +847,13 @@ export function ProcessPage() {
   const [changeDialogOpen, setChangeDialogOpen] = useState(false);
   const [changeDescription, setChangeDescription] = useState("");
   const [pendingChangeRequest, setPendingChangeRequest] = useState<ChangeRequest | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewBefore, setPreviewBefore] = useState<ProcessData | null>(null);
+  const [previewAfter, setPreviewAfter] = useState<ProcessData | null>(null);
+  const [previewType, setPreviewType] = useState<"regenerate" | "change" | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
   const canvasHandleRef = useRef<SwimlaneCanvasHandle>(null);
+  const capturedBeforeRef = useRef<ProcessData | null>(null);
 
   // Block editing state
   const [editingBlock, setEditingBlock] = useState<ProcessBlock | null>(null);
@@ -872,14 +877,24 @@ export function ProcessPage() {
   });
 
   const regenerateMutation = trpc.process.regenerate.useMutation({
-    onSuccess: () => {
-      utils.process.getById.invalidate({ id: processId });
+    onSuccess: (result) => {
+      // Store preview instead of applying immediately
+      setPreviewBefore(capturedBeforeRef.current);
+      setPreviewAfter(result.data as ProcessData);
+      setPreviewType("regenerate");
+      setPreviewOpen(true);
     },
   });
 
   const requestChangeMutation = trpc.process.requestChange.useMutation({
     onSuccess: (changeRequest) => {
-      setPendingChangeRequest(changeRequest as ChangeRequest);
+      const cr = changeRequest as ChangeRequest;
+      setPendingChangeRequest(cr);
+      setPreviewBefore(cr.previousData);
+      setPreviewAfter(cr.newData);
+      setPreviewType("change");
+      setChangeDialogOpen(false);
+      setPreviewOpen(true);
     },
   });
 
@@ -888,6 +903,10 @@ export function ProcessPage() {
       setPendingChangeRequest(null);
       setChangeDialogOpen(false);
       setChangeDescription("");
+      setPreviewOpen(false);
+      setPreviewBefore(null);
+      setPreviewAfter(null);
+      setPreviewType(null);
       utils.process.getById.invalidate({ id: processId });
     },
   });
@@ -895,6 +914,10 @@ export function ProcessPage() {
   const rejectChangeMutation = trpc.process.rejectChange.useMutation({
     onSuccess: () => {
       setPendingChangeRequest(null);
+      setPreviewOpen(false);
+      setPreviewBefore(null);
+      setPreviewAfter(null);
+      setPreviewType(null);
     },
   });
 
@@ -1002,15 +1025,46 @@ export function ProcessPage() {
     });
   }, [changeDescription, processId, requestChangeMutation]);
 
-  const handleApplyChange = useCallback(() => {
-    if (!pendingChangeRequest) return;
-    applyChangeMutation.mutate({ changeRequestId: pendingChangeRequest.id });
-  }, [pendingChangeRequest, applyChangeMutation]);
+  const clearPreview = useCallback(() => {
+    setPreviewOpen(false);
+    setPreviewBefore(null);
+    setPreviewAfter(null);
+    setPreviewType(null);
+  }, []);
 
-  const handleRejectChange = useCallback(() => {
-    if (!pendingChangeRequest) return;
-    rejectChangeMutation.mutate({ changeRequestId: pendingChangeRequest.id });
-  }, [pendingChangeRequest, rejectChangeMutation]);
+  const handlePreviewSave = useCallback(() => {
+    if (previewType === "regenerate") {
+      clearPreview();
+      utils.process.getById.invalidate({ id: processId });
+    } else if (previewType === "change" && pendingChangeRequest) {
+      applyChangeMutation.mutate({ changeRequestId: pendingChangeRequest.id });
+    }
+  }, [previewType, pendingChangeRequest, processId, utils, applyChangeMutation, clearPreview]);
+
+  const handlePreviewCancel = useCallback(() => {
+    if (previewType === "regenerate" && previewBefore) {
+      updateDataMutation.mutate({ id: processId, data: previewBefore });
+    } else if (previewType === "change" && pendingChangeRequest) {
+      rejectChangeMutation.mutate({ changeRequestId: pendingChangeRequest.id });
+      return; // rejectChangeMutation.onSuccess will call clearPreview
+    }
+    clearPreview();
+    setPendingChangeRequest(null);
+  }, [previewType, previewBefore, processId, updateDataMutation, pendingChangeRequest, rejectChangeMutation, clearPreview]);
+
+  const handlePreviewRetry = useCallback(() => {
+    const type = previewType;
+    const before = previewBefore;
+    const cr = pendingChangeRequest;
+    clearPreview();
+    setPendingChangeRequest(null);
+    if (type === "regenerate" && before) {
+      updateDataMutation.mutate({ id: processId, data: before });
+    } else if (type === "change" && cr) {
+      rejectChangeMutation.mutate({ changeRequestId: cr.id });
+      setChangeDialogOpen(true);
+    }
+  }, [previewType, previewBefore, pendingChangeRequest, processId, updateDataMutation, rejectChangeMutation, clearPreview]);
 
   // ---- Loading State ----
   if (processQuery.isLoading) {
@@ -1040,9 +1094,6 @@ export function ProcessPage() {
   }
 
   // ---- Diff view for pending change request ----
-  const diffItems = pendingChangeRequest
-    ? computeProcessDiff(pendingChangeRequest.previousData, pendingChangeRequest.newData)
-    : [];
 
   return (
     <div className="space-y-6">
@@ -1078,126 +1129,171 @@ export function ProcessPage() {
                 </DialogDescription>
               </DialogHeader>
 
-              {!pendingChangeRequest ? (
-                <div className="space-y-4">
-                  <Textarea
-                    placeholder="Например: Добавить этап согласования с юридическим отделом перед подписанием договора..."
-                    value={changeDescription}
-                    onChange={(e) => setChangeDescription(e.target.value)}
-                    rows={4}
+              <div className="space-y-4">
+                <Textarea
+                  placeholder="Например: Добавить этап согласования с юридическим отделом перед подписанием договора..."
+                  value={changeDescription}
+                  onChange={(e) => setChangeDescription(e.target.value)}
+                  rows={4}
+                  disabled={requestChangeMutation.isPending}
+                />
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setChangeDialogOpen(false);
+                      setChangeDescription("");
+                    }}
                     disabled={requestChangeMutation.isPending}
-                  />
-                  <DialogFooter>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        setChangeDialogOpen(false);
-                        setChangeDescription("");
-                      }}
-                      disabled={requestChangeMutation.isPending}
-                    >
-                      Отмена
-                    </Button>
-                    <Button
-                      onClick={handleRequestChange}
-                      disabled={requestChangeMutation.isPending || !changeDescription.trim()}
-                    >
-                      {requestChangeMutation.isPending ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Генерация...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-4 h-4" />
-                          Сгенерировать изменения
-                        </>
-                      )}
-                    </Button>
-                  </DialogFooter>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="text-sm text-gray-600 font-medium mb-2">
-                    Предлагаемые изменения:
-                  </div>
-                  <div className="max-h-80 overflow-y-auto space-y-2 rounded-lg border border-gray-200 p-3">
-                    {diffItems.length === 0 ? (
-                      <p className="text-sm text-gray-400 italic">
-                        Изменений не обнаружено
-                      </p>
+                  >
+                    Отмена
+                  </Button>
+                  <Button
+                    onClick={handleRequestChange}
+                    disabled={requestChangeMutation.isPending || !changeDescription.trim()}
+                  >
+                    {requestChangeMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Генерация...
+                      </>
                     ) : (
-                      diffItems.map((item, idx) => (
-                        <div
-                          key={idx}
-                          className={cn(
-                            "flex items-start gap-2 px-3 py-2 rounded-md text-sm",
-                            item.type === "added" && "bg-green-50 border border-green-200",
-                            item.type === "removed" && "bg-red-50 border border-red-200",
-                            item.type === "changed" && "bg-blue-50 border border-blue-200"
-                          )}
-                        >
-                          {item.type === "added" && (
-                            <Plus className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />
-                          )}
-                          {item.type === "removed" && (
-                            <Minus className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
-                          )}
-                          {item.type === "changed" && (
-                            <ArrowRightLeft className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />
-                          )}
-                          <div>
-                            <div
-                              className={cn(
-                                "font-medium",
-                                item.type === "added" && "text-green-700",
-                                item.type === "removed" && "text-red-700",
-                                item.type === "changed" && "text-blue-700"
-                              )}
-                            >
-                              {item.label}
-                            </div>
-                            {item.details && (
-                              <div className="text-gray-500 mt-0.5">{item.details}</div>
-                            )}
-                          </div>
-                        </div>
-                      ))
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        Сгенерировать изменения
+                      </>
                     )}
+                  </Button>
+                </DialogFooter>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Preview Dialog */}
+          <Dialog open={previewOpen} onOpenChange={() => {}}>
+            <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden">
+              <DialogHeader className="px-6 pt-6 pb-4 border-b border-gray-100">
+                <DialogTitle className="flex items-center gap-2 text-base">
+                  <Eye className="w-5 h-5 text-purple-600" />
+                  Предпросмотр изменений
+                </DialogTitle>
+                <DialogDescription className="text-sm text-gray-500">
+                  {previewType === "regenerate"
+                    ? "AI сгенерировал новую версию процесса. Проверьте изменения перед сохранением."
+                    : "AI предлагает следующие изменения. Проверьте их перед применением."}
+                </DialogDescription>
+              </DialogHeader>
+
+              {previewBefore && previewAfter && (
+                <div className="flex-1 overflow-hidden flex flex-col min-h-0 px-6 py-4 gap-4">
+                  {/* Before / After stats header */}
+                  <div className="grid grid-cols-2 gap-3 flex-shrink-0">
+                    <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="w-2 h-2 rounded-full bg-gray-400 flex-shrink-0" />
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Текущая версия</span>
+                      </div>
+                      <div className="text-sm font-semibold text-gray-800 truncate">{previewBefore.name}</div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {previewBefore.blocks.length} блоков · {previewBefore.stages.length} этапов · {previewBefore.roles.length} ролей
+                      </div>
+                    </div>
+                    <div className="rounded-lg border border-purple-200 bg-purple-50 p-3">
+                      <div className="flex items-center gap-1.5 mb-1.5">
+                        <span className="w-2 h-2 rounded-full bg-purple-500 flex-shrink-0" />
+                        <span className="text-xs font-medium text-purple-600 uppercase tracking-wide">Новая версия</span>
+                      </div>
+                      <div className="text-sm font-semibold text-purple-900 truncate">{previewAfter.name}</div>
+                      <div className="text-xs text-purple-600 mt-1">
+                        {previewAfter.blocks.length} блоков · {previewAfter.stages.length} этапов · {previewAfter.roles.length} ролей
+                      </div>
+                    </div>
                   </div>
 
-                  <DialogFooter>
-                    <Button
-                      variant="outline"
-                      onClick={handleRejectChange}
-                      disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending}
-                    >
-                      {rejectChangeMutation.isPending ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <XCircle className="w-4 h-4" />
-                      )}
-                      Отменить
-                    </Button>
-                    <Button
-                      onClick={handleApplyChange}
-                      disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending}
-                    >
-                      {applyChangeMutation.isPending ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Применение...
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-4 h-4" />
-                          Применить
-                        </>
-                      )}
-                    </Button>
-                  </DialogFooter>
+                  {/* Diff list */}
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <div className="text-sm font-medium text-gray-700 mb-2 flex-shrink-0">Список изменений:</div>
+                    <div className="flex-1 overflow-y-auto space-y-1.5 rounded-lg border border-gray-200 p-3">
+                      {(() => {
+                        const items = computeProcessDiff(previewBefore, previewAfter);
+                        return items.length === 0 ? (
+                          <p className="text-sm text-gray-400 italic text-center py-6">Значимых изменений не обнаружено</p>
+                        ) : (
+                          items.map((item, idx) => (
+                            <div
+                              key={idx}
+                              className={cn(
+                                "flex items-start gap-2 px-3 py-2 rounded-md text-sm",
+                                item.type === "added" && "bg-green-50 border border-green-200",
+                                item.type === "removed" && "bg-red-50 border border-red-200",
+                                item.type === "changed" && "bg-blue-50 border border-blue-200"
+                              )}
+                            >
+                              {item.type === "added" && <Plus className="w-4 h-4 text-green-600 mt-0.5 shrink-0" />}
+                              {item.type === "removed" && <Minus className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />}
+                              {item.type === "changed" && <ArrowRightLeft className="w-4 h-4 text-blue-600 mt-0.5 shrink-0" />}
+                              <div>
+                                <div className={cn(
+                                  "font-medium",
+                                  item.type === "added" && "text-green-700",
+                                  item.type === "removed" && "text-red-700",
+                                  item.type === "changed" && "text-blue-700"
+                                )}>
+                                  {item.label}
+                                </div>
+                                {item.details && <div className="text-gray-500 mt-0.5 text-xs">{item.details}</div>}
+                              </div>
+                            </div>
+                          ))
+                        );
+                      })()}
+                    </div>
+                  </div>
                 </div>
               )}
+
+              <DialogFooter className="px-6 py-4 border-t border-gray-100 flex-shrink-0 flex items-center justify-between gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handlePreviewCancel}
+                  disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending || updateDataMutation.isPending}
+                  className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300"
+                >
+                  {(rejectChangeMutation.isPending || updateDataMutation.isPending) ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <XCircle className="w-4 h-4" />
+                  )}
+                  Отменить
+                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={handlePreviewRetry}
+                    disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending || updateDataMutation.isPending}
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    Запросить заново
+                  </Button>
+                  <Button
+                    onClick={handlePreviewSave}
+                    disabled={applyChangeMutation.isPending || rejectChangeMutation.isPending}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    {applyChangeMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Сохранение...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4" />
+                        Сохранить изменения
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
 
@@ -1221,7 +1317,10 @@ export function ProcessPage() {
               <AlertDialogFooter>
                 <AlertDialogCancel>Отмена</AlertDialogCancel>
                 <AlertDialogAction
-                  onClick={() => regenerateMutation.mutate({ id: processId })}
+                  onClick={() => {
+                    capturedBeforeRef.current = data ?? null;
+                    regenerateMutation.mutate({ id: processId });
+                  }}
                   disabled={regenerateMutation.isPending}
                   className="bg-red-600 hover:bg-red-700"
                 >
