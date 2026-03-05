@@ -785,14 +785,14 @@ export function BusinessModelTab({ companyId, processCount }: Props) {
                 <div className="space-y-1.5">
                   <Label className="text-xs font-medium">Тип клиентов</Label>
                   <Select
-                    value={formInput.canvas.b2b_b2c ?? ""}
-                    onValueChange={(v) => updateCanvas({ b2b_b2c: (v || null) as any })}
+                    value={formInput.canvas.b2b_b2c ?? "__none"}
+                    onValueChange={(v) => updateCanvas({ b2b_b2c: (v === "__none" ? null : v) as any })}
                   >
                     <SelectTrigger className="h-8 text-sm">
                       <SelectValue placeholder="Выбрать..." />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Не указано</SelectItem>
+                      <SelectItem value="__none">Не указано</SelectItem>
                       <SelectItem value="B2B">B2B</SelectItem>
                       <SelectItem value="B2C">B2C</SelectItem>
                       <SelectItem value="B2G">B2G</SelectItem>
