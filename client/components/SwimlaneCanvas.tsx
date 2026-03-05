@@ -16,6 +16,7 @@ import {
   drawConnectionLabel,
 } from "./routingHelpers";
 import type { LayoutBlock as HLayoutBlock } from "./routingHelpers";
+import { generateDiagramSVG } from "../lib/svgDiagramExport";
 
 // ============================================================
 // Constants
@@ -33,7 +34,7 @@ const FONT_FAMILY = "'Inter', system-ui, -apple-system, sans-serif";
 // ============================================================
 // Internal Types
 // ============================================================
-interface LayoutBlock {
+export interface LayoutBlock {
   block: ProcessBlock;
   x: number;
   y: number;
@@ -41,7 +42,7 @@ interface LayoutBlock {
   h: number;
 }
 
-interface LayoutInfo {
+export interface LayoutInfo {
   blocks: LayoutBlock[];
   totalWidth: number;
   totalHeight: number;
@@ -67,6 +68,7 @@ export interface SwimlaneCanvasHandle {
   getScale: () => number;
   toggleFullscreen: () => void;
   exportDiagram: () => HTMLCanvasElement;
+  exportDiagramSVG: () => string;
 }
 
 export interface SwimlaneCanvasProps {
@@ -179,7 +181,7 @@ function hexToRgba(hex: string, alpha: number): string {
 // ============================================================
 // Layout Computation
 // ============================================================
-function computeLayout(data: ProcessData): LayoutInfo {
+export function computeLayout(data: ProcessData): LayoutInfo {
   const sortedStages = [...data.stages].sort((a, b) => a.order - b.order);
   const roleOrder = data.roles.map((r) => r.id);
   const stageOrder = sortedStages.map((s) => s.id);
@@ -1546,7 +1548,9 @@ export const SwimlaneCanvas = forwardRef<SwimlaneCanvasHandle, SwimlaneCanvasPro
           }
           return offscreen;
         },
+        exportDiagramSVG: () => generateDiagramSVG(data, layout),
       }),
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       [fitToScreen, zoomIn, zoomOut, zoomReset, toggleFullscreen, layout, data, selectedBlockId],
     );
 

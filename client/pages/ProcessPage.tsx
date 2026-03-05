@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/lib/auth";
 import { cn, formatDateTime } from "@/lib/utils";
-import { exportToPNG, exportToBPMN, exportToPDF } from "@/lib/export";
+import { exportToPNG, exportToBPMN, exportToPDF, exportToSVG } from "@/lib/export";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,6 +68,7 @@ import {
   ArrowLeft,
   Loader2,
   FileImage,
+  FileCode,
   FileCode2,
   FileText,
   ZoomIn,
@@ -1229,9 +1230,16 @@ export function ProcessPage() {
   }, [data, processId, updateDataMutation]);
 
   const handleExportPNG = useCallback(() => {
-    const canvas = canvasHandleRef.current?.exportDiagram();
-    if (canvas) {
-      exportToPNG(canvas, `${data?.name || "process"}.png`);
+    const svg = canvasHandleRef.current?.exportDiagramSVG();
+    if (svg) {
+      exportToPNG(svg, `${data?.name || "process"}.png`);
+    }
+  }, [data?.name]);
+
+  const handleExportSVG = useCallback(() => {
+    const svg = canvasHandleRef.current?.exportDiagramSVG();
+    if (svg) {
+      exportToSVG(svg, `${data?.name || "process"}.svg`);
     }
   }, [data?.name]);
 
@@ -1242,9 +1250,9 @@ export function ProcessPage() {
   }, [data]);
 
   const handleExportPDF = useCallback(() => {
-    const canvas = canvasHandleRef.current?.exportDiagram();
-    if (canvas && data) {
-      exportToPDF(canvas, `${data.name || "process"}.pdf`, data.name);
+    const svg = canvasHandleRef.current?.exportDiagramSVG();
+    if (svg && data) {
+      exportToPDF(svg, `${data.name || "process"}.pdf`, data.name);
     }
   }, [data]);
 
@@ -1635,6 +1643,7 @@ export function ProcessPage() {
             onSetEditChecklist={setEditChecklist}
             onScaleChange={setCanvasScale}
             onExportPNG={handleExportPNG}
+            onExportSVG={handleExportSVG}
             onExportBPMN={handleExportBPMN}
             onExportPDF={handleExportPDF}
             onToggleActive={handleToggleActive}
@@ -1757,6 +1766,7 @@ interface DiagramTabProps {
   onSetEditChecklist: (v: string) => void;
   onScaleChange: (scale: number) => void;
   onExportPNG: () => void;
+  onExportSVG: () => void;
   onExportBPMN: () => void;
   onExportPDF: () => void;
   onToggleActive: (blockId: string) => void;
@@ -1811,6 +1821,7 @@ function DiagramTab({
   onSetEditChecklist,
   onScaleChange,
   onExportPNG,
+  onExportSVG,
   onExportBPMN,
   onExportPDF,
   onToggleActive,
@@ -1888,6 +1899,10 @@ function DiagramTab({
             <Button variant="outline" size="sm" onClick={onExportPNG}>
               <FileImage className="w-4 h-4" />
               PNG
+            </Button>
+            <Button variant="outline" size="sm" onClick={onExportSVG}>
+              <FileCode className="w-4 h-4" />
+              SVG
             </Button>
             <Button variant="outline" size="sm" onClick={onExportBPMN}>
               <FileCode2 className="w-4 h-4" />
