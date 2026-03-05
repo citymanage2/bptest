@@ -1,11 +1,14 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
 import { db } from "../db";
-import { companies, companyRequisites, legalDocuments, users, tokenOperations } from "../db/schema";
-import { eq, desc } from "drizzle-orm";
+import { companies, companyRequisites, legalDocuments, legalAttachments, users, tokenOperations } from "../db/schema";
+import { eq, desc, inArray } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { generateLegalDocument } from "../services/ai";
+import path from "path";
+import { generateLegalDocument, type LegalAttachedFile } from "../services/ai";
 import type { CompanyRequisites, LegalDocType } from "../../shared/types";
+
+const UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
 
 // ── Zod schemas ──────────────────────────────────────────────────────────────
 
@@ -135,6 +138,7 @@ export const legalDocumentsRouter = router({
           "complaint",
         ]),
         prompt: z.string().min(10).max(20000),
+        attachmentIds: z.array(z.number()).optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -146,6 +150,22 @@ export const legalDocumentsRouter = router({
       });
       const requisites = (rec?.data ?? {}) as Record<string, string | null>;
 
+      // Resolve attached files
+      let attachedFiles: LegalAttachedFile[] = [];
+      if (input.attachmentIds && input.attachmentIds.length > 0) {
+        const records = await db.query.legalAttachments.findMany({
+          where: inArray(legalAttachments.id, input.attachmentIds),
+        });
+        // Verify ownership and belonging to same company
+        attachedFiles = records
+          .filter((r) => r.userId === ctx.userId && r.companyId === input.companyId)
+          .map((r) => ({
+            storedPath: path.join(UPLOADS_DIR, r.storedName),
+            originalName: r.originalName,
+            mimeType: r.mimeType,
+          }));
+      }
+
       // Deduct tokens
       await deductTokens(
         ctx.userId,
@@ -154,7 +174,7 @@ export const legalDocumentsRouter = router({
       );
 
       // Generate via AI
-      const { title, content } = await generateLegalDocument(requisites, input.prompt);
+      const { title, content } = await generateLegalDocument(requisites, input.prompt, attachedFiles);
 
       // Save document
       const [doc] = await db

@@ -416,3 +416,24 @@ export const legalDocumentsRelations = relations(legalDocuments, ({ one }) => ({
   company: one(companies, { fields: [legalDocuments.companyId], references: [companies.id] }),
   user: one(users, { fields: [legalDocuments.userId], references: [users.id] }),
 }));
+
+// Legal Attachments — files uploaded for use in legal document generation
+export const legalAttachments = pgTable("legal_attachments", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  originalName: varchar("original_name", { length: 500 }).notNull(),
+  storedName: varchar("stored_name", { length: 500 }).notNull(),
+  mimeType: varchar("mime_type", { length: 100 }).notNull(),
+  fileSize: integer("file_size").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const legalAttachmentsRelations = relations(legalAttachments, ({ one }) => ({
+  company: one(companies, { fields: [legalAttachments.companyId], references: [companies.id] }),
+  user: one(users, { fields: [legalAttachments.userId], references: [users.id] }),
+}));

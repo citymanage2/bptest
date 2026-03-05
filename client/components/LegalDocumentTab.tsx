@@ -475,6 +475,26 @@ function RequisitesForm({ companyId }: RequisitesFormProps) {
 
 // ─── Create Document Form ─────────────────────────────────────────────────────
 
+interface AttachedFile {
+  id: number;
+  originalName: string;
+  mimeType: string;
+  fileSize: number;
+}
+
+function fileIcon(mime: string) {
+  if (mime === "application/pdf") return "📄";
+  if (mime.includes("word")) return "📝";
+  if (mime.startsWith("image/")) return "🖼️";
+  return "📎";
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} МБ`;
+}
+
 interface CreateDocFormProps {
   companyId: number;
   onGenerated: (doc: LegalDocument) => void;
@@ -483,10 +503,14 @@ interface CreateDocFormProps {
 function CreateDocForm({ companyId, onGenerated }: CreateDocFormProps) {
   const [docType, setDocType] = useState<LegalDocType>("letter");
   const [prompt, setPrompt] = useState(DOC_TYPE_TEMPLATES.letter);
+  const [attachments, setAttachments] = useState<AttachedFile[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const generateMutation = trpc.legalDocuments.generate.useMutation({
     onSuccess: (doc) => {
       onGenerated(doc);
+      setAttachments([]);
       toast({ title: "Документ готов", description: doc.title });
     },
     onError: (e) => toast({ title: "Ошибка", description: e.message }),
@@ -495,6 +519,45 @@ function CreateDocForm({ companyId, onGenerated }: CreateDocFormProps) {
   const handleTypeChange = (type: LegalDocType) => {
     setDocType(type);
     setPrompt(DOC_TYPE_TEMPLATES[type]);
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    e.target.value = "";
+
+    setUploading(true);
+    try {
+      const token = localStorage.getItem("token");
+      for (const file of files) {
+        const fd = new FormData();
+        fd.append("file", file);
+        fd.append("companyId", String(companyId));
+        const res = await fetch("/api/legal/upload", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: fd,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          toast({ title: "Ошибка загрузки", description: err.error ?? file.name });
+          continue;
+        }
+        const json = await res.json();
+        setAttachments((prev) => [...prev, json]);
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removeAttachment = async (id: number) => {
+    const token = localStorage.getItem("token");
+    fetch(`/api/legal/upload/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
   };
 
   return (
@@ -549,6 +612,69 @@ function CreateDocForm({ companyId, onGenerated }: CreateDocFormProps) {
         />
       </div>
 
+      {/* File attachments */}
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-xs text-muted-foreground font-medium">
+            Прикреплённые файлы
+            <span className="ml-1 text-muted-foreground/60">(PDF, Word, JPG, PNG, HEIC)</span>
+          </label>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.heic,.heif"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs gap-1.5"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            {uploading
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <Upload className="h-3.5 w-3.5" />}
+            Прикрепить файл
+          </Button>
+        </div>
+
+        {attachments.length > 0 && (
+          <div className="space-y-1.5">
+            {attachments.map((f) => (
+              <div
+                key={f.id}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-lg border bg-muted/30 text-sm"
+              >
+                <span className="text-base">{fileIcon(f.mimeType)}</span>
+                <span className="flex-1 truncate font-medium">{f.originalName}</span>
+                <span className="text-xs text-muted-foreground shrink-0">{formatBytes(f.fileSize)}</span>
+                <button
+                  className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                  onClick={() => removeAttachment(f.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {attachments.length === 0 && (
+          <div
+            className="border-2 border-dashed rounded-lg p-4 flex flex-col items-center gap-2 text-center text-muted-foreground cursor-pointer hover:bg-muted/30 transition-colors"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload className="h-5 w-5" />
+            <p className="text-xs">
+              Перетащите или нажмите, чтобы прикрепить документ для анализа/доработки
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Token info + Generate button */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -556,7 +682,12 @@ function CreateDocForm({ companyId, onGenerated }: CreateDocFormProps) {
           <span>Стоимость: <strong className="text-foreground">100 токенов</strong></span>
         </div>
         <Button
-          onClick={() => generateMutation.mutate({ companyId, type: docType, prompt })}
+          onClick={() => generateMutation.mutate({
+            companyId,
+            type: docType,
+            prompt,
+            attachmentIds: attachments.map((a) => a.id),
+          })}
           disabled={generateMutation.isPending || prompt.trim().length < 10}
           className="gap-1.5"
         >

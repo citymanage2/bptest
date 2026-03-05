@@ -1053,24 +1053,95 @@ function buildRequisitesBlock(req: Record<string, string | null>): string {
   return lines.join("\n");
 }
 
+export interface LegalAttachedFile {
+  storedPath: string;   // absolute path on disk
+  originalName: string;
+  mimeType: string;
+}
+
+type AnthropicContentBlock = Anthropic.Messages.TextBlockParam | Anthropic.Messages.ImageBlockParam | Anthropic.Messages.DocumentBlockParam;
+
+async function buildFileContentBlocks(files: LegalAttachedFile[]): Promise<AnthropicContentBlock[]> {
+  const blocks: AnthropicContentBlock[] = [];
+
+  for (const file of files) {
+    const { storedPath, originalName, mimeType } = file;
+
+    // Images → image block
+    if (mimeType.startsWith("image/")) {
+      const data = await import("fs/promises").then((m) => m.readFile(storedPath));
+      const base64 = data.toString("base64");
+      // HEIC not natively supported by Claude, treat as JPEG
+      const mediaType = mimeType === "image/heic" || mimeType === "image/heif"
+        ? "image/jpeg"
+        : (mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp");
+      blocks.push({
+        type: "image",
+        source: { type: "base64", media_type: mediaType, data: base64 },
+      } as Anthropic.Messages.ImageBlockParam);
+      blocks.push({ type: "text", text: `[Прикреплён файл: ${originalName}]` });
+      continue;
+    }
+
+    // PDF → document block (Claude supports PDFs natively)
+    if (mimeType === "application/pdf") {
+      const data = await import("fs/promises").then((m) => m.readFile(storedPath));
+      const base64 = data.toString("base64");
+      blocks.push({
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data: base64 },
+      } as Anthropic.Messages.DocumentBlockParam);
+      blocks.push({ type: "text", text: `[Прикреплён PDF: ${originalName}]` });
+      continue;
+    }
+
+    // Word (.docx / .doc) → extract text with mammoth
+    if (
+      mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      mimeType === "application/msword"
+    ) {
+      try {
+        const mammoth = await import("mammoth");
+        const result = await mammoth.extractRawText({ path: storedPath });
+        const text = result.value.trim();
+        blocks.push({
+          type: "text",
+          text: `[Прикреплён Word-документ: ${originalName}]\n\n${text}`,
+        });
+      } catch {
+        blocks.push({ type: "text", text: `[Прикреплён файл: ${originalName} — не удалось извлечь текст]` });
+      }
+      continue;
+    }
+  }
+
+  return blocks;
+}
+
 export async function generateLegalDocument(
   requisites: Record<string, string | null>,
-  userPrompt: string
+  userPrompt: string,
+  attachedFiles: LegalAttachedFile[] = []
 ): Promise<{ title: string; content: string }> {
   const reqBlock = buildRequisitesBlock(requisites);
-  const fullPrompt = `${reqBlock}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${userPrompt}`;
+  const textPrompt = `${reqBlock}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${userPrompt}`;
+
+  // Build message content: files first, then text prompt
+  const fileBlocks = await buildFileContentBlocks(attachedFiles);
+  const contentBlocks: AnthropicContentBlock[] = [
+    ...fileBlocks,
+    { type: "text", text: textPrompt },
+  ];
 
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 8000,
     system: LEGAL_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: fullPrompt }],
+    messages: [{ role: "user", content: contentBlocks as any }],
   });
 
   const raw = response.content[0].type === "text" ? response.content[0].text.trim() : "";
-  // First line = title, rest = content
   const lines = raw.split("\n");
   const title = lines[0].replace(/^#+\s*/, "").trim() || "Документ";
-  const content = lines.slice(1).join("\n").trim();
-  return { title, content: raw }; // return full text as content
+  return { title, content: raw };
 }

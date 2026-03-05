@@ -11,7 +11,7 @@ import { sql } from "drizzle-orm";
 import { appRouter } from "./routers";
 import { createContext } from "./trpc";
 import { db } from "./db";
-import { blockFiles, users, processes, companies, companyRequisites } from "./db/schema";
+import { blockFiles, users, processes, companies, companyRequisites, legalAttachments } from "./db/schema";
 import { eq, and } from "drizzle-orm";
 import { TOKEN_COSTS } from "../shared/types";
 
@@ -85,12 +85,24 @@ async function runMigrations() {
       )
     `);
     await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS legal_attachments (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        original_name VARCHAR(500) NOT NULL,
+        stored_name VARCHAR(500) NOT NULL,
+        mime_type VARCHAR(100) NOT NULL,
+        file_size INTEGER NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
       DO $$ BEGIN
         ALTER TYPE token_operation_type ADD VALUE IF NOT EXISTS 'legal_document';
       EXCEPTION WHEN duplicate_object THEN null;
       END $$;
     `);
-    console.log("[migration] block_files + business_models + kpi_plans + legal tables ready");
+    console.log("[migration] block_files + business_models + kpi_plans + legal + legal_attachments tables ready");
   } catch (err) {
     console.error("[migration] failed:", err);
   }
@@ -297,6 +309,75 @@ app.post("/api/company/letterhead", upload.single("file"), async (req, res) => {
     });
 
   res.json({ url: fileUrl });
+});
+
+// POST /api/legal/upload — upload attachment for legal document generation
+const LEGAL_ALLOWED_MIMES = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/heic",
+  "image/heif",
+]);
+
+app.post("/api/legal/upload", upload.single("file"), async (req, res) => {
+  const userId = extractUserId(req);
+  if (!userId) { res.status(401).json({ error: "Необходима авторизация" }); return; }
+  if (!req.file) { res.status(400).json({ error: "Файл не получен" }); return; }
+
+  if (!LEGAL_ALLOWED_MIMES.has(req.file.mimetype)) {
+    fs.unlink(req.file.path, () => {});
+    res.status(400).json({ error: "Разрешены: PDF, Word, JPG, PNG, HEIC" });
+    return;
+  }
+
+  const companyId = parseInt(req.body.companyId);
+  if (!companyId) {
+    fs.unlink(req.file.path, () => {});
+    res.status(400).json({ error: "companyId обязателен" });
+    return;
+  }
+
+  const company = await db.query.companies.findFirst({ where: eq(companies.id, companyId) });
+  if (!company || company.userId !== userId) {
+    fs.unlink(req.file.path, () => {});
+    res.status(403).json({ error: "Доступ запрещён" });
+    return;
+  }
+
+  const [record] = await db.insert(legalAttachments).values({
+    companyId,
+    userId,
+    originalName: req.file.originalname,
+    storedName: req.file.filename,
+    mimeType: req.file.mimetype,
+    fileSize: req.file.size,
+  }).returning();
+
+  res.json({
+    id: record.id,
+    originalName: record.originalName,
+    mimeType: record.mimeType,
+    fileSize: record.fileSize,
+  });
+});
+
+// DELETE /api/legal/upload/:id — delete an attachment
+app.delete("/api/legal/upload/:id", async (req, res) => {
+  const userId = extractUserId(req);
+  if (!userId) { res.status(401).json({ error: "Необходима авторизация" }); return; }
+
+  const fileId = parseInt(req.params.id);
+  const record = await db.query.legalAttachments.findFirst({ where: eq(legalAttachments.id, fileId) });
+  if (!record) { res.status(404).json({ error: "Файл не найден" }); return; }
+  if (record.userId !== userId) { res.status(403).json({ error: "Доступ запрещён" }); return; }
+
+  fs.unlink(path.join(UPLOADS_DIR, record.storedName), () => {});
+  await db.delete(legalAttachments).where(eq(legalAttachments.id, fileId));
+  res.json({ success: true });
 });
 
 // GET /uploads/:filename — serve uploaded files
