@@ -1766,6 +1766,7 @@ interface DiagramTabProps {
 
 function DiagramTab({
   data,
+  processId,
   selectedBlockId,
   selectedBlock,
   editingBlock,
