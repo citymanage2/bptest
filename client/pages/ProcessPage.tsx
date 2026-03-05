@@ -1229,8 +1229,9 @@ export function ProcessPage() {
   }, [data, processId, updateDataMutation]);
 
   const handleExportPNG = useCallback(() => {
-    if (canvasContainerRef.current) {
-      exportToPNG(canvasContainerRef.current, `${data?.name || "process"}.png`);
+    const canvas = canvasHandleRef.current?.exportDiagram();
+    if (canvas) {
+      exportToPNG(canvas, `${data?.name || "process"}.png`);
     }
   }, [data?.name]);
 
@@ -1241,8 +1242,9 @@ export function ProcessPage() {
   }, [data]);
 
   const handleExportPDF = useCallback(() => {
-    if (canvasContainerRef.current && data) {
-      exportToPDF(canvasContainerRef.current, `${data.name || "process"}.pdf`, data.name);
+    const canvas = canvasHandleRef.current?.exportDiagram();
+    if (canvas && data) {
+      exportToPDF(canvas, `${data.name || "process"}.pdf`, data.name);
     }
   }, [data]);
 

@@ -66,6 +66,7 @@ export interface SwimlaneCanvasHandle {
   zoomReset: () => void;
   getScale: () => number;
   toggleFullscreen: () => void;
+  exportDiagram: () => HTMLCanvasElement;
 }
 
 export interface SwimlaneCanvasProps {
@@ -1531,8 +1532,20 @@ export const SwimlaneCanvas = forwardRef<SwimlaneCanvasHandle, SwimlaneCanvasPro
         zoomReset,
         getScale: () => scaleRef.current,
         toggleFullscreen,
+        exportDiagram: () => {
+          const dpr = window.devicePixelRatio || 1;
+          const offscreen = document.createElement("canvas");
+          offscreen.width = Math.round(layout.totalWidth * dpr);
+          offscreen.height = Math.round(layout.totalHeight * dpr);
+          const ctx = offscreen.getContext("2d");
+          if (ctx) {
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            renderDiagram(ctx, data, layout, null, selectedBlockId);
+          }
+          return offscreen;
+        },
       }),
-      [fitToScreen, zoomIn, zoomOut, zoomReset, toggleFullscreen],
+      [fitToScreen, zoomIn, zoomOut, zoomReset, toggleFullscreen, layout, data, selectedBlockId],
     );
 
     // ---- Cursor Style ----
