@@ -1533,13 +1533,15 @@ export const SwimlaneCanvas = forwardRef<SwimlaneCanvasHandle, SwimlaneCanvasPro
         getScale: () => scaleRef.current,
         toggleFullscreen,
         exportDiagram: () => {
-          const dpr = window.devicePixelRatio || 1;
+          const EXPORT_SCALE = 4; // 4× resolution for crisp print/PDF quality
           const offscreen = document.createElement("canvas");
-          offscreen.width = Math.round(layout.totalWidth * dpr);
-          offscreen.height = Math.round(layout.totalHeight * dpr);
-          const ctx = offscreen.getContext("2d");
+          offscreen.width = Math.round(layout.totalWidth * EXPORT_SCALE);
+          offscreen.height = Math.round(layout.totalHeight * EXPORT_SCALE);
+          const ctx = offscreen.getContext("2d", { alpha: false });
           if (ctx) {
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "high";
+            ctx.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, 0, 0);
             renderDiagram(ctx, data, layout, null, selectedBlockId);
           }
           return offscreen;
