@@ -347,3 +347,36 @@ export const businessModelsRelations = relations(businessModels, ({ one }) => ({
   company: one(companies, { fields: [businessModels.companyId], references: [companies.id] }),
   user: one(users, { fields: [businessModels.userId], references: [users.id] }),
 }));
+
+// KPI Plans — KPI & Motivation plans linked to a process
+export const kpiPlans = pgTable("kpi_plans", {
+  id: serial("id").primaryKey(),
+  processId: integer("process_id")
+    .notNull()
+    .references(() => processes.id, { onDelete: "cascade" }),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 500 }).notNull(),
+  year: integer("year").notNull(),
+  linkedBusinessModelId: integer("linked_business_model_id").references(
+    () => businessModels.id,
+    { onDelete: "set null" }
+  ),
+  roles: jsonb("roles").notNull().default([]), // RoleKpiPlan[]
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const kpiPlansRelations = relations(kpiPlans, ({ one }) => ({
+  process: one(processes, { fields: [kpiPlans.processId], references: [processes.id] }),
+  company: one(companies, { fields: [kpiPlans.companyId], references: [companies.id] }),
+  user: one(users, { fields: [kpiPlans.userId], references: [users.id] }),
+  linkedBusinessModel: one(businessModels, {
+    fields: [kpiPlans.linkedBusinessModelId],
+    references: [businessModels.id],
+  }),
+}));

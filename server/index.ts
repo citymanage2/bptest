@@ -50,7 +50,21 @@ async function runMigrations() {
       EXCEPTION WHEN duplicate_object THEN null;
       END $$;
     `);
-    console.log("[migration] block_files + business_models tables ready");
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS kpi_plans (
+        id SERIAL PRIMARY KEY,
+        process_id INTEGER NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name VARCHAR(500) NOT NULL,
+        year INTEGER NOT NULL,
+        linked_business_model_id INTEGER REFERENCES business_models(id) ON DELETE SET NULL,
+        roles JSONB NOT NULL DEFAULT '[]',
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log("[migration] block_files + business_models + kpi_plans tables ready");
   } catch (err) {
     console.error("[migration] failed:", err);
   }

@@ -478,6 +478,81 @@ export interface BlockFile {
   createdAt: string;
 }
 
+// ============================================
+// KPI & Motivation
+// ============================================
+
+export type KpiType =
+  | "revenue"      // Выручка
+  | "deals"        // Количество сделок
+  | "conversion"   // Конверсия
+  | "avg_ticket"   // Средний чек
+  | "time"         // Время (SLA, срок)
+  | "quality"      // Качество (% ошибок, удовл-ть)
+  | "custom";      // Произвольный
+
+export type KpiSourceLink =
+  | "bm_revenue"     // Из бизнес-модели: выручка
+  | "bm_deals"       // Из бизнес-модели: сделки
+  | "bm_avg_ticket"  // Из бизнес-модели: средний чек
+  | "bm_profit"      // Из бизнес-модели: прибыль
+  | "manual";        // Введено вручную
+
+export interface KpiDefinition {
+  id: string;
+  name: string;
+  description: string;
+  type: KpiType;
+  unit: string;             // %, руб, шт, дн, и т.д.
+  targetValue: number | null;
+  weight: number;           // Вес KPI в % (сумма по роли = 100)
+  sourceLink: KpiSourceLink;
+  linkedBlockId: string | null; // Привязка к шагу процесса
+}
+
+export type MotivationPartType =
+  | "fixed"            // Фиксированный оклад
+  | "variable_kpi"     // Переменная часть от KPI
+  | "bonus_threshold"; // Бонус при достижении порога
+
+export interface MotivationPart {
+  id: string;
+  name: string;                   // Название части
+  type: MotivationPartType;
+  amount: number | null;          // Фиксированная сумма (для fixed)
+  pctOfBase: number | null;       // % от базы (для variable_kpi)
+  thresholdPct: number | null;    // Порог достижения KPI для бонуса
+  bonusAmount: number | null;     // Сумма бонуса при достижении порога
+  kpiIds: string[];               // KPI, к которым привязана часть
+}
+
+export interface RoleKpiPlan {
+  roleId: string;
+  roleName: string;
+  kpis: KpiDefinition[];
+  motivationParts: MotivationPart[];
+}
+
+export interface KpiPlanInput {
+  name: string;
+  year: number;
+  linkedBusinessModelId: number | null;
+  roles: RoleKpiPlan[];
+}
+
+export interface KpiPlan {
+  id: number;
+  processId: number;
+  companyId: number;
+  userId: number;
+  name: string;
+  year: number;
+  linkedBusinessModelId: number | null;
+  roles: RoleKpiPlan[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 // Block visual config
 export const BLOCK_CONFIG: Record<BlockType, { shape: string; borderColor: string; label: string }> = {
   start: { shape: "pill", borderColor: "#22c55e", label: "Начало" },

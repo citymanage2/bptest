@@ -42,6 +42,7 @@ import {
   SwimlaneCanvas,
   type SwimlaneCanvasHandle,
 } from "@/components/SwimlaneCanvas";
+import { KpiMotivationTab } from "@/components/KpiMotivationTab";
 
 import type {
   ProcessData,
@@ -124,6 +125,7 @@ import {
   Paperclip,
   Upload,
   Trash2,
+  Medal,
 } from "lucide-react";
 import { toast } from "@/components/ui/toaster";
 import ReactMarkdown from "react-markdown";
@@ -1580,6 +1582,7 @@ export function ProcessPage() {
           <TabsTrigger value="passport">Паспорт</TabsTrigger>
           <TabsTrigger value="quality">Качество</TabsTrigger>
           <TabsTrigger value="recommendations">Рекомендации</TabsTrigger>
+          <TabsTrigger value="kpi">KPI и мотивация</TabsTrigger>
           <TabsTrigger value="history">История</TabsTrigger>
         </TabsList>
 
@@ -1681,6 +1684,17 @@ export function ProcessPage() {
         {/* ======== Tab: Recommendations ======== */}
         <TabsContent value="recommendations">
           <RecommendationsTab processId={processId} data={data} />
+        </TabsContent>
+
+        {/* ======== Tab: KPI & Motivation ======== */}
+        <TabsContent value="kpi">
+          {data && (
+            <KpiMotivationTab
+              processId={processId}
+              companyId={process!.companyId}
+              data={data}
+            />
+          )}
         </TabsContent>
 
         {/* ======== Tab: History ======== */}
