@@ -74,7 +74,7 @@ export const kpiMotivationRouter = router({
   listByProcess: protectedProcedure
     .input(z.object({ processId: z.number() }))
     .query(async ({ input, ctx }) => {
-      await assertProcessOwner(input.processId, ctx.user.id);
+      await assertProcessOwner(input.processId, ctx.userId);
       const plans = await db.query.kpiPlans.findMany({
         where: eq(kpiPlans.processId, input.processId),
         orderBy: [desc(kpiPlans.updatedAt)],
@@ -96,7 +96,7 @@ export const kpiMotivationRouter = router({
   getById: protectedProcedure
     .input(z.object({ id: z.number() }))
     .query(async ({ input, ctx }) => {
-      const plan = await assertPlanOwner(input.id, ctx.user.id);
+      const plan = await assertPlanOwner(input.id, ctx.userId);
       return {
         id: plan.id,
         processId: plan.processId,
@@ -114,13 +114,13 @@ export const kpiMotivationRouter = router({
   create: protectedProcedure
     .input(z.object({ processId: z.number(), data: KpiPlanInputZ }))
     .mutation(async ({ input, ctx }) => {
-      const process = await assertProcessOwner(input.processId, ctx.user.id);
+      const process = await assertProcessOwner(input.processId, ctx.userId);
       const [created] = await db
         .insert(kpiPlans)
         .values({
           processId: input.processId,
           companyId: process.companyId,
-          userId: ctx.user.id,
+          userId: ctx.userId,
           name: input.data.name,
           year: input.data.year,
           linkedBusinessModelId: input.data.linkedBusinessModelId,
@@ -144,7 +144,7 @@ export const kpiMotivationRouter = router({
   update: protectedProcedure
     .input(z.object({ id: z.number(), data: KpiPlanInputZ }))
     .mutation(async ({ input, ctx }) => {
-      await assertPlanOwner(input.id, ctx.user.id);
+      await assertPlanOwner(input.id, ctx.userId);
       const [updated] = await db
         .update(kpiPlans)
         .set({
@@ -173,7 +173,7 @@ export const kpiMotivationRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
-      await assertPlanOwner(input.id, ctx.user.id);
+      await assertPlanOwner(input.id, ctx.userId);
       await db.delete(kpiPlans).where(eq(kpiPlans.id, input.id));
       return { success: true };
     }),
