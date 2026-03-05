@@ -1826,6 +1826,8 @@ function DiagramTab({
 
   const runExport = React.useCallback(async (key: string, fn: () => Promise<void> | void) => {
     setExporting((prev) => ({ ...prev, [key]: true }));
+    // Yield to the browser so React can commit the spinner before heavy work starts.
+    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
     try { await fn(); } finally { setExporting((prev) => ({ ...prev, [key]: false })); }
   }, []);
 
