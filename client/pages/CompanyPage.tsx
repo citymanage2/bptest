@@ -48,10 +48,12 @@ import {
   PenLine,
   Save,
   BarChart3,
+  Scale,
 } from "lucide-react";
 import { formatDate, formatDateTime } from "@/lib/utils";
 import type { InterviewMode } from "@shared/types";
 import { BusinessModelTab } from "@/components/BusinessModelTab";
+import { LegalDocumentTab } from "@/components/LegalDocumentTab";
 
 export function CompanyPage() {
   const { id } = useParams<{ id: string }>();
@@ -374,6 +376,10 @@ export function CompanyPage() {
             <FileText className="w-4 h-4" />
             Документы
           </TabsTrigger>
+          <TabsTrigger value="legal" className="gap-1.5">
+            <Scale className="w-4 h-4" />
+            Юрист
+          </TabsTrigger>
           <TabsTrigger value="info" className="gap-1.5">
             <Info className="w-4 h-4" />
             Информация
@@ -614,6 +620,11 @@ export function CompanyPage() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        {/* ===== LEGAL TAB ===== */}
+        <TabsContent value="legal">
+          <LegalDocumentTab companyId={companyId} />
         </TabsContent>
 
         {/* ===== INFO TAB ===== */}

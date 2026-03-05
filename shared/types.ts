@@ -553,6 +553,47 @@ export interface KpiPlan {
   updatedAt: string;
 }
 
+// ============================================
+// Legal Documents
+// ============================================
+
+export interface CompanyRequisites {
+  fullName: string | null;
+  shortName: string | null;
+  legalAddress: string | null;
+  inn: string | null;
+  kpp: string | null;
+  ogrn: string | null;
+  bankAccount: string | null;
+  bik: string | null;
+  corrAccount: string | null;
+  bankName: string | null;
+  signatoryTitle: string | null;
+  signatoryName: string | null;
+  phone: string | null;
+  email: string | null;
+  letterheadUrl: string | null;
+}
+
+export type LegalDocType =
+  | "letter"             // деловое письмо / уведомление
+  | "claim_response"     // ответ на претензию
+  | "claim"              // претензия / требование
+  | "dispute_protocol"   // протокол разногласий
+  | "contract_analysis"  // анализ договора
+  | "contract_edit"      // юридическая правка договора
+  | "complaint";         // жалоба в контролирующий орган
+
+export interface LegalDocument {
+  id: number;
+  companyId: number;
+  userId: number;
+  type: LegalDocType;
+  title: string;
+  content: string;
+  createdAt: string;
+}
+
 // Block visual config
 export const BLOCK_CONFIG: Record<BlockType, { shape: string; borderColor: string; label: string }> = {
   start: { shape: "pill", borderColor: "#22c55e", label: "Начало" },

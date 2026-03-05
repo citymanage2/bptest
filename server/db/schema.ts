@@ -380,3 +380,39 @@ export const kpiPlansRelations = relations(kpiPlans, ({ one }) => ({
     references: [businessModels.id],
   }),
 }));
+
+// Company Requisites — legal/banking details + letterhead for legal document generation
+export const companyRequisites = pgTable("company_requisites", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .unique()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  data: jsonb("data").notNull().default({}), // CompanyRequisites object
+  letterheadUrl: varchar("letterhead_url", { length: 1024 }),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const companyRequisitesRelations = relations(companyRequisites, ({ one }) => ({
+  company: one(companies, { fields: [companyRequisites.companyId], references: [companies.id] }),
+}));
+
+// Legal Documents — AI-generated legal documents
+export const legalDocuments = pgTable("legal_documents", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  type: varchar("type", { length: 100 }).notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const legalDocumentsRelations = relations(legalDocuments, ({ one }) => ({
+  company: one(companies, { fields: [legalDocuments.companyId], references: [companies.id] }),
+  user: one(users, { fields: [legalDocuments.userId], references: [users.id] }),
+}));

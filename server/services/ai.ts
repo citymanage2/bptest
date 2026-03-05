@@ -1003,3 +1003,74 @@ ${processContext ? `Данные о процессе и задачах:\n${proce
     throw error;
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Legal Document Generation
+// ═══════════════════════════════════════════════════════════════════
+
+const LEGAL_SYSTEM_PROMPT = `Ты — юридический ассистент компании. Ты готовишь юридически грамотные деловые документы: письма, уведомления, претензии, ответы на претензии, протоколы разногласий, анализы договоров и редактуру договоров.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+СТИЛЬ И ФОРМАТ ДОКУМЕНТОВ:
+
+1. Язык: официально-деловой, юридически точный, без разговорных оборотов.
+2. Тон: уважительный, но твёрдый; не агрессивный, но защищающий интересы компании.
+3. Структура исходящего письма:
+   — Исходящий номер и дата
+   — Должность, ФИО и организация адресата
+   — Обращение «Уважаем[ый/ая] [Имя Отчество]!»
+   — Вводная часть: ссылка на договор / основание обращения
+   — Основная часть: суть, факты, ссылки на нормы права
+   — Требование или предложение с конкретным сроком
+   — Перечень приложений (если есть)
+   — Подпись
+4. Ссылки на право: приводи точно (статья, часть, пункт). Если норма под вопросом — пиши [уточнить норму].
+5. Суммы: цифрами и прописью в скобках. Пример: 125 000 (сто двадцать пять тысяч) рублей 00 копеек.
+6. Неизвестные данные (даты, номера, имена): заменяй на [указать].
+7. Перед составлением сложного документа задай 2–3 уточняющих вопроса, если предоставленных данных недостаточно.
+8. Всегда уточняй роль компании в конкретной ситуации: Заказчик / Подрядчик / Исполнитель / Поставщик / Заявитель.
+
+ПРИОРИТЕТ: документ всегда должен защищать интересы нашей компании. Не выдумывай факты, суммы и даты — только то, что предоставлено.
+
+Верни ТОЛЬКО текст документа, без вступительных фраз, пояснений и обёрток. Первой строкой выведи заголовок документа (без слова «Заголовок:»).`;
+
+function buildRequisitesBlock(req: Record<string, string | null>): string {
+  const lines: string[] = ["РЕКВИЗИТЫ НАШЕЙ КОМПАНИИ:"];
+  if (req.fullName) lines.push(`Наименование:      ${req.fullName}`);
+  if (req.legalAddress) lines.push(`Юридический адрес: ${req.legalAddress}`);
+  if (req.inn) lines.push(`ИНН:               ${req.inn}`);
+  if (req.kpp) lines.push(`КПП:               ${req.kpp}`);
+  if (req.ogrn) lines.push(`ОГРН:              ${req.ogrn}`);
+  if (req.bankAccount) lines.push(`Р/с:               ${req.bankAccount}`);
+  if (req.bik) lines.push(`БИК:               ${req.bik}`);
+  if (req.corrAccount) lines.push(`Кор/с:             ${req.corrAccount}`);
+  if (req.bankName) lines.push(`Банк:              ${req.bankName}`);
+  if (req.signatoryTitle && req.signatoryName) {
+    lines.push(`Подпись:           ${req.signatoryTitle}, ${req.signatoryName}`);
+  }
+  if (req.phone) lines.push(`Телефон:           ${req.phone}`);
+  if (req.email) lines.push(`Email:             ${req.email}`);
+  return lines.join("\n");
+}
+
+export async function generateLegalDocument(
+  requisites: Record<string, string | null>,
+  userPrompt: string
+): Promise<{ title: string; content: string }> {
+  const reqBlock = buildRequisitesBlock(requisites);
+  const fullPrompt = `${reqBlock}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${userPrompt}`;
+
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 8000,
+    system: LEGAL_SYSTEM_PROMPT,
+    messages: [{ role: "user", content: fullPrompt }],
+  });
+
+  const raw = response.content[0].type === "text" ? response.content[0].text.trim() : "";
+  // First line = title, rest = content
+  const lines = raw.split("\n");
+  const title = lines[0].replace(/^#+\s*/, "").trim() || "Документ";
+  const content = lines.slice(1).join("\n").trim();
+  return { title, content: raw }; // return full text as content
+}

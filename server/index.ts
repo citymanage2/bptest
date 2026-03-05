@@ -11,7 +11,7 @@ import { sql } from "drizzle-orm";
 import { appRouter } from "./routers";
 import { createContext } from "./trpc";
 import { db } from "./db";
-import { blockFiles, users, processes } from "./db/schema";
+import { blockFiles, users, processes, companies, companyRequisites } from "./db/schema";
 import { eq, and } from "drizzle-orm";
 import { TOKEN_COSTS } from "../shared/types";
 
@@ -64,7 +64,33 @@ async function runMigrations() {
         updated_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `);
-    console.log("[migration] block_files + business_models + kpi_plans tables ready");
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS company_requisites (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL UNIQUE REFERENCES companies(id) ON DELETE CASCADE,
+        data JSONB NOT NULL DEFAULT '{}',
+        letterhead_url VARCHAR(1024),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS legal_documents (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type VARCHAR(100) NOT NULL,
+        title VARCHAR(500) NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      DO $$ BEGIN
+        ALTER TYPE token_operation_type ADD VALUE IF NOT EXISTS 'legal_document';
+      EXCEPTION WHEN duplicate_object THEN null;
+      END $$;
+    `);
+    console.log("[migration] block_files + business_models + kpi_plans + legal tables ready");
   } catch (err) {
     console.error("[migration] failed:", err);
   }
@@ -241,6 +267,40 @@ app.get("/api/blocks/files", async (req, res) => {
   });
   res.json({ files });
 });
+
+// POST /api/company/letterhead — upload company letterhead image
+app.post("/api/company/letterhead", upload.single("file"), async (req, res) => {
+  const userId = extractUserId(req);
+  if (!userId) { res.status(401).json({ error: "Необходима авторизация" }); return; }
+  if (!req.file) { res.status(400).json({ error: "Файл не получен" }); return; }
+
+  const companyId = parseInt(req.body.companyId);
+  if (!companyId) {
+    fs.unlink(req.file.path, () => {});
+    res.status(400).json({ error: "companyId обязателен" });
+    return;
+  }
+
+  const company = await db.query.companies.findFirst({ where: eq(companies.id, companyId) });
+  if (!company || company.userId !== userId) {
+    fs.unlink(req.file.path, () => {});
+    res.status(403).json({ error: "Доступ запрещён" });
+    return;
+  }
+
+  const fileUrl = `/uploads/${req.file.filename}`;
+  await db.insert(companyRequisites)
+    .values({ companyId, data: {}, letterheadUrl: fileUrl, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: companyRequisites.companyId,
+      set: { letterheadUrl: fileUrl, updatedAt: new Date() },
+    });
+
+  res.json({ url: fileUrl });
+});
+
+// GET /uploads/:filename — serve uploaded files
+app.use("/uploads", express.static(UPLOADS_DIR));
 
 // Health check
 app.get("/api/health", (_req, res) => {
