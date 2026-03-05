@@ -23,7 +23,18 @@ import {
   SkipForward,
   Save,
   Plus,
+  Paperclip,
+  X,
+  FileText,
 } from "lucide-react";
+
+type AttachedFile = { name: string; type: string; size: number };
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} КБ`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+}
 
 export function InterviewPage() {
   const { id } = useParams<{ id: string }>();
@@ -42,6 +53,7 @@ export function InterviewPage() {
   const chunksRef = useRef<Blob[]>([]);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSaveRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const interviewQuery = trpc.interview.getById.useQuery(
     { id: interviewId },
@@ -166,6 +178,50 @@ export function InterviewPage() {
       handleAnswerChange(questionId, "");
     },
     [handleAnswerChange]
+  );
+
+  // ── Attached files ────────────────────────────────────────────
+  // Files are stored in answers["__files"] as a JSON array so they
+  // are auto-saved and included in AI generation automatically.
+  const uploadedFiles = useMemo<AttachedFile[]>(() => {
+    try {
+      const raw = answers["__files"];
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as unknown[];
+      return Array.isArray(parsed)
+        ? (parsed as AttachedFile[]).filter(
+            (f) => f && typeof f.name === "string" && typeof f.size === "number",
+          )
+        : [];
+    } catch {
+      return [];
+    }
+  }, [answers["__files"]]);
+
+  const handleAddFiles = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(e.target.files ?? []) as File[];
+      if (!files.length) return;
+      const existingNames = new Set(uploadedFiles.map((f) => f.name));
+      const toAdd: AttachedFile[] = files
+        .filter((f: File) => !existingNames.has(f.name))
+        .map((f: File) => ({ name: f.name, type: f.type, size: f.size }));
+      handleAnswerChange(
+        "__files",
+        JSON.stringify([...uploadedFiles, ...toAdd]),
+      );
+      // Reset so same file can be re-selected
+      e.target.value = "";
+    },
+    [uploadedFiles, handleAnswerChange],
+  );
+
+  const handleRemoveFile = useCallback(
+    (name: string) => {
+      const filtered = uploadedFiles.filter((f) => f.name !== name);
+      handleAnswerChange("__files", JSON.stringify(filtered));
+    },
+    [uploadedFiles, handleAnswerChange],
   );
 
   // Voice recording
@@ -544,6 +600,81 @@ export function InterviewPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* ── Attached files (persistent across all blocks) ──────── */}
+      <Card>
+        <CardContent className="pt-5 pb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Paperclip className="w-4 h-4 text-purple-500" />
+              <span className="text-sm font-medium text-gray-700">
+                Прикреплённые документы компании
+              </span>
+              {uploadedFiles.length > 0 && (
+                <Badge variant="secondary" className="text-xs">
+                  {uploadedFiles.length}
+                </Badge>
+              )}
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1.5"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Paperclip className="w-3.5 h-3.5" />
+              Прикрепить файлы
+            </Button>
+          </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp"
+            className="hidden"
+            onChange={handleAddFiles}
+          />
+
+          {uploadedFiles.length === 0 ? (
+            <button
+              type="button"
+              className="w-full flex flex-col items-center justify-center gap-2 py-6 border-2 border-dashed border-gray-200 rounded-lg text-gray-400 hover:border-purple-300 hover:text-purple-400 transition-colors"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <FileText className="w-7 h-7" />
+              <span className="text-xs">
+                PDF, DOC, XLSX, изображения — передаются ИИ как контекст
+              </span>
+            </button>
+          ) : (
+            <ul className="space-y-1">
+              {uploadedFiles.map((file) => (
+                <li
+                  key={file.name}
+                  className="flex items-center justify-between gap-2 bg-gray-50 rounded-md px-3 py-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText className="w-4 h-4 shrink-0 text-purple-400" />
+                    <span className="text-sm text-gray-800 truncate">{file.name}</span>
+                    <span className="text-xs text-gray-400 shrink-0">
+                      {formatFileSize(file.size)}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className="shrink-0 text-gray-400 hover:text-red-500 transition-colors"
+                    onClick={() => handleRemoveFile(file.name)}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Navigation footer */}
       <div className="flex items-center justify-between pt-4 pb-8">

@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo, useCallback } from "react";
+import { useState, useRef, useMemo, useCallback, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/lib/auth";
@@ -42,6 +42,7 @@ import {
   SwimlaneCanvas,
   type SwimlaneCanvasHandle,
 } from "@/components/SwimlaneCanvas";
+import { KpiMotivationTab } from "@/components/KpiMotivationTab";
 
 import type {
   ProcessData,
@@ -59,6 +60,7 @@ import type {
   ProcessPassport,
   QualityCheckResult,
   QualityCheckItem,
+  BlockFile,
 } from "@shared/types";
 import { BLOCK_CONFIG, TOKEN_COSTS } from "@shared/types";
 
@@ -118,7 +120,14 @@ import {
   Download,
   BookOpen,
   Archive,
+  Undo2,
+  Redo2,
+  Paperclip,
+  Upload,
+  Trash2,
+  Medal,
 } from "lucide-react";
+import { toast } from "@/components/ui/toaster";
 import ReactMarkdown from "react-markdown";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel } from "docx";
 import JSZip from "jszip";
@@ -780,20 +789,28 @@ function computeProcessDiff(
 // ============================================
 
 const MD_COMPONENTS: React.ComponentProps<typeof ReactMarkdown>["components"] = {
+  h1: ({ children }) => (
+    <h3 className="text-base font-bold text-gray-900 mt-5 mb-2 first:mt-0">{children}</h3>
+  ),
   h2: ({ children }) => (
-    <h4 className="text-sm font-semibold text-gray-900 mt-4 mb-2 first:mt-0">{children}</h4>
+    <h4 className="text-sm font-semibold text-gray-900 mt-4 mb-2 first:mt-0 border-b border-gray-100 pb-1">{children}</h4>
   ),
   h3: ({ children }) => (
-    <h5 className="text-sm font-medium text-gray-800 mt-3 mb-1.5">{children}</h5>
+    <h5 className="text-sm font-semibold text-gray-800 mt-3 mb-1.5">{children}</h5>
   ),
-  p: ({ children }) => <p className="text-sm text-gray-600 mb-2">{children}</p>,
+  h4: ({ children }) => (
+    <h6 className="text-sm font-medium text-gray-700 mt-2 mb-1">{children}</h6>
+  ),
+  p: ({ children }) => <p className="text-sm text-gray-600 mb-2 leading-relaxed">{children}</p>,
   ul: ({ children }) => (
-    <ul className="text-sm text-gray-600 list-disc list-inside mb-2 space-y-0.5">{children}</ul>
+    <ul className="text-sm text-gray-600 mb-2 space-y-0.5 pl-1">{children}</ul>
   ),
   ol: ({ children }) => (
     <ol className="text-sm text-gray-600 list-decimal list-inside mb-2 space-y-0.5">{children}</ol>
   ),
-  li: ({ children }) => <li className="text-sm text-gray-600">{children}</li>,
+  li: ({ children }) => (
+    <li className="text-sm text-gray-600 ml-4 list-disc">{children}</li>
+  ),
   strong: ({ children }) => (
     <strong className="font-semibold text-gray-900">{children}</strong>
   ),
@@ -852,10 +869,17 @@ function PipeTable({ lines }: { lines: string[] }) {
   );
 }
 
+function preprocessMarkdown(text: string): string {
+  return text
+    .replace(/^(\s*)- \[x\] /gim, "$1- ☑ ")
+    .replace(/^(\s*)- \[ \] /gm, "$1- ☐ ");
+}
+
 function MarkdownContent({ text }: { text: string }) {
+  const processedText = preprocessMarkdown(text);
   const segments: Array<{ type: "md" | "table"; lines: string[] }> = [];
   let current: { type: "md" | "table"; lines: string[] } | null = null;
-  for (const line of text.split("\n")) {
+  for (const line of processedText.split("\n")) {
     const isTable = line.trimStart().startsWith("|");
     if (isTable) {
       if (current?.type === "table") {
@@ -974,6 +998,16 @@ export function ProcessPage() {
   const canvasHandleRef = useRef<SwimlaneCanvasHandle>(null);
   const capturedBeforeRef = useRef<ProcessData | null>(null);
 
+  // ---- Undo / Redo ----
+  const undoStackRef = useRef<ProcessData[]>([]);
+  const redoStackRef = useRef<ProcessData[]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const isUndoRedoRef = useRef(false);
+
+  // Must be declared before handlers that use it
+  const pushToHistoryRef = useRef<((snapshot: ProcessData) => void) | null>(null);
+
   // Block editing state
   const [editingBlock, setEditingBlock] = useState<ProcessBlock | null>(null);
   const [editName, setEditName] = useState("");
@@ -987,6 +1021,9 @@ export function ProcessPage() {
   const [editInfoSystems, setEditInfoSystems] = useState("");
   const [editConditionLabel, setEditConditionLabel] = useState("");
   const [editIsDefault, setEditIsDefault] = useState(false);
+  const [editConnections, setEditConnections] = useState<string[]>([]);
+  const [editFunnelStage, setEditFunnelStage] = useState("");
+  const [editChecklist, setEditChecklist] = useState("");
 
   // ---- Mutations ----
   const updateDataMutation = trpc.process.updateData.useMutation({
@@ -1078,6 +1115,9 @@ export function ProcessPage() {
       setEditInfoSystems(block.infoSystems?.join(", ") || "");
       setEditConditionLabel(block.conditionLabel || "");
       setEditIsDefault(block.isDefault || false);
+      setEditConnections(block.connections || []);
+      setEditFunnelStage(block.funnelStage || "");
+      setEditChecklist(block.checklist?.join("\n") || "");
     },
     []
   );
@@ -1103,20 +1143,90 @@ export function ProcessPage() {
             infoSystems: parseCommaSeparated(editInfoSystems),
             conditionLabel: editConditionLabel || undefined,
             isDefault: editIsDefault,
+            connections: editConnections,
+            funnelStage: editFunnelStage || undefined,
+            checklist: editChecklist.split("\n").map((s) => s.trim()).filter(Boolean).length
+              ? editChecklist.split("\n").map((s) => s.trim()).filter(Boolean)
+              : undefined,
           }
         : b
     );
 
+    pushToHistoryRef.current?.(data);
     updateDataMutation.mutate({
       id: processId,
       data: { ...data, blocks: updatedBlocks },
     });
     setEditingBlock(null);
-  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editConditionLabel, editIsDefault, processId, updateDataMutation]);
+  }, [data, editingBlock, editName, editDescription, editType, editRole, editStage, editTimeEstimate, editInputDocuments, editOutputDocuments, editInfoSystems, editConditionLabel, editIsDefault, editConnections, editFunnelStage, editChecklist, processId, updateDataMutation]);
 
   const handleCancelEdit = useCallback(() => {
     setEditingBlock(null);
   }, []);
+
+  const pushToHistory = useCallback((snapshot: ProcessData) => {
+    if (isUndoRedoRef.current) return;
+    undoStackRef.current = [...undoStackRef.current.slice(-19), snapshot];
+    redoStackRef.current = [];
+    setCanUndo(true);
+    setCanRedo(false);
+  }, []);
+  pushToHistoryRef.current = pushToHistory;
+
+  const handleUndo = useCallback(() => {
+    if (!data || undoStackRef.current.length === 0) return;
+    isUndoRedoRef.current = true;
+    const prev = undoStackRef.current[undoStackRef.current.length - 1];
+    undoStackRef.current = undoStackRef.current.slice(0, -1);
+    redoStackRef.current = [data, ...redoStackRef.current.slice(0, 19)];
+    setCanUndo(undoStackRef.current.length > 0);
+    setCanRedo(true);
+    updateDataMutation.mutate({ id: processId, data: prev }, {
+      onSettled: () => { isUndoRedoRef.current = false; },
+    });
+  }, [data, processId, updateDataMutation]);
+
+  const handleRedo = useCallback(() => {
+    if (!data || redoStackRef.current.length === 0) return;
+    isUndoRedoRef.current = true;
+    const next = redoStackRef.current[0];
+    redoStackRef.current = redoStackRef.current.slice(1);
+    undoStackRef.current = [...undoStackRef.current.slice(-19), data];
+    setCanUndo(true);
+    setCanRedo(redoStackRef.current.length > 0);
+    updateDataMutation.mutate({ id: processId, data: next }, {
+      onSettled: () => { isUndoRedoRef.current = false; },
+    });
+  }, [data, processId, updateDataMutation]);
+
+  // Keyboard shortcuts: Ctrl+Z undo, Ctrl+Y / Ctrl+Shift+Z redo
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) { e.preventDefault(); handleUndo(); }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) { e.preventDefault(); handleRedo(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [handleUndo, handleRedo]);
+
+  const handleToggleActive = useCallback((blockId: string) => {
+    if (!data) return;
+    const updatedBlocks = data.blocks.map((b) =>
+      b.id === blockId ? { ...b, isActive: b.isActive === false ? true : false } : b
+    );
+    pushToHistoryRef.current?.(data);
+    toast({ title: "Применяем изменения…" });
+    updateDataMutation.mutate(
+      { id: processId, data: { ...data, blocks: updatedBlocks } },
+      {
+        onSuccess: () => {
+          toast({ title: "Изменения сохранены" });
+        },
+      }
+    );
+  }, [data, processId, updateDataMutation]);
 
   const handleExportPNG = useCallback(() => {
     if (canvasContainerRef.current) {
@@ -1236,15 +1346,18 @@ export function ProcessPage() {
             <DialogTrigger asChild>
               <Button variant="outline" size="sm">
                 <Send className="w-4 h-4" />
-                Запросить изменения
+                Изменить диаграмму
               </Button>
             </DialogTrigger>
             <DialogContent className="max-w-2xl">
               <DialogHeader>
-                <DialogTitle>Запросить изменения процесса</DialogTitle>
+                <DialogTitle className="flex items-center gap-2">
+                  <GitBranch className="w-4 h-4 text-purple-600" />
+                  Изменить диаграмму процесса
+                </DialogTitle>
                 <DialogDescription>
-                  Опишите, какие изменения нужно внести. ИИ предложит обновленную
-                  версию процесса. Стоимость: {TOKEN_COSTS.change_request} токенов.
+                  Изменения затронут только диаграмму (блоки, связи, роли).
+                  После генерации будет показан предпросмотр. Стоимость: {TOKEN_COSTS.change_request} токенов.
                 </DialogDescription>
               </DialogHeader>
 
@@ -1469,6 +1582,7 @@ export function ProcessPage() {
           <TabsTrigger value="passport">Паспорт</TabsTrigger>
           <TabsTrigger value="quality">Качество</TabsTrigger>
           <TabsTrigger value="recommendations">Рекомендации</TabsTrigger>
+          <TabsTrigger value="kpi">KPI и мотивация</TabsTrigger>
           <TabsTrigger value="history">История</TabsTrigger>
         </TabsList>
 
@@ -1511,10 +1625,21 @@ export function ProcessPage() {
             onSetEditInfoSystems={setEditInfoSystems}
             onSetEditConditionLabel={setEditConditionLabel}
             onSetEditIsDefault={setEditIsDefault}
+            editConnections={editConnections}
+            editFunnelStage={editFunnelStage}
+            editChecklist={editChecklist}
+            onSetEditConnections={setEditConnections}
+            onSetEditFunnelStage={setEditFunnelStage}
+            onSetEditChecklist={setEditChecklist}
             onScaleChange={setCanvasScale}
             onExportPNG={handleExportPNG}
             onExportBPMN={handleExportBPMN}
             onExportPDF={handleExportPDF}
+            onToggleActive={handleToggleActive}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            canUndo={canUndo}
+            canRedo={canRedo}
           />
         </TabsContent>
 
@@ -1530,7 +1655,11 @@ export function ProcessPage() {
 
         {/* ======== Tab: CRM Funnels ======== */}
         <TabsContent value="crm">
-          <CrmFunnelsTab funnels={crmFunnels} data={data} />
+          <CrmFunnelsTab
+            funnels={data.crmOverride ? [data.crmOverride] : crmFunnels}
+            data={data}
+            processId={processId}
+          />
         </TabsContent>
 
         {/* ======== Tab: Regulations ======== */}
@@ -1555,6 +1684,17 @@ export function ProcessPage() {
         {/* ======== Tab: Recommendations ======== */}
         <TabsContent value="recommendations">
           <RecommendationsTab processId={processId} data={data} />
+        </TabsContent>
+
+        {/* ======== Tab: KPI & Motivation ======== */}
+        <TabsContent value="kpi">
+          {data && (
+            <KpiMotivationTab
+              processId={processId}
+              companyId={process!.companyId}
+              data={data}
+            />
+          )}
         </TabsContent>
 
         {/* ======== Tab: History ======== */}
@@ -1607,10 +1747,21 @@ interface DiagramTabProps {
   onSetEditInfoSystems: (v: string) => void;
   onSetEditConditionLabel: (v: string) => void;
   onSetEditIsDefault: (v: boolean) => void;
+  editConnections: string[];
+  editFunnelStage: string;
+  editChecklist: string;
+  onSetEditConnections: (v: string[]) => void;
+  onSetEditFunnelStage: (v: string) => void;
+  onSetEditChecklist: (v: string) => void;
   onScaleChange: (scale: number) => void;
   onExportPNG: () => void;
   onExportBPMN: () => void;
   onExportPDF: () => void;
+  onToggleActive: (blockId: string) => void;
+  onUndo: () => void;
+  onRedo: () => void;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 function DiagramTab({
@@ -1649,10 +1800,21 @@ function DiagramTab({
   onSetEditInfoSystems,
   onSetEditConditionLabel,
   onSetEditIsDefault,
+  editConnections,
+  editFunnelStage,
+  editChecklist,
+  onSetEditConnections,
+  onSetEditFunnelStage,
+  onSetEditChecklist,
   onScaleChange,
   onExportPNG,
   onExportBPMN,
   onExportPDF,
+  onToggleActive,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
 }: DiagramTabProps) {
   return (
     <div className="flex gap-4">
@@ -1695,6 +1857,27 @@ function DiagramTab({
               title="На весь экран"
             >
               <Fullscreen className="w-4 h-4" />
+            </Button>
+
+            <div className="w-px h-5 bg-gray-200 mx-1" />
+
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onUndo}
+              disabled={!canUndo}
+              title="Отменить (Ctrl+Z)"
+            >
+              <Undo2 className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onRedo}
+              disabled={!canRedo}
+              title="Вернуть (Ctrl+Y)"
+            >
+              <Redo2 className="w-4 h-4" />
             </Button>
           </div>
 
@@ -1739,15 +1922,39 @@ function DiagramTab({
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">Блок</CardTitle>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={onClosePanel}
-                >
-                  <X className="w-4 h-4" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  {/* iOS-style toggle */}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={selectedBlock.isActive !== false}
+                    title={selectedBlock.isActive === false ? "Включить блок" : "Выключить блок"}
+                    onClick={() => onToggleActive(selectedBlock.id)}
+                    className={cn(
+                      "relative inline-flex h-[26px] w-[46px] shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400",
+                      selectedBlock.isActive === false ? "bg-gray-200" : "bg-green-500"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "pointer-events-none inline-block h-[22px] w-[22px] rounded-full bg-white shadow-md ring-0 transition-transform duration-200 ease-in-out",
+                        selectedBlock.isActive === false ? "translate-x-0" : "translate-x-[20px]"
+                      )}
+                    />
+                  </button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={onClosePanel}
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
               </div>
+              {selectedBlock.isActive === false && (
+                <p className="text-xs text-gray-400 mt-1">Блок выключен</p>
+              )}
             </CardHeader>
             <CardContent className="space-y-4">
               {editingBlock?.id === selectedBlock.id ? (
@@ -1897,6 +2104,83 @@ function DiagramTab({
                       </label>
                     </div>
                   )}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-700">
+                      Этап воронки
+                    </label>
+                    <Input
+                      value={editFunnelStage}
+                      onChange={(e) => onSetEditFunnelStage(e.target.value)}
+                      placeholder="напр. Лид, Квалификация"
+                      className="h-8 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-700">
+                      Чек-лист выполнения
+                    </label>
+                    <Textarea
+                      value={editChecklist}
+                      onChange={(e) => onSetEditChecklist(e.target.value)}
+                      placeholder={"Каждый шаг — с новой строки:\nПроверить данные\nСогласовать с руководителем\nОтправить клиенту"}
+                      rows={4}
+                      className="text-sm font-mono"
+                    />
+                    <p className="text-xs text-gray-400">Каждый пункт — отдельная строка</p>
+                  </div>
+                  <BlockFilesSection processId={processId} blockId={editingBlock.id} />
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-gray-700">
+                      Следующий этап
+                    </label>
+                    <div className="space-y-1">
+                      {editConnections.map((connId) => {
+                        const connBlock = data.blocks.find((b) => b.id === connId);
+                        return (
+                          <div
+                            key={connId}
+                            className="flex items-center justify-between bg-gray-50 rounded px-2 py-1"
+                          >
+                            <span className="text-xs text-gray-700 truncate flex-1">
+                              {connBlock?.name || connId}
+                            </span>
+                            <button
+                              type="button"
+                              className="ml-1 shrink-0 text-gray-400 hover:text-red-500"
+                              onClick={() =>
+                                onSetEditConnections(editConnections.filter((id) => id !== connId))
+                              }
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                      <select
+                        className="flex h-7 w-full rounded-md border border-gray-300 bg-transparent px-2 text-xs"
+                        value=""
+                        onChange={(e) => {
+                          if (e.target.value && !editConnections.includes(e.target.value)) {
+                            onSetEditConnections([...editConnections, e.target.value]);
+                          }
+                          e.target.value = "";
+                        }}
+                      >
+                        <option value="">+ Добавить связь</option>
+                        {data.blocks
+                          .filter(
+                            (b) =>
+                              b.id !== editingBlock.id &&
+                              !editConnections.includes(b.id),
+                          )
+                          .map((b) => (
+                            <option key={b.id} value={b.id}>
+                              {b.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2 pt-2 border-t">
                     <Button
                       size="sm"
@@ -2039,10 +2323,41 @@ function DiagramTab({
                     </div>
                   )}
 
+                  {selectedBlock.funnelStage && (
+                    <div>
+                      <div className="text-xs font-medium text-gray-500 mb-1">
+                        Этап воронки
+                      </div>
+                      <p className="text-sm text-gray-900">
+                        {selectedBlock.funnelStage}
+                      </p>
+                    </div>
+                  )}
+
+                  <BlockFilesSection processId={processId} blockId={selectedBlock.id} />
+
+                  {selectedBlock.checklist && selectedBlock.checklist.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium text-gray-500 mb-1">
+                        Чек-лист ({selectedBlock.checklist.length})
+                      </div>
+                      <ul className="space-y-1">
+                        {selectedBlock.checklist.map((item, i) => (
+                          <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                            <span className="mt-0.5 flex-shrink-0 w-4 h-4 rounded border border-gray-300 bg-white flex items-center justify-center">
+                              <span className="w-2 h-2 rounded-sm bg-transparent" />
+                            </span>
+                            {item}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
                   {selectedBlock.connections.length > 0 && (
                     <div>
                       <div className="text-xs font-medium text-gray-500 mb-1">
-                        Связи ({selectedBlock.connections.length})
+                        Следующий этап ({selectedBlock.connections.length})
                       </div>
                       <div className="space-y-1">
                         {selectedBlock.connections.map((connId) => {
@@ -2104,6 +2419,69 @@ function StagesTab({ data }: { data: ProcessData }) {
     [data.stages]
   );
 
+  const handleExportWord = useCallback(async () => {
+    const children: Paragraph[] = [
+      new Paragraph({ text: data.name, heading: HeadingLevel.HEADING_1 }),
+      new Paragraph({ text: "Этапы бизнес-процесса", heading: HeadingLevel.HEADING_2 }),
+      new Paragraph({ text: "" }),
+    ];
+
+    const stageBlockMap = new Map<string, ProcessBlock[]>();
+    for (const stage of sortedStages) {
+      const stageBlocks = data.blocks.filter(
+        (b) => b.stage === stage.name || b.stage === stage.id
+      );
+      stageBlockMap.set(stage.id, orderBlocksByConnections(stageBlocks, data.blocks));
+    }
+
+    for (let i = 0; i < sortedStages.length; i++) {
+      const stage = sortedStages[i];
+      const blocks = stageBlockMap.get(stage.id) || [];
+      children.push(
+        new Paragraph({ text: `${i + 1}. ${stage.name}`, heading: HeadingLevel.HEADING_3 })
+      );
+      if (blocks.length === 0) {
+        children.push(new Paragraph({ text: "Нет блоков на этом этапе", style: "Normal" }));
+      }
+      for (const block of blocks) {
+        const status = block.isActive === false ? " [выкл.]" : "";
+        children.push(
+          new Paragraph({
+            bullet: { level: 0 },
+            children: [
+              new TextRun({ text: `${block.name}${status}`, bold: true }),
+              new TextRun({ text: `  (${BLOCK_CONFIG[block.type]?.label || block.type})` }),
+            ],
+          })
+        );
+        const meta: string[] = [];
+        if (block.role) meta.push(`Роль: ${roleMap.get(block.role) || block.role}`);
+        if (block.timeEstimate) meta.push(`Время: ${block.timeEstimate}`);
+        if (meta.length > 0) {
+          children.push(
+            new Paragraph({
+              bullet: { level: 1 },
+              children: [new TextRun({ text: meta.join("  |  "), color: "555555" })],
+            })
+          );
+        }
+        if (block.description) {
+          children.push(
+            new Paragraph({
+              bullet: { level: 1 },
+              children: [new TextRun({ text: block.description })],
+            })
+          );
+        }
+      }
+      children.push(new Paragraph({ text: "" }));
+    }
+
+    const doc = new Document({ sections: [{ properties: {}, children }] });
+    const blob = await Packer.toBlob(doc);
+    triggerDownload(blob, `Этапы — ${data.name}.docx`);
+  }, [data, sortedStages, roleMap]);
+
   const blocksByStage = useMemo(() => {
     const map = new Map<string, ProcessBlock[]>();
     for (const stage of sortedStages) {
@@ -2118,6 +2496,12 @@ function StagesTab({ data }: { data: ProcessData }) {
 
   return (
     <div className="space-y-6">
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={handleExportWord} className="gap-2">
+          <Download className="w-4 h-4" />
+          Экспорт в Word
+        </Button>
+      </div>
       {sortedStages.map((stage, stageIdx) => {
         const blocks = blocksByStage.get(stage.id) || [];
         return (
@@ -2147,22 +2531,30 @@ function StagesTab({ data }: { data: ProcessData }) {
                 </p>
               ) : (
                 <div className="space-y-2">
-                  {blocks.map((block) => (
+                  {blocks.map((block) => {
+                    const isInactive = block.isActive === false;
+                    return (
                     <div
                       key={block.id}
-                      className="flex items-center justify-between p-3 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors bg-gray-50/50"
+                      className={cn(
+                        "flex items-center justify-between p-3 rounded-lg border transition-colors",
+                        isInactive
+                          ? "border-gray-100 bg-gray-100/70 opacity-60"
+                          : "border-gray-100 hover:border-gray-200 bg-gray-50/50"
+                      )}
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div
                           className="w-2 h-8 rounded-full shrink-0"
                           style={{
-                            backgroundColor:
-                              BLOCK_CONFIG[block.type]?.borderColor || "#6b7280",
+                            backgroundColor: isInactive
+                              ? "#9ca3af"
+                              : BLOCK_CONFIG[block.type]?.borderColor || "#6b7280",
                           }}
                         />
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium text-gray-900 truncate">
+                            <span className={cn("text-sm font-medium truncate", isInactive ? "text-gray-400 line-through" : "text-gray-900")}>
                               {block.name}
                             </span>
                             <Badge
@@ -2171,6 +2563,9 @@ function StagesTab({ data }: { data: ProcessData }) {
                             >
                               {BLOCK_CONFIG[block.type]?.label}
                             </Badge>
+                            {isInactive && (
+                              <span className="text-[10px] text-gray-400 shrink-0">выкл.</span>
+                            )}
                           </div>
                           <div className="flex items-center gap-3 mt-0.5 text-xs text-gray-500">
                             <span className="flex items-center gap-1">
@@ -2184,13 +2579,18 @@ function StagesTab({ data }: { data: ProcessData }) {
                               </span>
                             )}
                           </div>
+                          {block.description && (
+                            <p className={cn("mt-1.5 text-xs leading-relaxed", isInactive ? "text-gray-400" : "text-gray-600")}>
+                              {block.description}
+                            </p>
+                          )}
                         </div>
                       </div>
                       {block.connections.length > 0 && (
                         <ChevronRight className="w-4 h-4 text-gray-300 shrink-0" />
                       )}
                     </div>
-                  ))}
+                  )})}
                 </div>
               )}
             </CardContent>
@@ -2313,6 +2713,11 @@ function MetricsTab({
   metrics: ProcessMetrics | null;
   data: ProcessData;
 }) {
+  // salary per roleId (monthly, RUB) — local state for cost calculation
+  const [salaries, setSalaries] = useState<Record<string, string>>(() =>
+    Object.fromEntries(data.roles.map((r) => [r.id, ""]))
+  );
+
   if (!metrics) return null;
 
   const metricCards = [
@@ -2369,18 +2774,24 @@ function MetricsTab({
     {} as Record<string, number>
   );
 
-  // Role workload
+  // Role workload — match blocks by role.id OR role.name
   const roleWorkload = data.roles.map((role) => {
-    const roleBlocks = data.blocks.filter((b) => b.role === role.name);
+    const roleBlocks = data.blocks.filter(
+      (b) => b.role === role.id || b.role === role.name
+    );
     const totalMinutes = roleBlocks.reduce(
       (sum, b) => sum + parseTimeEstimate(b.timeEstimate),
       0
     );
+    const monthlySalary = parseFloat(salaries[role.id] || "0") || 0;
+    const hourlyRate = monthlySalary / 168;
+    const cost = (totalMinutes / 60) * hourlyRate;
     return {
       role,
       blockCount: roleBlocks.length,
       totalTime: formatMinutes(totalMinutes),
       totalMinutes,
+      cost,
     };
   });
 
@@ -2461,29 +2872,104 @@ function MetricsTab({
                   ...roleWorkload.map((r) => r.totalMinutes),
                   1
                 );
-                const barWidth = Math.round((totalMinutes / maxMinutes) * 100);
+                const maxBlocks = Math.max(
+                  ...roleWorkload.map((r) => r.blockCount),
+                  1
+                );
+                const timeBarWidth = Math.round((totalMinutes / maxMinutes) * 100);
+                const blockBarWidth = Math.round((blockCount / maxBlocks) * 100);
                 return (
-                  <div key={role.id} className="flex items-center gap-3">
-                    <div className="w-32 text-sm text-gray-600 truncate shrink-0">
-                      {role.name}
+                  <div key={role.id} className="space-y-1">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-700 font-medium truncate max-w-[180px]">{role.name}</span>
+                      <span className="text-gray-500 shrink-0 ml-2">{blockCount} бл. / {totalTime}</span>
                     </div>
-                    <div className="flex-1 h-6 bg-gray-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full transition-all"
-                        style={{
-                          width: `${barWidth || 2}%`,
-                          backgroundColor: role.color || "#7c3aed",
-                          minWidth: "24px",
-                        }}
-                      />
+                    <div className="flex gap-2 items-center">
+                      <span className="text-[10px] text-gray-400 w-12 shrink-0">Блоков</span>
+                      <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${blockBarWidth || 2}%`,
+                            backgroundColor: role.color || "#7c3aed",
+                            opacity: 0.55,
+                            minWidth: "12px",
+                          }}
+                        />
+                      </div>
                     </div>
-                    <div className="w-28 text-sm text-gray-500 text-right shrink-0">
-                      {blockCount} бл. / {totalTime}
+                    <div className="flex gap-2 items-center">
+                      <span className="text-[10px] text-gray-400 w-12 shrink-0">Время</span>
+                      <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${timeBarWidth || 2}%`,
+                            backgroundColor: role.color || "#7c3aed",
+                            minWidth: "12px",
+                          }}
+                        />
+                      </div>
                     </div>
                   </div>
                 );
               })}
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Process Cost */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Стоимость процесса</CardTitle>
+          <CardDescription>
+            Укажите месячную зарплату (руб.) для каждой роли. Стоимость = время роли × (зарплата / 168)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-3">
+            {roleWorkload
+              .sort((a, b) => b.totalMinutes - a.totalMinutes)
+              .map(({ role, totalTime, totalMinutes, cost }) => (
+                <div key={role.id} className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 w-40 shrink-0">
+                    <div
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                      style={{ backgroundColor: role.color || "#7c3aed" }}
+                    />
+                    <span className="text-sm text-gray-700 truncate">{role.name}</span>
+                  </div>
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="Зарплата/мес"
+                    className="w-36 h-8 text-sm shrink-0"
+                    value={salaries[role.id] ?? ""}
+                    onChange={(e) =>
+                      setSalaries((prev) => ({ ...prev, [role.id]: e.target.value }))
+                    }
+                  />
+                  <div className="text-xs text-gray-400 shrink-0 w-20">{totalTime}</div>
+                  <div className="flex-1 text-right text-sm font-medium text-gray-800">
+                    {cost > 0
+                      ? `${cost.toLocaleString("ru-RU", { maximumFractionDigits: 0 })} ₽`
+                      : <span className="text-gray-300">—</span>}
+                  </div>
+                </div>
+              ))}
+          </div>
+
+          {/* Total */}
+          {roleWorkload.some((r) => r.cost > 0) && (
+            <div className="mt-4 pt-4 border-t flex items-center justify-between">
+              <span className="text-sm font-semibold text-gray-700">Итого стоимость процесса</span>
+              <span className="text-lg font-bold text-purple-700">
+                {roleWorkload
+                  .reduce((sum, r) => sum + r.cost, 0)
+                  .toLocaleString("ru-RU", { maximumFractionDigits: 0 })}{" "}₽
+              </span>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -2509,12 +2995,50 @@ const STATUS_COLORS: Record<string, string> = {
 function CrmFunnelsTab({
   funnels,
   data,
+  processId,
 }: {
   funnels: CrmFunnel[];
   data: ProcessData;
+  processId: number;
 }) {
+  const utils = trpc.useUtils();
   const [expandedStages, setExpandedStages] = useState<Set<string>>(new Set());
   const [showQuality, setShowQuality] = useState(false);
+  const [crmChangeOpen, setCrmChangeOpen] = useState(false);
+  const [crmDescription, setCrmDescription] = useState("");
+  const [crmVariants, setCrmVariants] = useState<CrmFunnel[] | null>(null);
+  const [selectedVariant, setSelectedVariant] = useState<number>(0);
+
+  const generateCrmVariantsMutation = trpc.process.generateCrmVariants.useMutation({
+    onSuccess: (variants) => {
+      setCrmVariants(variants);
+      setSelectedVariant(0);
+      setCrmChangeOpen(false);
+    },
+  });
+
+  const updateDataMutation = trpc.process.updateData.useMutation({
+    onSuccess: () => {
+      utils.process.getById.invalidate({ id: processId });
+      toast({ title: "CRM-воронка сохранена" });
+    },
+  });
+
+  const handleSaveVariant = useCallback(() => {
+    if (!crmVariants) return;
+    updateDataMutation.mutate({
+      id: processId,
+      data: { ...data, crmOverride: crmVariants[selectedVariant] },
+    });
+    setCrmVariants(null);
+  }, [crmVariants, selectedVariant, data, processId, updateDataMutation]);
+
+  const handleClearOverride = useCallback(() => {
+    updateDataMutation.mutate({
+      id: processId,
+      data: { ...data, crmOverride: undefined },
+    });
+  }, [data, processId, updateDataMutation]);
 
   const toggleStage = useCallback((stageId: string) => {
     setExpandedStages((prev) => {
@@ -2560,14 +3084,30 @@ function CrmFunnelsTab({
                   {funnel.description}
                 </p>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowQuality((v) => !v)}
-              >
-                <ClipboardCheck className="w-4 h-4" />
-                {showQuality ? "Скрыть проверки" : "Проверки качества"}
-              </Button>
+              <div className="flex items-center gap-2">
+                {data.crmOverride && (
+                  <Button variant="ghost" size="sm" className="text-xs text-gray-400" onClick={handleClearOverride}>
+                    Сбросить к авто
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCrmChangeOpen(true)}
+                  disabled={generateCrmVariantsMutation.isPending}
+                >
+                  <Send className="w-4 h-4" />
+                  Изменить воронку
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowQuality((v) => !v)}
+                >
+                  <ClipboardCheck className="w-4 h-4" />
+                  {showQuality ? "Скрыть проверки" : "Проверки качества"}
+                </Button>
+              </div>
             </div>
 
             {/* Quality notes */}
@@ -2856,6 +3396,114 @@ function CrmFunnelsTab({
           </div>
         );
       })}
+
+      {/* ── CRM Change Request Dialog ── */}
+      <Dialog open={crmChangeOpen} onOpenChange={setCrmChangeOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Filter className="w-4 h-4 text-purple-600" />
+              Изменить CRM-воронку
+            </DialogTitle>
+            <DialogDescription>
+              ИИ сгенерирует 2–3 варианта воронки, из которых вы выберете лучший.
+              Стоимость: {TOKEN_COSTS.crm_variants} токенов.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            placeholder="Например: сделай воронку с 5 этапами с фокусом на квалификацию лидов..."
+            value={crmDescription}
+            onChange={(e) => setCrmDescription(e.target.value)}
+            rows={4}
+            disabled={generateCrmVariantsMutation.isPending}
+          />
+          {generateCrmVariantsMutation.error && (
+            <p className="text-sm text-red-500">{generateCrmVariantsMutation.error.message}</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCrmChangeOpen(false)} disabled={generateCrmVariantsMutation.isPending}>
+              Отмена
+            </Button>
+            <Button
+              onClick={() => generateCrmVariantsMutation.mutate({ processId, description: crmDescription })}
+              disabled={generateCrmVariantsMutation.isPending || !crmDescription.trim()}
+            >
+              {generateCrmVariantsMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Генерация...</>
+              ) : (
+                <><Sparkles className="w-4 h-4" />Сгенерировать варианты</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── CRM Variants Preview Dialog ── */}
+      <Dialog open={!!crmVariants} onOpenChange={() => {}}>
+        <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Filter className="w-5 h-5 text-purple-600" />
+              Предпросмотр: выберите вариант CRM-воронки
+            </DialogTitle>
+            <DialogDescription>
+              ИИ предлагает {crmVariants?.length ?? 0} варианта. Выберите подходящий и сохраните.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              {(crmVariants ?? []).map((variant, idx) => (
+                <button
+                  key={variant.id}
+                  type="button"
+                  onClick={() => setSelectedVariant(idx)}
+                  className={cn(
+                    "text-left rounded-xl border-2 p-4 transition-all focus:outline-none",
+                    selectedVariant === idx
+                      ? "border-purple-500 bg-purple-50 shadow-md"
+                      : "border-gray-200 hover:border-purple-300 bg-white"
+                  )}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={cn(
+                      "w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0",
+                      selectedVariant === idx ? "border-purple-500 bg-purple-500" : "border-gray-300"
+                    )}>
+                      {selectedVariant === idx && <CheckCircle2 className="w-3 h-3 text-white" />}
+                    </div>
+                    <span className="font-semibold text-sm text-gray-900">{variant.name}</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-3">{variant.description}</p>
+                  <div className="space-y-1">
+                    {variant.stages.filter((s) => s.level === 0).map((s) => (
+                      <div key={s.id} className="flex items-center gap-2 text-xs text-gray-700">
+                        <div className="w-2 h-2 rounded-full bg-purple-400 shrink-0" />
+                        <span>{s.name}</span>
+                        {s.conversionTarget && (
+                          <span className="ml-auto text-gray-400">{s.conversionTarget}%</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="px-6 py-4 border-t flex-shrink-0 flex justify-between">
+            <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => { setCrmVariants(null); setCrmDescription(""); }}>
+              <XCircle className="w-4 h-4" />
+              Отменить
+            </Button>
+            <Button onClick={handleSaveVariant} disabled={updateDataMutation.isPending} className="bg-green-600 hover:bg-green-700 text-white">
+              {updateDataMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Сохранение...</>
+              ) : (
+                <><CheckCircle2 className="w-4 h-4" />Сохранить вариант {selectedVariant + 1}</>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -2877,6 +3525,28 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
   const generateMutation = trpc.process.generateRecommendations.useMutation({
     onSuccess: () => {
       utils.process.getRecommendations.invalidate({ processId });
+    },
+  });
+
+  // ── Recommendations change request state ──
+  const [recChangeOpen, setRecChangeOpen] = useState(false);
+  const [recDescription, setRecDescription] = useState("");
+  type RecPreview = { category: string; title: string; description: string; priority: string; relatedSteps: string[] };
+  const [recPreview, setRecPreview] = useState<{ previous: RecPreview[]; updated: RecPreview[] } | null>(null);
+
+  const requestRecChangeMutation = trpc.process.requestRecommendationChange.useMutation({
+    onSuccess: (result) => {
+      setRecPreview(result as { previous: RecPreview[]; updated: RecPreview[] });
+      setRecChangeOpen(false);
+    },
+  });
+
+  const replaceRecsMutation = trpc.process.replaceRecommendations.useMutation({
+    onSuccess: () => {
+      utils.process.getRecommendations.invalidate({ processId });
+      setRecPreview(null);
+      setRecDescription("");
+      toast({ title: "Рекомендации обновлены" });
     },
   });
 
@@ -2938,6 +3608,19 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
                 Свернуть всё
               </Button>
             </>
+          )}
+          {recommendations.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => setRecChangeOpen(true)}
+              disabled={requestRecChangeMutation.isPending}
+            >
+              {requestRecChangeMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Генерация...</>
+              ) : (
+                <><Send className="w-4 h-4" />Изменить рекомендации</>
+              )}
+            </Button>
           )}
           <Button
             onClick={() => generateMutation.mutate({ processId })}
@@ -3079,6 +3762,101 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
           })}
         </div>
       )}
+
+      {/* ── Rec Change Request Dialog ── */}
+      <Dialog open={recChangeOpen} onOpenChange={setRecChangeOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Brain className="w-4 h-4 text-purple-600" />
+              Изменить рекомендации
+            </DialogTitle>
+            <DialogDescription>
+              ИИ обновит рекомендации согласно вашему запросу с возможностью предпросмотра.
+              Стоимость: {TOKEN_COSTS.recommendations} токенов.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            placeholder="Например: сделай акцент на автоматизации, убери раздел про управление данными..."
+            value={recDescription}
+            onChange={(e) => setRecDescription(e.target.value)}
+            rows={4}
+            disabled={requestRecChangeMutation.isPending}
+          />
+          {requestRecChangeMutation.error && (
+            <p className="text-sm text-red-500">{requestRecChangeMutation.error.message}</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRecChangeOpen(false)} disabled={requestRecChangeMutation.isPending}>
+              Отмена
+            </Button>
+            <Button
+              onClick={() => requestRecChangeMutation.mutate({ processId, description: recDescription })}
+              disabled={requestRecChangeMutation.isPending || !recDescription.trim()}
+            >
+              {requestRecChangeMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Генерация...</>
+              ) : (
+                <><Sparkles className="w-4 h-4" />Сгенерировать изменения</>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Rec Preview Dialog ── */}
+      <Dialog open={!!recPreview} onOpenChange={() => {}}>
+        <DialogContent className="max-w-3xl max-h-[90vh] flex flex-col gap-0 p-0 overflow-hidden">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="w-5 h-5 text-purple-600" />
+              Предпросмотр: изменения рекомендаций
+            </DialogTitle>
+            <DialogDescription>
+              Ознакомьтесь с изменениями перед сохранением.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto px-6 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Текущие ({recPreview?.previous.length ?? 0})</p>
+                {(recPreview?.previous ?? []).map((r, i) => (
+                  <div key={i} className="p-2 rounded-lg bg-gray-50 border border-gray-100">
+                    <p className="text-xs font-medium text-gray-700">{r.title}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">{r.category}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-purple-600 uppercase tracking-wide">Новые ({recPreview?.updated.length ?? 0})</p>
+                {(recPreview?.updated ?? []).map((r, i) => (
+                  <div key={i} className="p-2 rounded-lg bg-purple-50 border border-purple-100">
+                    <p className="text-xs font-medium text-gray-800">{r.title}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5">{r.category}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="px-6 py-4 border-t flex-shrink-0 flex justify-between">
+            <Button variant="outline" className="text-red-600 border-red-200 hover:bg-red-50" onClick={() => { setRecPreview(null); setRecDescription(""); }}>
+              <XCircle className="w-4 h-4" />
+              Отменить
+            </Button>
+            <Button
+              onClick={() => recPreview && replaceRecsMutation.mutate({ processId, newRecs: recPreview.updated })}
+              disabled={replaceRecsMutation.isPending}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              {replaceRecsMutation.isPending ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Сохранение...</>
+              ) : (
+                <><CheckCircle2 className="w-4 h-4" />Сохранить изменения</>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -3653,7 +4431,17 @@ function QualityTab({ processId }: { processId: number }) {
   }
 
   const result = qualityQuery.data!;
-  const categories = [...new Set(result.items.map(i => i.category))];
+  // Sort categories: those with errors first, then warnings, then all-passed
+  const categories = [...new Set(result.items.map(i => i.category))].sort((a, b) => {
+    const aItems = result.items.filter(i => i.category === a);
+    const bItems = result.items.filter(i => i.category === b);
+    const severity = (items: typeof result.items) => {
+      if (items.some(i => !i.passed && i.severity === "error")) return 0;
+      if (items.some(i => !i.passed && i.severity === "warning")) return 1;
+      return 2;
+    };
+    return severity(aItems) - severity(bItems);
+  });
   const scoreColor = result.score >= 80 ? "text-green-600" : result.score >= 60 ? "text-yellow-600" : "text-red-600";
   const scoreBg = result.score >= 80 ? "bg-green-50" : result.score >= 60 ? "bg-yellow-50" : "bg-red-50";
 
@@ -3700,17 +4488,32 @@ function QualityTab({ processId }: { processId: number }) {
       {categories.map((category) => {
         const catItems = result.items.filter(i => i.category === category);
         const catPassed = catItems.filter(i => i.passed).length;
+        const catErrors = catItems.filter(i => !i.passed && i.severity === "error").length;
+        const catWarnings = catItems.filter(i => !i.passed && i.severity === "warning").length;
+        const allOk = catPassed === catItems.length;
         return (
-          <Card key={category}>
+          <Card key={category} className={cn(catErrors > 0 ? "border-red-200" : catWarnings > 0 ? "border-yellow-200" : "")}>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base flex items-center gap-2">
-                  <FileCheck className="w-4 h-4" />
+                  <FileCheck className={cn("w-4 h-4", catErrors > 0 ? "text-red-500" : catWarnings > 0 ? "text-yellow-500" : "text-green-500")} />
                   {category}
                 </CardTitle>
-                <Badge variant={catPassed === catItems.length ? "default" : "secondary"}>
-                  {catPassed}/{catItems.length}
-                </Badge>
+                <div className="flex items-center gap-1.5">
+                  {catErrors > 0 && (
+                    <span className="flex items-center gap-1 text-xs text-red-600 bg-red-50 border border-red-200 rounded px-1.5 py-0.5">
+                      <XCircle className="w-3 h-3" />{catErrors}
+                    </span>
+                  )}
+                  {catWarnings > 0 && (
+                    <span className="flex items-center gap-1 text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-1.5 py-0.5">
+                      <AlertCircle className="w-3 h-3" />{catWarnings}
+                    </span>
+                  )}
+                  <Badge variant={allOk ? "default" : "secondary"}>
+                    {catPassed}/{catItems.length}
+                  </Badge>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -3719,11 +4522,17 @@ function QualityTab({ processId }: { processId: number }) {
                   <div
                     key={item.id}
                     className={cn(
-                      "flex items-start gap-3 py-2 px-3 rounded-lg text-sm",
-                      item.passed ? "bg-green-50" : item.severity === "error" ? "bg-red-50" : item.severity === "warning" ? "bg-yellow-50" : "bg-gray-50"
+                      "flex items-start gap-3 py-3 px-3 rounded-lg text-sm",
+                      item.passed
+                        ? "bg-green-50"
+                        : item.severity === "error"
+                          ? "bg-red-50 border border-red-200"
+                          : item.severity === "warning"
+                            ? "bg-yellow-50 border border-yellow-200"
+                            : "bg-gray-50"
                     )}
                   >
-                    <div className="mt-0.5">
+                    <div className="mt-0.5 shrink-0">
                       {item.passed ? (
                         <CheckCircle2 className="w-4 h-4 text-green-600" />
                       ) : item.severity === "error" ? (
@@ -3734,11 +4543,34 @@ function QualityTab({ processId }: { processId: number }) {
                         <AlertCircle className="w-4 h-4 text-gray-400" />
                       )}
                     </div>
-                    <div className="flex-1">
-                      <p className={cn("font-medium", item.passed ? "text-green-800" : item.severity === "error" ? "text-red-800" : "text-gray-800")}>
+                    <div className="flex-1 min-w-0">
+                      <p className={cn(
+                        "font-medium",
+                        item.passed
+                          ? "text-green-800"
+                          : item.severity === "error"
+                            ? "text-red-800"
+                            : item.severity === "warning"
+                              ? "text-yellow-900"
+                              : "text-gray-800"
+                      )}>
                         {item.rule}
                       </p>
-                      <p className="text-xs text-gray-500 mt-0.5">{item.details}</p>
+                      <p className={cn(
+                        "text-xs mt-1 leading-relaxed",
+                        item.passed ? "text-green-700" : item.severity === "error" ? "text-red-700" : item.severity === "warning" ? "text-yellow-800" : "text-gray-500"
+                      )}>
+                        {item.details}
+                      </p>
+                      {!item.passed && item.howToFix && (
+                        <div className={cn(
+                          "mt-2 pt-2 border-t text-xs leading-relaxed",
+                          item.severity === "error" ? "border-red-200 text-red-900" : "border-yellow-200 text-yellow-900"
+                        )}>
+                          <span className="font-semibold">Как исправить: </span>
+                          {item.howToFix}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -3774,14 +4606,32 @@ async function createDocxBlob(markdown: string, title: string): Promise<Blob> {
   for (const line of markdown.split("\n")) {
     if (!line.trim()) {
       children.push(new Paragraph({ text: "" }));
-    } else if (line.startsWith("# ")) {
-      children.push(new Paragraph({ text: line.slice(2), heading: HeadingLevel.HEADING_1 }));
-    } else if (line.startsWith("## ")) {
-      children.push(new Paragraph({ text: line.slice(3), heading: HeadingLevel.HEADING_2 }));
+    } else if (line.startsWith("#### ")) {
+      children.push(new Paragraph({ text: line.slice(5), heading: HeadingLevel.HEADING_4 }));
     } else if (line.startsWith("### ")) {
       children.push(new Paragraph({ text: line.slice(4), heading: HeadingLevel.HEADING_3 }));
-    } else if (/^[-*] /.test(line)) {
-      children.push(new Paragraph({ bullet: { level: 0 }, children: parseBoldRuns(line.slice(2)) }));
+    } else if (line.startsWith("## ")) {
+      children.push(new Paragraph({ text: line.slice(3), heading: HeadingLevel.HEADING_2 }));
+    } else if (line.startsWith("# ")) {
+      children.push(new Paragraph({ text: line.slice(2), heading: HeadingLevel.HEADING_1 }));
+    } else if (/^(\s*)- \[[ x]\] /.test(line)) {
+      // Checklist item: render as indented bullet with checkbox symbol
+      const indent = line.match(/^(\s*)/)?.[1].length ?? 0;
+      const checked = /- \[x\]/i.test(line);
+      const text = line.replace(/^\s*- \[[ x]\] /i, "");
+      children.push(new Paragraph({
+        bullet: { level: Math.min(Math.floor(indent / 2), 2) },
+        children: [
+          new TextRun({ text: (checked ? "☑ " : "☐ ") + text }),
+        ],
+      }));
+    } else if (/^(\s*)[-*] /.test(line)) {
+      const indent = line.match(/^(\s*)/)?.[1].length ?? 0;
+      const text = line.replace(/^\s*[-*] /, "");
+      children.push(new Paragraph({
+        bullet: { level: Math.min(Math.floor(indent / 2), 2) },
+        children: parseBoldRuns(text),
+      }));
     } else {
       children.push(new Paragraph({ children: parseBoldRuns(line) }));
     }
@@ -3799,7 +4649,181 @@ function triggerDownload(blob: Blob, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+// ============================================
+// Block Files Section
+// ============================================
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} КБ`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} МБ`;
+}
+
+function BlockFilesSection({ processId, blockId }: { processId: number; blockId: string }) {
+  const [files, setFiles] = useState<BlockFile[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const authHeader = () => {
+    const token = localStorage.getItem("auth_token");
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  const loadFiles = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/blocks/files?processId=${processId}&blockId=${encodeURIComponent(blockId)}`, {
+        headers: authHeader(),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setFiles(data.files ?? []);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [processId, blockId]);
+
+  useEffect(() => { loadFiles(); }, [loadFiles]);
+
+  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("processId", String(processId));
+      form.append("blockId", blockId);
+      const res = await fetch("/api/blocks/upload", {
+        method: "POST",
+        headers: authHeader(),
+        body: form,
+      });
+      if (res.ok) {
+        toast({ title: "Файл загружен", description: `${file.name} — списано ${TOKEN_COSTS.file_upload} токенов` });
+        await loadFiles();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast({ title: "Ошибка загрузки", description: err.error ?? "Неизвестная ошибка", variant: "destructive" });
+      }
+    } finally {
+      setUploading(false);
+    }
+  }, [processId, blockId, loadFiles]);
+
+  const handleDelete = useCallback(async (fileId: number, fileName: string) => {
+    if (!confirm(`Удалить файл «${fileName}»?`)) return;
+    const res = await fetch(`/api/files/${fileId}`, {
+      method: "DELETE",
+      headers: authHeader(),
+    });
+    if (res.ok) {
+      setFiles(prev => prev.filter(f => f.id !== fileId));
+      toast({ title: "Файл удалён" });
+    } else {
+      toast({ title: "Ошибка удаления", variant: "destructive" });
+    }
+  }, []);
+
+  const handleDownload = useCallback((fileId: number) => {
+    const token = localStorage.getItem("auth_token");
+    const a = document.createElement("a");
+    a.href = `/api/files/${fileId}${token ? `?token=${token}` : ""}`;
+    // Use fetch + blob to pass auth header
+    fetch(`/api/files/${fileId}`, { headers: authHeader() })
+      .then(r => r.ok ? r.blob() : Promise.reject(r))
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        a.href = url;
+        a.click();
+        URL.revokeObjectURL(url);
+      });
+  }, []);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-medium text-gray-700 flex items-center gap-1.5">
+          <Paperclip className="w-3.5 h-3.5" />
+          Прикреплённые файлы
+        </label>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 disabled:opacity-50"
+        >
+          {uploading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Upload className="w-3 h-3" />}
+          Загрузить ({TOKEN_COSTS.file_upload} токенов)
+        </button>
+        <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} />
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-2">
+          <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
+        </div>
+      ) : files.length === 0 ? (
+        <p className="text-xs text-gray-400 text-center py-2">Нет прикреплённых файлов</p>
+      ) : (
+        <div className="space-y-1">
+          {files.map(f => (
+            <div key={f.id} className="flex items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5">
+              <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+              <span className="text-xs text-gray-700 truncate flex-1" title={f.originalName}>{f.originalName}</span>
+              <span className="text-xs text-gray-400 shrink-0">{formatBytes(f.fileSize)}</span>
+              <button
+                type="button"
+                onClick={() => handleDownload(f.id)}
+                className="text-gray-400 hover:text-blue-600 shrink-0"
+                title="Скачать"
+              >
+                <Download className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(f.id, f.originalName)}
+                className="text-gray-400 hover:text-red-500 shrink-0"
+                title="Удалить"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 type DocType = "regulation" | "job_instruction";
+
+// Pseudo-progress: smoothly advances to 90% while waiting for AI, then jumps to 100%.
+function useGenerationProgress(active: boolean) {
+  const [pct, setPct] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (active) {
+      setPct(0);
+      timerRef.current = setInterval(() => {
+        setPct((p) => {
+          if (p >= 90) { clearInterval(timerRef.current!); return 90; }
+          // Accelerate early, decelerate near 90
+          const step = p < 30 ? 3 : p < 60 ? 2 : 0.8;
+          return Math.min(90, p + step);
+        });
+      }, 400);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+      setPct(0);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [active]);
+  return active ? pct : 0;
+}
 
 function RegulationsTab({
   data,
@@ -3812,28 +4836,102 @@ function RegulationsTab({
 }) {
   const [documents, setDocuments] = useState<Record<string, string>>({});
   const [generating, setGenerating] = useState<Record<string, boolean>>({});
+  const [genProgress, setGenProgress] = useState<Record<string, number>>({});
+  const [allGenProgress, setAllGenProgress] = useState<{ done: number; total: number } | null>(null);
+  const [generatingAll, setGeneratingAll] = useState(false);
+  const [expandedDocs, setExpandedDocs] = useState<Record<string, boolean>>({});
   const generateMutation = trpc.process.generateDocument.useMutation();
+  const genTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+
+  const anyGenerating = Object.values(generating).some(Boolean) || generatingAll;
+
+  // Warn before unload during generation
+  useEffect(() => {
+    if (!anyGenerating) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "Идёт генерация документов. Покинуть страницу?";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [anyGenerating]);
+
+  const startProgressTimer = useCallback((key: string) => {
+    if (genTimers.current[key]) clearInterval(genTimers.current[key]);
+    setGenProgress((p) => ({ ...p, [key]: 0 }));
+    genTimers.current[key] = setInterval(() => {
+      setGenProgress((p) => {
+        const cur = p[key] ?? 0;
+        if (cur >= 90) { clearInterval(genTimers.current[key]); return p; }
+        const step = cur < 30 ? 3 : cur < 60 ? 2 : 0.8;
+        return { ...p, [key]: Math.min(90, cur + step) };
+      });
+    }, 400);
+  }, []);
+
+  const stopProgressTimer = useCallback((key: string, done: boolean) => {
+    clearInterval(genTimers.current[key]);
+    delete genTimers.current[key];
+    setGenProgress((p) => ({ ...p, [key]: done ? 100 : 0 }));
+    if (done) setTimeout(() => setGenProgress((p) => { const n = { ...p }; delete n[key]; return n; }), 800);
+  }, []);
 
   const handleGenerate = useCallback(
     async (roleName: string, docType: DocType) => {
       const key = `${roleName}:${docType}`;
       setGenerating((prev) => ({ ...prev, [key]: true }));
+      startProgressTimer(key);
       try {
         const result = await generateMutation.mutateAsync({ processId, roleName, docType });
         setDocuments((prev) => ({ ...prev, [key]: result.text }));
+        setExpandedDocs((prev) => ({ ...prev, [key]: true }));
+        stopProgressTimer(key, true);
+      } catch {
+        stopProgressTimer(key, false);
       } finally {
         setGenerating((prev) => ({ ...prev, [key]: false }));
       }
     },
-    [processId, generateMutation]
+    [processId, generateMutation, startProgressTimer, stopProgressTimer]
   );
+
+  const roles = data?.roles ?? [];
+
+  const handleGenerateAll = useCallback(async () => {
+    setGeneratingAll(true);
+    const pairs = roles.flatMap((r) =>
+      (["regulation", "job_instruction"] as DocType[]).map((dt) => ({ role: r, dt }))
+    );
+    setAllGenProgress({ done: 0, total: pairs.length });
+    try {
+      for (let i = 0; i < pairs.length; i++) {
+        const { role, dt } = pairs[i];
+        const key = `${role.name}:${dt}`;
+        setGenerating((prev) => ({ ...prev, [key]: true }));
+        startProgressTimer(key);
+        try {
+          const result = await generateMutation.mutateAsync({ processId, roleName: role.name, docType: dt });
+          setDocuments((prev) => ({ ...prev, [key]: result.text }));
+          stopProgressTimer(key, true);
+        } catch {
+          stopProgressTimer(key, false);
+        } finally {
+          setGenerating((prev) => ({ ...prev, [key]: false }));
+          setAllGenProgress({ done: i + 1, total: pairs.length });
+        }
+      }
+    } finally {
+      setGeneratingAll(false);
+      setTimeout(() => setAllGenProgress(null), 1500);
+    }
+  }, [roles, processId, generateMutation, startProgressTimer, stopProgressTimer]);
 
   const handleDownload = useCallback(
     async (roleName: string, docType: DocType) => {
       const text = documents[`${roleName}:${docType}`];
       if (!text) return;
       const label = docType === "regulation" ? "Регламент" : "Должностная инструкция";
-      const blob = await createDocxBlob(text, `${label}: ${roleName}`);
+      const blob = await createDocxBlob(text, `${label} ${roleName} — ${companyName}`);
       triggerDownload(blob, `${label} ${roleName} ${companyName}.docx`);
     },
     [documents, companyName]
@@ -3848,15 +4946,15 @@ function RegulationsTab({
       const roleName = key.slice(0, colonIdx);
       const docType = key.slice(colonIdx + 1) as DocType;
       const label = docType === "regulation" ? "Регламент" : "Должностная инструкция";
-      const blob = await createDocxBlob(text, `${label}: ${roleName}`);
+      const blob = await createDocxBlob(text, `${label} ${roleName} — ${companyName}`);
       zip.file(`${label} ${roleName} ${companyName}.docx`, blob);
     }
     const content = await zip.generateAsync({ type: "blob" });
-    triggerDownload(content, `Регламенты ${companyName}.zip`);
+    triggerDownload(content, `Документы ${companyName}.zip`);
   }, [documents, companyName]);
 
-  const roles = data?.roles ?? [];
   const generatedCount = Object.keys(documents).length;
+  const totalDocs = roles.length * 2;
 
   if (!roles.length) {
     return (
@@ -3870,105 +4968,213 @@ function RegulationsTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-base font-semibold text-gray-900">
-            Регламенты и должностные инструкции
-          </h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Стоимость: {TOKEN_COSTS.document} токенов за документ
-          </p>
+      {/* Generation warning banner */}
+      {anyGenerating && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+          <Loader2 className="w-4 h-4 text-amber-600 animate-spin mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-amber-800">Идёт генерация документов</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Это может занять несколько минут. Пожалуйста, не покидайте страницу до завершения.
+            </p>
+            {allGenProgress && (
+              <div className="mt-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-amber-700">
+                    {allGenProgress.done} из {allGenProgress.total} документов
+                  </span>
+                  <span className="text-xs font-semibold text-amber-800">
+                    {Math.round((allGenProgress.done / allGenProgress.total) * 100)}%
+                  </span>
+                </div>
+                <div className="h-1.5 w-full rounded-full bg-amber-200 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-amber-500 transition-all duration-500"
+                    style={{ width: `${(allGenProgress.done / allGenProgress.total) * 100}%` }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
-        {generatedCount > 0 && (
-          <Button variant="outline" size="sm" onClick={handleDownloadAll}>
-            <Archive className="w-4 h-4" />
-            Скачать все архивом ({generatedCount})
-          </Button>
-        )}
-      </div>
+      )}
 
+      {/* Header */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-blue-600" />
+                Регламенты и должностные инструкции
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">
+                {roles.length} должност{roles.length === 1 ? "ь" : roles.length < 5 ? "и" : "ей"} · {TOKEN_COSTS.document} токенов за документ · {roles.length * 2 * TOKEN_COSTS.document} токенов за все
+              </p>
+              {generatedCount > 0 && (
+                <p className="text-xs text-green-700 mt-1">
+                  Сгенерировано: {generatedCount} из {totalDocs} документов
+                </p>
+              )}
+            </div>
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleGenerateAll}
+                disabled={anyGenerating}
+                className="gap-1.5"
+              >
+                {generatingAll ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )}
+                {generatingAll ? "Генерация..." : "Сгенерировать все"}
+              </Button>
+              {generatedCount > 0 && (
+                <Button size="sm" variant="outline" onClick={handleDownloadAll} className="gap-1.5">
+                  <Archive className="w-3.5 h-3.5" />
+                  Скачать архивом ({generatedCount})
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Role cards */}
       {roles.map((role) => {
         const regKey = `${role.name}:regulation`;
         const jiKey = `${role.name}:job_instruction`;
         const hasReg = !!documents[regKey];
         const hasJI = !!documents[jiKey];
+        const roleBlocks = data?.blocks.filter(b => b.role === role.id || b.role === role.name) ?? [];
+
         return (
-          <Card key={role.id} className="overflow-hidden">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="w-3 h-3 rounded-full flex-shrink-0"
-                    style={{ backgroundColor: role.color }}
-                  />
+          <Card key={role.id} className={cn("overflow-hidden", (hasReg || hasJI) && "border-blue-100")}>
+            <CardHeader className="pb-3 pt-4 px-4">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-3.5 h-3.5 rounded-full flex-shrink-0 mt-0.5" style={{ backgroundColor: role.color }} />
                   <div>
-                    <span className="font-medium text-gray-900">{role.name}</span>
-                    {role.department && (
-                      <span className="text-xs text-gray-500 ml-2">{role.department}</span>
-                    )}
+                    <div className="font-semibold text-gray-900">{role.name}</div>
+                    <div className="flex items-center gap-3 mt-0.5">
+                      {role.department && (
+                        <span className="text-xs text-gray-500">{role.department}</span>
+                      )}
+                      <span className="text-xs text-gray-400">{roleBlocks.length} шагов в процессе</span>
+                    </div>
                   </div>
                 </div>
-                <div className="flex gap-2 flex-wrap">
+                <div className="flex gap-2 flex-wrap shrink-0">
                   <Button
                     size="sm"
                     variant={hasReg ? "outline" : "default"}
                     onClick={() => handleGenerate(role.name, "regulation")}
-                    disabled={!!generating[regKey]}
-                    className="gap-1.5"
+                    disabled={anyGenerating}
+                    className="gap-1.5 relative overflow-hidden"
                   >
                     {generating[regKey] ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
                       <BookOpen className="w-3.5 h-3.5" />
                     )}
-                    {hasReg ? "Обновить регламент" : "Регламент"}
+                    {generating[regKey]
+                      ? `Генерация... ${Math.round(genProgress[regKey] ?? 0)}%`
+                      : hasReg ? "Обновить регламент" : "Регламент"}
                   </Button>
                   <Button
                     size="sm"
                     variant={hasJI ? "outline" : "default"}
                     onClick={() => handleGenerate(role.name, "job_instruction")}
-                    disabled={!!generating[jiKey]}
-                    className="gap-1.5"
+                    disabled={anyGenerating}
+                    className="gap-1.5 relative overflow-hidden"
                   >
                     {generating[jiKey] ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />
                     ) : (
                       <ScrollText className="w-3.5 h-3.5" />
                     )}
-                    {hasJI ? "Обновить инструкцию" : "Должностная инструкция"}
+                    {generating[jiKey]
+                      ? `Генерация... ${Math.round(genProgress[jiKey] ?? 0)}%`
+                      : hasJI ? "Обновить инструкцию" : "Должностная инструкция"}
                   </Button>
                 </div>
               </div>
 
-              {(hasReg || hasJI) && (
-                <div className="mt-4 space-y-3 border-t border-gray-100 pt-4">
+              {/* Per-doc progress bars */}
+              {(generating[regKey] || generating[jiKey]) && (
+                <div className="mx-4 mb-3 space-y-1.5">
                   {(["regulation", "job_instruction"] as DocType[]).map((dt) => {
-                    const text = documents[`${role.name}:${dt}`];
-                    if (!text) return null;
+                    const key = `${role.name}:${dt}`;
+                    if (!generating[key]) return null;
+                    const pct = Math.round(genProgress[key] ?? 0);
                     const label = dt === "regulation" ? "Регламент" : "Должностная инструкция";
                     return (
                       <div key={dt}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium text-gray-700">{label}</span>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleDownload(role.name, dt)}
-                            className="text-blue-600 hover:text-blue-700 gap-1.5 h-7"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            Скачать .docx
-                          </Button>
+                        <div className="flex justify-between text-xs text-gray-500 mb-0.5">
+                          <span>{label}</span>
+                          <span>{pct}%</span>
                         </div>
-                        <div className="max-h-52 overflow-y-auto rounded-md border border-gray-200 bg-gray-50 px-4 py-3">
-                          <MarkdownContent text={text} />
+                        <div className="h-1 w-full rounded-full bg-gray-200 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-blue-500 transition-all duration-500"
+                            style={{ width: `${pct}%` }}
+                          />
                         </div>
                       </div>
                     );
                   })}
+                  <p className="text-xs text-gray-400 mt-1">
+                    Это может занять несколько минут — не покидайте страницу
+                  </p>
                 </div>
               )}
-            </CardContent>
+            </CardHeader>
+
+            {(hasReg || hasJI) && (
+              <CardContent className="px-4 pb-4 pt-0 space-y-4 border-t border-gray-100">
+                {(["regulation", "job_instruction"] as DocType[]).map((dt) => {
+                  const key = `${role.name}:${dt}`;
+                  const text = documents[key];
+                  if (!text) return null;
+                  const label = dt === "regulation" ? "Регламент" : "Должностная инструкция";
+                  const isExpanded = expandedDocs[key] ?? true;
+                  return (
+                    <div key={dt} className="pt-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <button
+                          className="flex items-center gap-1.5 text-sm font-semibold text-gray-800 hover:text-gray-900"
+                          onClick={() => setExpandedDocs(p => ({ ...p, [key]: !isExpanded }))}
+                        >
+                          {dt === "regulation"
+                            ? <BookOpen className="w-4 h-4 text-blue-600" />
+                            : <ScrollText className="w-4 h-4 text-purple-600" />
+                          }
+                          {label}
+                          <ChevronDown className={cn("w-3.5 h-3.5 text-gray-400 transition-transform", isExpanded && "rotate-180")} />
+                        </button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDownload(role.name, dt)}
+                          className="text-blue-600 hover:text-blue-700 gap-1.5 h-7 text-xs"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Скачать .docx
+                        </Button>
+                      </div>
+                      {isExpanded && (
+                        <div className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 max-h-96 overflow-y-auto">
+                          <MarkdownContent text={text} />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </CardContent>
+            )}
           </Card>
         );
       })}

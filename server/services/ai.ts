@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ProcessData, ProcessBlock, ProcessRole, ProcessStage, ProcessPassport } from "../../shared/types";
+import type { ProcessData, ProcessBlock, ProcessRole, ProcessStage, ProcessPassport, CrmFunnel } from "../../shared/types";
 import { SWIMLANE_COLORS } from "../../shared/types";
 import { logger } from "./logger";
 
@@ -141,6 +141,7 @@ const PROCESS_GENERATION_PROMPT = `Ты — эксперт-аналитик по
       "inputDocuments": ["Заявка"],
       "outputDocuments": ["Зарегистрированная заявка"],
       "infoSystems": ["CRM"],
+      "checklist": ["Шаг 1 выполнения", "Шаг 2 выполнения", "Критерий завершения"],
       "connections": ["block_2"],
       "conditionLabel": "",
       "isDefault": false
@@ -157,7 +158,7 @@ const PROCESS_GENERATION_PROMPT = `Ты — эксперт-аналитик по
 6. 3-5 product-блоков (промежуточные результаты)
 7. Минимум 8-10 handoffs между ролями
 8. Паттерн согласования: Подготовить → Проверить → Gateway → Утвердить/Вернуть
-9. Каждый action: timeEstimate + inputDocuments + infoSystems
+9. Каждый action: timeEstimate + inputDocuments + infoSystems + checklist (3-5 конкретных шагов выполнения)
 10. Ответ — ТОЛЬКО валидный JSON, без markdown, без пояснений`;
 
 export async function generateProcess(
@@ -165,10 +166,26 @@ export async function generateProcess(
   companyName: string,
   industry: string
 ): Promise<ProcessData> {
+  // Separate attached files metadata from questionnaire answers
+  const attachedFiles = (() => {
+    try {
+      const raw = answers["__files"];
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as Array<{ name: string }>;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  })();
+
   const answersText = Object.entries(answers)
-    .filter(([, v]) => v && v.trim())
+    .filter(([k, v]) => k !== "__files" && v && v.trim())
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
+
+  const filesSection = attachedFiles.length > 0
+    ? `\nПрикреплённые документы компании: ${attachedFiles.map((f) => f.name).join(", ")}`
+    : "";
 
   try {
     const response = await anthropic.messages.create({
@@ -180,7 +197,7 @@ export async function generateProcess(
           content: `${PROCESS_GENERATION_PROMPT}
 
 Компания: ${companyName}
-Отрасль: ${industry}
+Отрасль: ${industry}${filesSection}
 
 Ответы на анкету (структурированы по BMC/VPC):
 ${answersText}
@@ -392,6 +409,118 @@ ${JSON.stringify(processData, null, 2)}
         relatedSteps: [],
       },
     ];
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CRM Funnel Variants Generation (2-3 variants for user to choose)
+// ═══════════════════════════════════════════════════════════════════
+
+export async function generateCrmFunnelVariants(
+  data: ProcessData,
+  description: string
+): Promise<CrmFunnel[]> {
+  const blockList = data.blocks
+    .map((b) => `${b.id}: ${b.name} (${b.type}, role: ${b.role})`)
+    .join("\n");
+
+  const prompt = `Ты — эксперт по CRM и воронкам продаж. На основе бизнес-процесса сгенерируй ровно 3 ВАРИАНТА CRM-воронки.
+Каждый вариант — отдельный подход к организации воронки: консервативный, сбалансированный, инновационный.
+
+ПРОЦЕСС: ${data.name}
+ЦЕЛЬ: ${data.goal}
+БЛОКИ:
+${blockList}
+
+ЗАПРОС ПОЛЬЗОВАТЕЛЯ: ${description}
+
+Верни JSON-массив из РОВНО 3 объектов CrmFunnel (без лишнего текста):
+[
+  {
+    "id": "variant-1",
+    "name": "Вариант 1: Консервативный",
+    "description": "Описание подхода...",
+    "stages": [
+      {
+        "id": "stage-1-1",
+        "name": "Название этапа",
+        "level": 0,
+        "order": 1,
+        "exitCriteria": "Критерий выхода",
+        "ownerRole": "Роль",
+        "slaDays": 3,
+        "checklist": ["Шаг 1", "Шаг 2"],
+        "relatedBlockIds": ["blockId1"],
+        "automations": ["CRM уведомление"],
+        "conversionTarget": 80
+      }
+    ],
+    "statuses": [
+      {"id": "s1", "name": "В работе", "type": "pause", "description": "..."},
+      {"id": "s2", "name": "Отказ", "type": "lost", "description": "..."},
+      {"id": "s3", "name": "Сделка закрыта", "type": "won", "description": "..."}
+    ],
+    "qualityNotes": ["Примечание к качеству"]
+  },
+  { "id": "variant-2", "name": "Вариант 2: Сбалансированный", ... },
+  { "id": "variant-3", "name": "Вариант 3: Инновационный", ... }
+]
+
+Используй реальные blockId из процесса в relatedBlockIds. Только JSON, без пояснений.`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 8000,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error("Не удалось извлечь JSON из ответа");
+    const variants = JSON.parse(jsonMatch[0]) as CrmFunnel[];
+    return variants.slice(0, 3);
+  } catch (error) {
+    logger.error("AI", "CRM variants generation failed", error);
+    throw new Error("Не удалось сгенерировать варианты CRM-воронки");
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Recommendations Change Request
+// ═══════════════════════════════════════════════════════════════════
+
+export async function applyRecommendationChanges(
+  currentRecs: Array<{ category: string; title: string; description: string; priority: string; relatedSteps: string[] }>,
+  processData: ProcessData,
+  changeDescription: string
+): Promise<Array<{ category: string; title: string; description: string; priority: string; relatedSteps: string[] }>> {
+  const prompt = `Ты — консультант по оптимизации бизнес-процессов. Тебе даны текущие рекомендации по процессу и запрос на их изменение.
+Верни ОБНОВЛЁННЫЙ список рекомендаций в том же JSON-формате, применив изменения согласно запросу.
+
+ПРОЦЕСС: ${processData.name}
+
+ТЕКУЩИЕ РЕКОМЕНДАЦИИ:
+${JSON.stringify(currentRecs, null, 2)}
+
+ЗАПРОС НА ИЗМЕНЕНИЕ:
+${changeDescription}
+
+Верни JSON-массив рекомендаций (только JSON, без пояснений):
+[{"category":"...","title":"...","description":"...","priority":"high|medium|low","relatedSteps":["blockId"]}]`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 10000,
+      messages: [{ role: "user", content: prompt }],
+    });
+    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error("Не удалось извлечь JSON из ответа");
+    return JSON.parse(jsonMatch[0]);
+  } catch (error) {
+    logger.error("AI", "Recommendation change failed", error);
+    throw new Error("Не удалось применить изменения к рекомендациям");
   }
 }
 
@@ -659,24 +788,360 @@ function generateFallbackProcess(
 export async function generateRegulationDocument(
   roleName: string,
   docType: "regulation" | "job_instruction",
-  companyName: string
+  companyName: string,
+  processData?: ProcessData
 ): Promise<string> {
-  const docTypeName =
-    docType === "regulation" ? "регламент" : "должностную инструкцию";
+  // Build rich context from process data for this role
+  let processContext = "";
+  if (processData) {
+    const role = processData.roles.find(r => r.name === roleName);
+    const roleBlocks = processData.blocks.filter(b => b.role === roleName || b.role === role?.id);
+
+    // Group blocks by stage
+    const stageMap = new Map(processData.stages.map(s => [s.id, s.name]));
+    const blocksByStage = new Map<string, typeof roleBlocks>();
+    for (const block of roleBlocks) {
+      const stageName = stageMap.get(block.stage) ?? "Общее";
+      if (!blocksByStage.has(stageName)) blocksByStage.set(stageName, []);
+      blocksByStage.get(stageName)!.push(block);
+    }
+
+    // Collect unique docs and systems for this role
+    const inputDocs = [...new Set(roleBlocks.flatMap(b => b.inputDocuments ?? []))].filter(Boolean);
+    const outputDocs = [...new Set(roleBlocks.flatMap(b => b.outputDocuments ?? []))].filter(Boolean);
+    const systems = [...new Set(roleBlocks.flatMap(b => b.infoSystems ?? []))].filter(Boolean);
+    const decisionBlocks = roleBlocks.filter(b => b.type === "decision");
+
+    // Find handoffs: blocks where this role passes to another role
+    const blockMap = new Map(processData.blocks.map(b => [b.id, b]));
+    const handoffsOut: string[] = [];
+    const handoffsIn: string[] = [];
+    for (const block of roleBlocks) {
+      for (const targetId of block.connections) {
+        const target = blockMap.get(targetId);
+        if (target && target.role !== block.role && target.role !== role?.id) {
+          const targetRole = processData.roles.find(r => r.id === target.role || r.name === target.role);
+          handoffsOut.push(`«${block.name}» → ${targetRole?.name ?? target.role} («${target.name}»)`);
+        }
+      }
+    }
+    for (const block of processData.blocks) {
+      if (block.role === roleName || block.role === role?.id) continue;
+      for (const targetId of block.connections) {
+        const target = blockMap.get(targetId);
+        if (target && (target.role === roleName || target.role === role?.id)) {
+          const srcRole = processData.roles.find(r => r.id === block.role || r.name === block.role);
+          handoffsIn.push(`${srcRole?.name ?? block.role} («${block.name}») → «${target.name}»`);
+        }
+      }
+    }
+
+    const lines: string[] = [
+      `Название компании: ${companyName}`,
+      `Название процесса: ${processData.name ?? ""}`,
+      `Цель процесса: ${processData.goal ?? "не указана"}`,
+      `Должность: ${roleName}`,
+      `Департамент: ${role?.department ?? "не указан"}`,
+      `Описание роли: ${role?.description ?? "не указано"}`,
+      ``,
+      `=== ЭТАПЫ И ШАГИ ДОЛЖНОСТИ (${roleBlocks.length} шагов) ===`,
+    ];
+
+    // Sort stages by order
+    const sortedStages = [...processData.stages].sort((a, b) => a.order - b.order);
+    const sortedBlocksByStage = new Map<string, typeof roleBlocks>();
+    for (const stage of sortedStages) {
+      const stageBlocks = blocksByStage.get(stage.name);
+      if (stageBlocks?.length) sortedBlocksByStage.set(stage.name, stageBlocks);
+    }
+    // Also include any blocks that map to unknown stages
+    for (const [k, v] of blocksByStage) {
+      if (!sortedBlocksByStage.has(k)) sortedBlocksByStage.set(k, v);
+    }
+
+    for (const [stageName, blocks] of sortedBlocksByStage) {
+      lines.push(`\n--- ЭТАП: «${stageName}» ---`);
+      for (let i = 0; i < blocks.length; i++) {
+        const b = blocks[i];
+        const typeLabel: Record<string, string> = {
+          action: "Действие", decision: "Решение", product: "Результат",
+          start: "Начало", end: "Конец", split: "Разветвление",
+        };
+        lines.push(`\nШаг ${i + 1}: ${b.name}`);
+        lines.push(`  Тип: ${typeLabel[b.type] ?? b.type}`);
+        if (b.description) lines.push(`  Описание: ${b.description}`);
+        if (b.timeEstimate) lines.push(`  Срок/время: ${b.timeEstimate}`);
+        if (b.conditionLabel) lines.push(`  Условие/критерий: ${b.conditionLabel}`);
+        if (b.inputDocuments?.length) lines.push(`  Входящие документы: ${b.inputDocuments.join(", ")}`);
+        if (b.outputDocuments?.length) lines.push(`  Результирующие документы: ${b.outputDocuments.join(", ")}`);
+        if (b.infoSystems?.length) lines.push(`  Используемые системы: ${b.infoSystems.join(", ")}`);
+        if (b.checklist?.length) {
+          lines.push(`  Чек-лист выполнения:`);
+          for (const item of b.checklist) lines.push(`    ✓ ${item}`);
+        }
+        // Next steps
+        const nextBlocks = b.connections
+          .map(id => blockMap.get(id))
+          .filter(Boolean)
+          .map(nb => {
+            const nbRole = processData.roles.find(r => r.id === nb!.role || r.name === nb!.role);
+            const sameRole = nb!.role === roleName || nb!.role === role?.id;
+            return sameRole ? `→ «${nb!.name}»` : `→ «${nb!.name}» (${nbRole?.name ?? nb!.role})`;
+          });
+        if (nextBlocks.length) lines.push(`  Далее: ${nextBlocks.join(", ")}`);
+      }
+    }
+
+    if (decisionBlocks.length) {
+      lines.push(`\n=== ТОЧКИ ПРИНЯТИЯ РЕШЕНИЙ ===`);
+      for (const d of decisionBlocks) {
+        lines.push(`  - «${d.name}»${d.conditionLabel ? `: ${d.conditionLabel}` : ""}`);
+        const branches = d.connections.map(id => blockMap.get(id)).filter(Boolean);
+        if (branches.length) lines.push(`    Варианты: ${branches.map(b => `«${b!.name}»${b!.isDefault ? " (по умолчанию)" : ""}`).join(", ")}`);
+      }
+    }
+
+    if (inputDocs.length) lines.push(`\nВсе входящие документы: ${inputDocs.join(", ")}`);
+    if (outputDocs.length) lines.push(`\nВсе исходящие документы: ${outputDocs.join(", ")}`);
+    if (systems.length) lines.push(`\nВсе информационные системы: ${systems.join(", ")}`);
+    if (handoffsIn.length) lines.push(`\nПолучает задачи от: ${handoffsIn.slice(0, 8).join("; ")}`);
+    if (handoffsOut.length) lines.push(`\nПередаёт задачи: ${handoffsOut.slice(0, 8).join("; ")}`);
+
+    processContext = lines.join("\n");
+  }
+
+  const isRegulation = docType === "regulation";
+
+  const systemPrompt = isRegulation
+    ? `Ты опытный бизнес-аналитик. Составляй регламенты строго структурированно, на официальном деловом русском языке. Используй markdown: ## для разделов, ### для подразделов, #### для шагов, - для списков, - [ ] для чек-листов, **жирный** для важного. Регламент должен быть максимально конкретным и применимым на практике. Для каждого этапа и шага пиши полное текстовое описание — что именно нужно сделать, как, в каком порядке.`
+    : `Ты специалист по HR и корпоративному праву. Составляй должностные инструкции в строгом соответствии с российским трудовым законодательством, на официальном деловом языке. Используй markdown: ## для разделов, ### для подразделов, - для списков, - [ ] для чек-листов. Инструкция должна быть юридически грамотной и практически применимой.`;
+
+  const userPrompt = isRegulation
+    ? `Составь подробный рабочий регламент для должности «${roleName}» компании «${companyName}».
+
+${processContext ? `Данные о процессе и задачах:\n${processContext}\n` : ""}
+
+Структура регламента (строго соблюдай):
+
+## 1. Общие положения
+Напиши: назначение регламента, область применения, кто ответственен за актуализацию.
+
+## 2. Термины и сокращения
+Расшифруй все специфические термины и аббревиатуры, встречающиеся в регламенте.
+
+## 3. Цели и задачи
+Опиши цель работы сотрудника, ключевые показатели результата.
+
+## 4. Порядок выполнения работ
+ВАЖНО: Для КАЖДОГО этапа процесса создай подраздел ### с полным описанием. Внутри каждого этапа для КАЖДОГО шага создай подраздел #### с:
+- Полным текстовым описанием что именно нужно сделать (2-5 предложений)
+- Входящими данными/документами
+- Ожидаемым результатом
+- Сроком выполнения (если указан)
+- Чек-листом выполнения в формате:
+  - [ ] пункт 1
+  - [ ] пункт 2
+  - [ ] пункт 3
+Для точек принятия решений опиши критерии каждого варианта выбора.
+
+## 5. Взаимодействие с другими подразделениями
+Опиши: от кого получает задачи, кому передаёт, в каком формате и с каким сроком.
+
+## 6. Используемые документы и системы
+Перечисли все документы и ИТ-системы с описанием для чего каждый используется.
+
+## 7. Контроль и ответственность
+Опиши: кто контролирует, критерии качества, меры при отклонениях.
+
+## 8. Сводный чек-лист должности
+Составь итоговый чек-лист — все ключевые контрольные точки в формате - [ ] для самопроверки сотрудника.
+
+Требования: конкретные действия (глаголы), измеримые сроки, понятный язык. Не сокращай разделы 4 и 8 — они должны быть максимально подробными.`
+    : `Составь должностную инструкцию для должности «${roleName}» компании «${companyName}».
+
+${processContext ? `Данные о процессе и задачах:\n${processContext}\n` : ""}
+
+Структура должностной инструкции:
+
+## 1. Общие положения
+Полное наименование должности, категория, кому подчиняется, кем назначается и освобождается, требования к замещению.
+
+## 2. Квалификационные требования
+Опиши: образование, опыт работы, необходимые знания и навыки, профессиональные компетенции — конкретно, исходя из задач должности.
+
+## 3. Должностные обязанности
+ВАЖНО: Сгруппируй обязанности по этапам/направлениям работы. Для каждого направления создай подраздел ### и перечисли конкретные обязанности. По каждой ключевой обязанности добавь чек-лист выполнения в формате:
+  - [ ] проверить ...
+  - [ ] оформить ...
+  - [ ] передать ...
+Используй все этапы и шаги из данных процесса — они должны найти отражение в обязанностях.
+
+## 4. Права
+Опиши права сотрудника: запрос информации, участие в совещаниях, внесение предложений, доступ к системам.
+
+## 5. Ответственность
+Опиши ответственность за: результаты, сроки, качество, документы, конфиденциальность — конкретно по задачам должности.
+
+## 6. Взаимодействие
+С кем взаимодействует, в какой форме, с какой периодичностью — отдельно по каждой роли/подразделению.
+
+## 7. Условия работы
+Режим работы, рабочее место, используемое оборудование и ИТ-системы.
+
+Требования: строгий деловой язык, конкретные формулировки. Раздел 3 должен быть максимально подробным с чек-листами по каждому направлению.`;
+
   try {
     const response = await anthropic.messages.create({
       model: "claude-haiku-4-5-20251001",
-      max_tokens: 2000,
-      messages: [
-        {
-          role: "user",
-          content: `Создай ${docTypeName} для должности ${roleName} в компании ${companyName}. Структурированный формат, четкие обязанности и зоны ответственности. Используй markdown-форматирование с заголовками (##) и списками (-).`,
-        },
-      ],
+      max_tokens: 4000,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
     });
     return response.content[0].type === "text" ? response.content[0].text : "";
   } catch (error) {
     logger.error("AI", "Document generation failed", error);
     throw error;
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Legal Document Generation
+// ═══════════════════════════════════════════════════════════════════
+
+const LEGAL_SYSTEM_PROMPT = `Ты — юридический ассистент компании. Ты готовишь юридически грамотные деловые документы: письма, уведомления, претензии, ответы на претензии, протоколы разногласий, анализы договоров и редактуру договоров.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+СТИЛЬ И ФОРМАТ ДОКУМЕНТОВ:
+
+1. Язык: официально-деловой, юридически точный, без разговорных оборотов.
+2. Тон: уважительный, но твёрдый; не агрессивный, но защищающий интересы компании.
+3. Структура исходящего письма:
+   — Исходящий номер и дата
+   — Должность, ФИО и организация адресата
+   — Обращение «Уважаем[ый/ая] [Имя Отчество]!»
+   — Вводная часть: ссылка на договор / основание обращения
+   — Основная часть: суть, факты, ссылки на нормы права
+   — Требование или предложение с конкретным сроком
+   — Перечень приложений (если есть)
+   — Подпись
+4. Ссылки на право: приводи точно (статья, часть, пункт). Если норма под вопросом — пиши [уточнить норму].
+5. Суммы: цифрами и прописью в скобках. Пример: 125 000 (сто двадцать пять тысяч) рублей 00 копеек.
+6. Неизвестные данные (даты, номера, имена): заменяй на [указать].
+7. Перед составлением сложного документа задай 2–3 уточняющих вопроса, если предоставленных данных недостаточно.
+8. Всегда уточняй роль компании в конкретной ситуации: Заказчик / Подрядчик / Исполнитель / Поставщик / Заявитель.
+
+ПРИОРИТЕТ: документ всегда должен защищать интересы нашей компании. Не выдумывай факты, суммы и даты — только то, что предоставлено.
+
+Верни ТОЛЬКО текст документа, без вступительных фраз, пояснений и обёрток. Первой строкой выведи заголовок документа (без слова «Заголовок:»).`;
+
+function buildRequisitesBlock(req: Record<string, string | null>): string {
+  const lines: string[] = ["РЕКВИЗИТЫ НАШЕЙ КОМПАНИИ:"];
+  if (req.fullName) lines.push(`Наименование:      ${req.fullName}`);
+  if (req.legalAddress) lines.push(`Юридический адрес: ${req.legalAddress}`);
+  if (req.inn) lines.push(`ИНН:               ${req.inn}`);
+  if (req.kpp) lines.push(`КПП:               ${req.kpp}`);
+  if (req.ogrn) lines.push(`ОГРН:              ${req.ogrn}`);
+  if (req.bankAccount) lines.push(`Р/с:               ${req.bankAccount}`);
+  if (req.bik) lines.push(`БИК:               ${req.bik}`);
+  if (req.corrAccount) lines.push(`Кор/с:             ${req.corrAccount}`);
+  if (req.bankName) lines.push(`Банк:              ${req.bankName}`);
+  if (req.signatoryTitle && req.signatoryName) {
+    lines.push(`Подпись:           ${req.signatoryTitle}, ${req.signatoryName}`);
+  }
+  if (req.phone) lines.push(`Телефон:           ${req.phone}`);
+  if (req.email) lines.push(`Email:             ${req.email}`);
+  return lines.join("\n");
+}
+
+export interface LegalAttachedFile {
+  storedPath: string;   // absolute path on disk
+  originalName: string;
+  mimeType: string;
+}
+
+type AnthropicContentBlock = Anthropic.Messages.TextBlockParam | Anthropic.Messages.ImageBlockParam | Anthropic.Messages.DocumentBlockParam;
+
+async function buildFileContentBlocks(files: LegalAttachedFile[]): Promise<AnthropicContentBlock[]> {
+  const blocks: AnthropicContentBlock[] = [];
+
+  for (const file of files) {
+    const { storedPath, originalName, mimeType } = file;
+
+    // Images → image block
+    if (mimeType.startsWith("image/")) {
+      const data = await import("fs/promises").then((m) => m.readFile(storedPath));
+      const base64 = data.toString("base64");
+      // HEIC not natively supported by Claude, treat as JPEG
+      const mediaType = mimeType === "image/heic" || mimeType === "image/heif"
+        ? "image/jpeg"
+        : (mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp");
+      blocks.push({
+        type: "image",
+        source: { type: "base64", media_type: mediaType, data: base64 },
+      } as Anthropic.Messages.ImageBlockParam);
+      blocks.push({ type: "text", text: `[Прикреплён файл: ${originalName}]` });
+      continue;
+    }
+
+    // PDF → document block (Claude supports PDFs natively)
+    if (mimeType === "application/pdf") {
+      const data = await import("fs/promises").then((m) => m.readFile(storedPath));
+      const base64 = data.toString("base64");
+      blocks.push({
+        type: "document",
+        source: { type: "base64", media_type: "application/pdf", data: base64 },
+      } as Anthropic.Messages.DocumentBlockParam);
+      blocks.push({ type: "text", text: `[Прикреплён PDF: ${originalName}]` });
+      continue;
+    }
+
+    // Word (.docx / .doc) → extract text with mammoth
+    if (
+      mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      mimeType === "application/msword"
+    ) {
+      try {
+        const mammoth = await import("mammoth");
+        const result = await mammoth.extractRawText({ path: storedPath });
+        const text = result.value.trim();
+        blocks.push({
+          type: "text",
+          text: `[Прикреплён Word-документ: ${originalName}]\n\n${text}`,
+        });
+      } catch {
+        blocks.push({ type: "text", text: `[Прикреплён файл: ${originalName} — не удалось извлечь текст]` });
+      }
+      continue;
+    }
+  }
+
+  return blocks;
+}
+
+export async function generateLegalDocument(
+  requisites: Record<string, string | null>,
+  userPrompt: string,
+  attachedFiles: LegalAttachedFile[] = []
+): Promise<{ title: string; content: string }> {
+  const reqBlock = buildRequisitesBlock(requisites);
+  const textPrompt = `${reqBlock}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${userPrompt}`;
+
+  // Build message content: files first, then text prompt
+  const fileBlocks = await buildFileContentBlocks(attachedFiles);
+  const contentBlocks: AnthropicContentBlock[] = [
+    ...fileBlocks,
+    { type: "text", text: textPrompt },
+  ];
+
+  const response = await anthropic.messages.create({
+    model: "claude-sonnet-4-6",
+    max_tokens: 8000,
+    system: LEGAL_SYSTEM_PROMPT,
+    messages: [{ role: "user", content: contentBlocks as any }],
+  });
+
+  const raw = response.content[0].type === "text" ? response.content[0].text.trim() : "";
+  const lines = raw.split("\n");
+  const title = lines[0].replace(/^#+\s*/, "").trim() || "Документ";
+  return { title, content: raw };
 }

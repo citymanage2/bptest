@@ -9,6 +9,13 @@ import React, {
 } from "react";
 import type { ProcessData, ProcessBlock, BlockType } from "@shared/types";
 import { BLOCK_CONFIG, SWIMLANE_COLORS } from "@shared/types";
+import {
+  SegmentLaner,
+  applyLaneOffsets,
+  routeConnection as routeConnectionHelper,
+  drawConnectionLabel,
+} from "./routingHelpers";
+import type { LayoutBlock as HLayoutBlock } from "./routingHelpers";
 
 // ============================================================
 // Constants
@@ -272,127 +279,6 @@ function computeLayout(data: ProcessData): LayoutInfo {
   };
 }
 
-// ============================================================
-// Connection Routing (orthogonal paths)
-// ============================================================
-function routeConnection(
-  source: LayoutBlock,
-  target: LayoutBlock,
-  connIndex: number,
-  totalConns: number,
-): Point[] {
-  const tx = target.x + target.w / 2;
-  const ty = target.y;
-
-  // Special handling for decision blocks (diamonds) - exit from corners based on conditionLabel
-  if (source.block.type === "decision") {
-    const conditionLabel = target.block.conditionLabel?.toLowerCase();
-    const cy = source.y + source.h / 2; // center Y of diamond
-
-    // "Да" (Yes) branch - exit from LEFT corner of diamond
-    if (conditionLabel === "да") {
-      const sx = source.x; // left corner X
-      const sy = cy; // left corner Y (center height)
-
-      // Route: left -> horizontal -> down to target
-      const gap = 35;
-      const routeX = Math.min(source.x - gap, tx);
-
-      return [
-        { x: sx, y: sy },
-        { x: routeX, y: sy },
-        { x: routeX, y: ty - gap },
-        { x: tx, y: ty - gap },
-        { x: tx, y: ty },
-      ];
-    }
-
-    // "Нет" (No) branch - exit from RIGHT corner of diamond
-    if (conditionLabel === "нет") {
-      const sx = source.x + source.w; // right corner X
-      const sy = cy; // right corner Y (center height)
-
-      // Route: right -> horizontal -> down to target
-      const gap = 35;
-      const routeX = Math.max(source.x + source.w + gap, tx);
-
-      return [
-        { x: sx, y: sy },
-        { x: routeX, y: sy },
-        { x: routeX, y: ty - gap },
-        { x: tx, y: ty - gap },
-        { x: tx, y: ty },
-      ];
-    }
-
-    // Default branch (no specific label or isDefault) - exit from bottom
-    const sx = source.x + source.w / 2;
-    const sy = source.y + source.h;
-
-    if (ty > sy + 5) {
-      if (Math.abs(sx - tx) < 8) {
-        return [
-          { x: sx, y: sy },
-          { x: tx, y: ty },
-        ];
-      }
-      const midY = (sy + ty) / 2;
-      return [
-        { x: sx, y: sy },
-        { x: sx, y: midY },
-        { x: tx, y: midY },
-        { x: tx, y: ty },
-      ];
-    }
-  }
-
-  // Standard routing for non-decision blocks
-  // Spread multiple exit points horizontally
-  const spread = Math.min(totalConns - 1, 4) * 14;
-  const exitOffset =
-    totalConns > 1
-      ? -spread / 2 +
-        connIndex * (spread / Math.max(totalConns - 1, 1))
-      : 0;
-
-  const sx = source.x + source.w / 2 + exitOffset;
-  const sy = source.y + source.h;
-
-  // Normal downward flow
-  if (ty > sy + 5) {
-    // Same column - straight vertical line
-    if (Math.abs(sx - tx) < 8) {
-      return [
-        { x: sx, y: sy },
-        { x: tx, y: ty },
-      ];
-    }
-    // Z-route through midpoint
-    const midY = (sy + ty) / 2;
-    return [
-      { x: sx, y: sy },
-      { x: sx, y: midY },
-      { x: tx, y: midY },
-      { x: tx, y: ty },
-    ];
-  }
-
-  // Backward or same-level flow - route around the side
-  const gap = 35;
-  const isRight = tx > sx;
-  const sideX = isRight
-    ? Math.max(source.x + source.w, target.x + target.w) + gap
-    : Math.min(source.x, target.x) - gap;
-
-  return [
-    { x: sx, y: sy },
-    { x: sx, y: sy + gap },
-    { x: sideX, y: sy + gap },
-    { x: sideX, y: ty - gap },
-    { x: tx, y: ty - gap },
-    { x: tx, y: ty },
-  ];
-}
 
 function drawArrowHead(
   ctx: CanvasRenderingContext2D,
@@ -587,25 +473,37 @@ function getBlockFill(type: BlockType): string {
 // ============================================================
 // Draw Single Block (shape + content)
 // ============================================================
+const CONNECTED_COLOR = "#a78bfa"; // violet-400 (light lavender)
+
 function drawBlockShape(
   ctx: CanvasRenderingContext2D,
   lb: LayoutBlock,
   isHighlighted: boolean,
   isSelected: boolean,
+  isConnected: boolean = false,
 ) {
   const { block, x, y, w, h } = lb;
+  const inactive = block.isActive === false;
   const config = BLOCK_CONFIG[block.type];
-  const fill = getBlockFill(block.type);
-  const border = config.borderColor;
-  const lw = isHighlighted || isSelected ? 3 : 2;
+  const fill = inactive ? "#f3f4f6" : isConnected ? "#f5f3ff" : getBlockFill(block.type);
+  const border = inactive ? "#9ca3af" : isConnected ? CONNECTED_COLOR : config.borderColor;
+  const lw = isHighlighted || isSelected || isConnected ? 3 : 2;
+
+  // Inactive blocks rendered at reduced opacity
+  if (inactive) ctx.globalAlpha = 0.55;
 
   // Shadow
   ctx.save();
   if (isHighlighted || isSelected) {
-    ctx.shadowColor = hexToRgba(border, 0.35);
+    ctx.shadowColor = hexToRgba(config.borderColor, 0.35);
     ctx.shadowBlur = 18;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 4;
+  } else if (isConnected) {
+    ctx.shadowColor = hexToRgba(CONNECTED_COLOR, 0.3);
+    ctx.shadowBlur = 14;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 3;
   } else {
     ctx.shadowColor = "rgba(0, 0, 0, 0.08)";
     ctx.shadowBlur = 10;
@@ -635,6 +533,7 @@ function drawBlockShape(
   }
 
   ctx.restore();
+  ctx.globalAlpha = 1;
 
   // Selected indicator: dashed outline
   if (isSelected) {
@@ -644,6 +543,19 @@ function drawBlockShape(
     ctx.setLineDash([6, 3]);
     ctx.beginPath();
     ctx.roundRect(x - 5, y - 5, w + 10, h + 10, 14);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  }
+
+  // Connected indicator: solid lavender outer ring
+  if (isConnected) {
+    ctx.save();
+    ctx.strokeStyle = CONNECTED_COLOR;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 3]);
+    ctx.beginPath();
+    ctx.roundRect(x - 4, y - 4, w + 8, h + 8, 13);
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.restore();
@@ -704,16 +616,17 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
     return;
   }
 
-  // Block name
+  // Block name — allow up to 3 lines (decision returns early above)
   ctx.fillStyle = "#111827";
   ctx.font = `bold 13px ${FONT_FAMILY}`;
-  const nameLines = wrapText(ctx, block.name, textMaxW, 2);
+  const nameLines = wrapText(ctx, block.name, textMaxW, 3);
   for (const line of nameLines) {
     ctx.fillText(line, cx, curY);
     curY += 17;
   }
 
   // Description (for action and product blocks)
+  // Use whatever vertical space remains after the name
   if (
     (block.type === "action" || block.type === "product") &&
     block.description
@@ -721,7 +634,11 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
     curY += 3;
     ctx.fillStyle = "#6b7280";
     ctx.font = `12px ${FONT_FAMILY}`;
-    const descLines = wrapText(ctx, block.description, textMaxW, 2);
+    // Reserve space for badges row on action blocks (gap 8 + badge 22 + bottom margin 8)
+    const reservedBottom = block.type === "action" ? 38 : 8;
+    const availH = y + h - curY - reservedBottom;
+    const descMaxLines = Math.max(1, Math.min(2, Math.floor(availH / 15)));
+    const descLines = wrapText(ctx, block.description, textMaxW, descMaxLines);
     for (const line of descLines) {
       ctx.fillText(line, cx, curY);
       curY += 15;
@@ -739,6 +656,8 @@ function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
     if (docCount > 0) badges.push("\uD83D\uDCC4 " + docCount);
     if (block.infoSystems?.length)
       badges.push("\uD83D\uDDA5 " + block.infoSystems.length);
+    if (block.checklist?.length)
+      badges.push("\u2713 " + block.checklist.length);
 
     if (badges.length > 0) {
       ctx.font = `11px ${FONT_FAMILY}`;
@@ -802,28 +721,85 @@ function drawAllConnections(
   hoveredBlockId: string | null,
   selectedBlockId: string | null | undefined,
 ) {
+  // Build helper-typed layout blocks for collision-aware routing
+  const allLayoutBlocks: HLayoutBlock[] = allBlocks
+    .map((b) => {
+      const lb = blockMap[b.id];
+      if (!lb) return null;
+      return {
+        id: b.id,
+        x: lb.x,
+        y: lb.y,
+        w: lb.w,
+        h: lb.h,
+        block: { type: b.type, conditionLabel: b.conditionLabel, isDefault: b.isDefault },
+        connections: b.connections,
+      } as HLayoutBlock;
+    })
+    .filter((x): x is HLayoutBlock => x !== null);
+
+  const helperBlockMap: Record<string, HLayoutBlock> = {};
+  for (const hb of allLayoutBlocks) helperBlockMap[hb.id] = hb;
+
+  // Build effective edges: skip inactive blocks, bypass them in routing
+  const activeSet = new Set(allBlocks.filter((b) => b.isActive !== false).map((b) => b.id));
+  function resolveActiveTargets(targetId: string, visited = new Set<string>()): string[] {
+    if (visited.has(targetId)) return [];
+    visited.add(targetId);
+    if (activeSet.has(targetId)) return [targetId];
+    const b = allBlocks.find((x) => x.id === targetId);
+    if (!b) return [];
+    const out: string[] = [];
+    for (const nxt of b.connections) out.push(...resolveActiveTargets(nxt, new Set(visited)));
+    return out;
+  }
+  type DrawEdge = { sourceBlock: ProcessBlock; targetId: string; bypassed: boolean };
+  const drawEdges: DrawEdge[] = [];
   for (const block of allBlocks) {
-    const source = blockMap[block.id];
-    if (!source) continue;
+    if (!activeSet.has(block.id)) continue;
+    for (const connId of block.connections) {
+      if (activeSet.has(connId)) {
+        drawEdges.push({ sourceBlock: block, targetId: connId, bypassed: false });
+      } else {
+        for (const tid of resolveActiveTargets(connId)) {
+          drawEdges.push({ sourceBlock: block, targetId: tid, bypassed: true });
+        }
+      }
+    }
+  }
 
-    const totalConns = block.connections.length;
-    for (let ci = 0; ci < block.connections.length; ci++) {
-      const targetId = block.connections[ci];
-      const target = blockMap[targetId];
-      if (!target) continue;
+  // Pass 1: compute all routes with lane offsets
+  const laner = new SegmentLaner();
+  const routeCache = new Map<string, Point[]>();
 
-      const isHL =
-        block.id === hoveredBlockId ||
-        block.id === selectedBlockId ||
-        targetId === hoveredBlockId ||
-        targetId === selectedBlockId;
+  for (let ei = 0; ei < drawEdges.length; ei++) {
+    const { sourceBlock, targetId } = drawEdges[ei];
+    const source = helperBlockMap[sourceBlock.id];
+    const target = helperBlockMap[targetId];
+    if (!source || !target) continue;
+    const edgesFromSource = drawEdges.filter((e) => e.sourceBlock.id === sourceBlock.id);
+    const ci = edgesFromSource.indexOf(drawEdges[ei]);
+    const rawPts = routeConnectionHelper(source, target, ci, edgesFromSource.length, allLayoutBlocks);
+    const adjPts = applyLaneOffsets(rawPts, laner);
+    routeCache.set(`${sourceBlock.id}->${targetId}`, adjPts);
+  }
 
-      const points = routeConnection(source, target, ci, totalConns);
+  // Pass 2: draw
+  for (const { sourceBlock: block, targetId, bypassed } of drawEdges) {
+    const points = routeCache.get(`${block.id}->${targetId}`);
+    if (!points) continue;
 
-      // Draw the polyline path
-      ctx.strokeStyle = isHL ? "#3b82f6" : "#6b7280";
+    const isHL =
+      block.id === hoveredBlockId ||
+      block.id === selectedBlockId ||
+      targetId === hoveredBlockId ||
+      targetId === selectedBlockId;
+
+      // Draw the polyline path (dashed for bypass arrows that skip inactive blocks)
+      const arrowColor = bypassed ? "#9ca3af" : isHL ? "#3b82f6" : "#6b7280";
+      ctx.strokeStyle = arrowColor;
       ctx.lineWidth = isHL ? 2.5 : 2;
-      ctx.setLineDash([]);
+      ctx.setLineDash(bypassed ? [6, 4] : []);
 
       ctx.beginPath();
       ctx.moveTo(points[0].x, points[0].y);
@@ -831,51 +807,23 @@ function drawAllConnections(
         ctx.lineTo(points[i].x, points[i].y);
       }
       ctx.stroke();
+      ctx.setLineDash([]);
 
       // Arrow head at end
       const last = points[points.length - 1];
       const prev = points[points.length - 2];
-      ctx.fillStyle = isHL ? "#3b82f6" : "#6b7280";
+      ctx.fillStyle = arrowColor;
       drawArrowHead(ctx, last.x, last.y, prev.x, prev.y, 10);
 
-      // Condition label for decision/split branches
       const targetBlock = allBlocks.find((b) => b.id === targetId);
+      const skip = new Set<string>([block.id, targetId]);
+
+      // Condition label for decision/split branches
       if (
         targetBlock?.conditionLabel &&
         (block.type === "decision" || block.type === "split")
       ) {
-        const labelPt =
-          points.length >= 3
-            ? {
-                x: (points[0].x + points[1].x) / 2 + 20,
-                y: (points[0].y + points[1].y) / 2,
-              }
-            : {
-                x: (points[0].x + last.x) / 2 + 20,
-                y: (points[0].y + last.y) / 2,
-              };
-
-        const labelText = "[" + targetBlock.conditionLabel + "]";
-        ctx.font = `italic 11px ${FONT_FAMILY}`;
-        const tw = ctx.measureText(labelText).width + 12;
-        const th = 20;
-
-        // Label background
-        ctx.fillStyle = "#ffffff";
-        ctx.globalAlpha = 0.92;
-        ctx.beginPath();
-        ctx.roundRect(labelPt.x - tw / 2, labelPt.y - th / 2, tw, th, 4);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-        ctx.strokeStyle = "#d1d5db";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        // Label text
-        ctx.fillStyle = "#3b82f6";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(labelText, labelPt.x, labelPt.y);
+        drawConnectionLabel(ctx, targetBlock.conditionLabel, points, allLayoutBlocks, skip);
       }
 
       // Default branch slash mark
@@ -895,7 +843,6 @@ function drawAllConnections(
         ctx.lineTo(mp.x + 6, mp.y + 6);
         ctx.stroke();
       }
-    }
   }
 }
 
@@ -1095,11 +1042,15 @@ function renderDiagram(
   for (const lb of layoutBlocks) {
     const isHovered = lb.block.id === hoveredBlockId;
     const isSelected = lb.block.id === selectedBlockId;
-    const isConnHL = hoveredBlockId
+    const isHoverConn = hoveredBlockId
       ? isConnectedTo(lb.block.id, hoveredBlockId, data.blocks)
       : false;
+    const isSelConn =
+      !isSelected &&
+      !!selectedBlockId &&
+      isConnectedTo(lb.block.id, selectedBlockId, data.blocks);
 
-    drawBlockShape(ctx, lb, isHovered || isConnHL, isSelected);
+    drawBlockShape(ctx, lb, isHovered || isHoverConn, isSelected, isSelConn);
     drawBlockContent(ctx, lb);
   }
 }

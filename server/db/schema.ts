@@ -28,6 +28,7 @@ export const tokenOperationTypeEnum = pgEnum("token_operation_type", [
   "recommendations",
   "transcription",
   "topup",
+  "file_upload",
 ]);
 
 // Users
@@ -243,6 +244,28 @@ export const tokenOperationsRelations = relations(tokenOperations, ({ one }) => 
   user: one(users, { fields: [tokenOperations.userId], references: [users.id] }),
 }));
 
+// Block Files — files attached to process blocks
+export const blockFiles = pgTable("block_files", {
+  id: serial("id").primaryKey(),
+  processId: integer("process_id")
+    .notNull()
+    .references(() => processes.id, { onDelete: "cascade" }),
+  blockId: varchar("block_id", { length: 255 }).notNull(),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  originalName: varchar("original_name", { length: 500 }).notNull(),
+  storedName: varchar("stored_name", { length: 500 }).notNull(),
+  mimeType: varchar("mime_type", { length: 100 }).notNull(),
+  fileSize: integer("file_size").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const blockFilesRelations = relations(blockFiles, ({ one }) => ({
+  process: one(processes, { fields: [blockFiles.processId], references: [processes.id] }),
+  user: one(users, { fields: [blockFiles.userId], references: [users.id] }),
+}));
+
 // ===== Consent & Privacy =====
 
 export const consentTypeEnum = pgEnum("consent_type", [
@@ -302,4 +325,115 @@ export const cookieConsents = pgTable("cookie_consents", {
 
 export const cookieConsentsRelations = relations(cookieConsents, ({ one }) => ({
   user: one(users, { fields: [cookieConsents.userId], references: [users.id] }),
+}));
+
+// Business Models — driver-based financial model + Osterwalder BMC canvas
+export const businessModels = pgTable("business_models", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 500 }).notNull(),
+  input: jsonb("input").notNull(),   // BusinessModelInput
+  output: jsonb("output").notNull(), // BusinessModelOutput
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const businessModelsRelations = relations(businessModels, ({ one }) => ({
+  company: one(companies, { fields: [businessModels.companyId], references: [companies.id] }),
+  user: one(users, { fields: [businessModels.userId], references: [users.id] }),
+}));
+
+// KPI Plans — KPI & Motivation plans linked to a process
+export const kpiPlans = pgTable("kpi_plans", {
+  id: serial("id").primaryKey(),
+  processId: integer("process_id")
+    .notNull()
+    .references(() => processes.id, { onDelete: "cascade" }),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 500 }).notNull(),
+  year: integer("year").notNull(),
+  linkedBusinessModelId: integer("linked_business_model_id").references(
+    () => businessModels.id,
+    { onDelete: "set null" }
+  ),
+  roles: jsonb("roles").notNull().default([]), // RoleKpiPlan[]
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const kpiPlansRelations = relations(kpiPlans, ({ one }) => ({
+  process: one(processes, { fields: [kpiPlans.processId], references: [processes.id] }),
+  company: one(companies, { fields: [kpiPlans.companyId], references: [companies.id] }),
+  user: one(users, { fields: [kpiPlans.userId], references: [users.id] }),
+  linkedBusinessModel: one(businessModels, {
+    fields: [kpiPlans.linkedBusinessModelId],
+    references: [businessModels.id],
+  }),
+}));
+
+// Company Requisites — legal/banking details + letterhead for legal document generation
+export const companyRequisites = pgTable("company_requisites", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .unique()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  data: jsonb("data").notNull().default({}), // CompanyRequisites object
+  letterheadUrl: varchar("letterhead_url", { length: 1024 }),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const companyRequisitesRelations = relations(companyRequisites, ({ one }) => ({
+  company: one(companies, { fields: [companyRequisites.companyId], references: [companies.id] }),
+}));
+
+// Legal Documents — AI-generated legal documents
+export const legalDocuments = pgTable("legal_documents", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  type: varchar("type", { length: 100 }).notNull(),
+  title: varchar("title", { length: 500 }).notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const legalDocumentsRelations = relations(legalDocuments, ({ one }) => ({
+  company: one(companies, { fields: [legalDocuments.companyId], references: [companies.id] }),
+  user: one(users, { fields: [legalDocuments.userId], references: [users.id] }),
+}));
+
+// Legal Attachments — files uploaded for use in legal document generation
+export const legalAttachments = pgTable("legal_attachments", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  originalName: varchar("original_name", { length: 500 }).notNull(),
+  storedName: varchar("stored_name", { length: 500 }).notNull(),
+  mimeType: varchar("mime_type", { length: 100 }).notNull(),
+  fileSize: integer("file_size").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const legalAttachmentsRelations = relations(legalAttachments, ({ one }) => ({
+  company: one(companies, { fields: [legalAttachments.companyId], references: [companies.id] }),
+  user: one(users, { fields: [legalAttachments.userId], references: [users.id] }),
 }));

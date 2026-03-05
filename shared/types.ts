@@ -76,9 +76,11 @@ export interface ProcessBlock {
   outputDocuments?: string[];
   infoSystems?: string[];
   funnelStage?: string;
+  checklist?: string[]; // Пошаговый чек-лист выполнения задачи
   connections: string[]; // IDs of next blocks
   conditionLabel?: string; // For decision branches
   isDefault?: boolean; // Default branch from decision
+  isActive?: boolean; // false = block is disabled (skipped in routing)
   position?: { x: number; y: number };
 }
 
@@ -105,6 +107,7 @@ export interface ProcessData {
   roles: ProcessRole[];
   stages: ProcessStage[];
   blocks: ProcessBlock[];
+  crmOverride?: CrmFunnel; // User-selected CRM funnel override (replaces auto-generated)
 }
 
 export interface Process {
@@ -251,6 +254,7 @@ export interface QualityCheckItem {
   rule: string;
   passed: boolean;
   details: string;
+  howToFix?: string; // Actionable fix guidance (only for failed items)
   severity: "error" | "warning" | "info";
 }
 
@@ -343,7 +347,252 @@ export const TOKEN_COSTS = {
   recommendations: 200,
   transcription_per_minute: 10,
   document: 100,
+  crm_variants: 300,
+  file_upload: 100,
 } as const;
+
+// ============================================
+// Business Model Builder
+// ============================================
+
+export type FinancialMode =
+  | "DIVIDENDS_TO_REVENUE"
+  | "REVENUE_DIRECT"
+  | "PROFIT_TO_REVENUE";
+
+export type MoneyUnit = "RUB" | "THOUSAND" | "MILLION";
+export type DealsRounding = "CEIL" | "ROUND" | "FLOOR";
+
+export interface BmCostLine {
+  name: string;
+  percent: number;
+}
+
+export interface BusinessModelInput {
+  year: number;
+  mode: FinancialMode;
+  rounding: {
+    money_unit: MoneyUnit;
+    deals: DealsRounding;
+    avg_ticket_unit: MoneyUnit;
+  };
+  tolerance: {
+    avg_ticket_vs_deals_pct: number;
+  };
+  target_profit_pct: number | null;
+  cost_lines: BmCostLine[];
+  dividends_needed_by_month: (number | null)[] | null;
+  revenue_plan_by_month: (number | null)[] | null;
+  profit_needed_by_month: (number | null)[] | null;
+  deals_count_by_month: (number | null)[] | null;
+  avg_ticket_by_month: (number | null)[] | null;
+  canvas: BusinessModelCanvasInput;
+}
+
+export interface BusinessModelCanvasInput {
+  company_name: string | null;
+  industry: string | null;
+  geography: string[] | null;
+  b2b_b2c: "B2B" | "B2C" | "B2G" | null;
+  customer_segments: string[] | null;
+  value_propositions: string[] | null;
+  channels: string[] | null;
+  customer_relationships: string[] | null;
+  revenue_streams: string[] | null;
+  key_resources: string[] | null;
+  key_activities: string[] | null;
+  key_partners: string[] | null;
+  cost_structure: string[] | null;
+  notes: string | null;
+}
+
+export interface MonthlyFinancialRow {
+  month: number; // 1..12
+  revenue: number;
+  cost_lines: { name: string; percent: number; amount: number }[];
+  total_costs: number;
+  residual_profit: number;
+  residual_profit_pct: number;
+  deals_count: number | null;
+  avg_ticket: number | null;
+}
+
+export interface FinancialModelOutput {
+  rows: MonthlyFinancialRow[];
+  annual: {
+    revenue: number;
+    cost_lines: { name: string; amount: number }[];
+    total_costs: number;
+    residual_profit: number;
+    residual_profit_pct: number;
+  };
+  errors: string[];
+  warnings: string[];
+}
+
+export interface CanvasOutput {
+  customer_segments: string[];
+  value_propositions: string[];
+  channels: string[];
+  customer_relationships: string[];
+  revenue_streams: string[];
+  key_resources: string[];
+  key_activities: string[];
+  key_partners: string[];
+  cost_structure: string[];
+  meta: {
+    company_name: string | null;
+    industry: string | null;
+    geography: string[];
+    b2b_b2c: string | null;
+    notes: string | null;
+  };
+  warnings: string[];
+}
+
+export interface BusinessModelOutput {
+  financial: FinancialModelOutput;
+  canvas: CanvasOutput;
+}
+
+export interface BusinessModel {
+  id: number;
+  companyId: number;
+  userId: number;
+  name: string;
+  input: BusinessModelInput;
+  output: BusinessModelOutput;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BlockFile {
+  id: number;
+  processId: number;
+  blockId: string;
+  userId: number;
+  originalName: string;
+  storedName: string;
+  mimeType: string;
+  fileSize: number;
+  createdAt: string;
+}
+
+// ============================================
+// KPI & Motivation
+// ============================================
+
+export type KpiType =
+  | "revenue"      // Выручка
+  | "deals"        // Количество сделок
+  | "conversion"   // Конверсия
+  | "avg_ticket"   // Средний чек
+  | "time"         // Время (SLA, срок)
+  | "quality"      // Качество (% ошибок, удовл-ть)
+  | "custom";      // Произвольный
+
+export type KpiSourceLink =
+  | "bm_revenue"     // Из бизнес-модели: выручка
+  | "bm_deals"       // Из бизнес-модели: сделки
+  | "bm_avg_ticket"  // Из бизнес-модели: средний чек
+  | "bm_profit"      // Из бизнес-модели: прибыль
+  | "manual";        // Введено вручную
+
+export interface KpiDefinition {
+  id: string;
+  name: string;
+  description: string;
+  type: KpiType;
+  unit: string;             // %, руб, шт, дн, и т.д.
+  targetValue: number | null;
+  weight: number;           // Вес KPI в % (сумма по роли = 100)
+  sourceLink: KpiSourceLink;
+  linkedBlockId: string | null; // Привязка к шагу процесса
+}
+
+export type MotivationPartType =
+  | "fixed"            // Фиксированный оклад
+  | "variable_kpi"     // Переменная часть от KPI
+  | "bonus_threshold"; // Бонус при достижении порога
+
+export interface MotivationPart {
+  id: string;
+  name: string;                   // Название части
+  type: MotivationPartType;
+  amount: number | null;          // Фиксированная сумма (для fixed)
+  pctOfBase: number | null;       // % от базы (для variable_kpi)
+  thresholdPct: number | null;    // Порог достижения KPI для бонуса
+  bonusAmount: number | null;     // Сумма бонуса при достижении порога
+  kpiIds: string[];               // KPI, к которым привязана часть
+}
+
+export interface RoleKpiPlan {
+  roleId: string;
+  roleName: string;
+  kpis: KpiDefinition[];
+  motivationParts: MotivationPart[];
+}
+
+export interface KpiPlanInput {
+  name: string;
+  year: number;
+  linkedBusinessModelId: number | null;
+  roles: RoleKpiPlan[];
+}
+
+export interface KpiPlan {
+  id: number;
+  processId: number;
+  companyId: number;
+  userId: number;
+  name: string;
+  year: number;
+  linkedBusinessModelId: number | null;
+  roles: RoleKpiPlan[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ============================================
+// Legal Documents
+// ============================================
+
+export interface CompanyRequisites {
+  fullName: string | null;
+  shortName: string | null;
+  legalAddress: string | null;
+  inn: string | null;
+  kpp: string | null;
+  ogrn: string | null;
+  bankAccount: string | null;
+  bik: string | null;
+  corrAccount: string | null;
+  bankName: string | null;
+  signatoryTitle: string | null;
+  signatoryName: string | null;
+  phone: string | null;
+  email: string | null;
+  letterheadUrl: string | null;
+}
+
+export type LegalDocType =
+  | "letter"             // деловое письмо / уведомление
+  | "claim_response"     // ответ на претензию
+  | "claim"              // претензия / требование
+  | "dispute_protocol"   // протокол разногласий
+  | "contract_analysis"  // анализ договора
+  | "contract_edit"      // юридическая правка договора
+  | "complaint";         // жалоба в контролирующий орган
+
+export interface LegalDocument {
+  id: number;
+  companyId: number;
+  userId: number;
+  type: LegalDocType;
+  title: string;
+  content: string;
+  createdAt: string;
+}
 
 // Block visual config
 export const BLOCK_CONFIG: Record<BlockType, { shape: string; borderColor: string; label: string }> = {
