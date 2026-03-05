@@ -1229,31 +1229,23 @@ export function ProcessPage() {
     );
   }, [data, processId, updateDataMutation]);
 
-  const handleExportPNG = useCallback(() => {
+  const handleExportPNG = useCallback(async (): Promise<void> => {
     const svg = canvasHandleRef.current?.exportDiagramSVG();
-    if (svg) {
-      exportToPNG(svg, `${data?.name || "process"}.png`);
-    }
+    if (svg) await exportToPNG(svg, `${data?.name || "process"}.png`);
   }, [data?.name]);
 
-  const handleExportSVG = useCallback(() => {
+  const handleExportSVG = useCallback(async (): Promise<void> => {
     const svg = canvasHandleRef.current?.exportDiagramSVG();
-    if (svg) {
-      exportToSVG(svg, `${data?.name || "process"}.svg`);
-    }
+    if (svg) exportToSVG(svg, `${data?.name || "process"}.svg`);
   }, [data?.name]);
 
   const handleExportBPMN = useCallback(() => {
-    if (data) {
-      exportToBPMN(data, `${data.name || "process"}.bpmn`);
-    }
+    if (data) exportToBPMN(data, `${data.name || "process"}.bpmn`);
   }, [data]);
 
-  const handleExportPDF = useCallback(() => {
+  const handleExportPDF = useCallback(async (): Promise<void> => {
     const svg = canvasHandleRef.current?.exportDiagramSVG();
-    if (svg && data) {
-      exportToPDF(svg, `${data.name || "process"}.pdf`, data.name);
-    }
+    if (svg && data) await exportToPDF(svg, `${data.name || "process"}.pdf`, data.name);
   }, [data]);
 
   const handleRequestChange = useCallback(() => {
@@ -1765,10 +1757,10 @@ interface DiagramTabProps {
   onSetEditFunnelStage: (v: string) => void;
   onSetEditChecklist: (v: string) => void;
   onScaleChange: (scale: number) => void;
-  onExportPNG: () => void;
-  onExportSVG: () => void;
+  onExportPNG: () => Promise<void>;
+  onExportSVG: () => Promise<void>;
   onExportBPMN: () => void;
-  onExportPDF: () => void;
+  onExportPDF: () => Promise<void>;
   onToggleActive: (blockId: string) => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -1830,6 +1822,13 @@ function DiagramTab({
   canUndo,
   canRedo,
 }: DiagramTabProps) {
+  const [exporting, setExporting] = React.useState<Record<string, boolean>>({});
+
+  const runExport = React.useCallback(async (key: string, fn: () => Promise<void> | void) => {
+    setExporting((prev) => ({ ...prev, [key]: true }));
+    try { await fn(); } finally { setExporting((prev) => ({ ...prev, [key]: false })); }
+  }, []);
+
   return (
     <div className="flex gap-4">
       {/* Main Canvas Area */}
@@ -1896,20 +1895,40 @@ function DiagramTab({
           </div>
 
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="sm" onClick={onExportPNG}>
-              <FileImage className="w-4 h-4" />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={exporting["png"]}
+              onClick={() => runExport("png", onExportPNG)}
+            >
+              {exporting["png"] ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileImage className="w-4 h-4" />}
               PNG
             </Button>
-            <Button variant="outline" size="sm" onClick={onExportSVG}>
-              <FileCode className="w-4 h-4" />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={exporting["svg"]}
+              onClick={() => runExport("svg", onExportSVG)}
+            >
+              {exporting["svg"] ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCode className="w-4 h-4" />}
               SVG
             </Button>
-            <Button variant="outline" size="sm" onClick={onExportBPMN}>
-              <FileCode2 className="w-4 h-4" />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={exporting["bpmn"]}
+              onClick={() => runExport("bpmn", onExportBPMN)}
+            >
+              {exporting["bpmn"] ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCode2 className="w-4 h-4" />}
               BPMN
             </Button>
-            <Button variant="outline" size="sm" onClick={onExportPDF}>
-              <FileText className="w-4 h-4" />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={exporting["pdf"]}
+              onClick={() => runExport("pdf", onExportPDF)}
+            >
+              {exporting["pdf"] ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
               PDF
             </Button>
           </div>

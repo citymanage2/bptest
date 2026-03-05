@@ -32,44 +32,52 @@ export function exportToSVG(svgString: string, filename: string = "process-diagr
 
 /**
  * Convert an SVG string to a high-resolution PNG and trigger download.
- * Scale factor 5 gives crisp output even on large monitors / when zoomed in.
+ * Scale is capped so the offscreen canvas never exceeds the browser limit.
  */
 export function exportToPNG(
   svgString: string,
   filename: string = "process-diagram.png",
-): void {
-  const parser = new DOMParser();
-  const svgDoc = parser.parseFromString(svgString, "image/svg+xml");
-  const svgEl = svgDoc.documentElement;
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgString, "image/svg+xml");
+    const svgEl = svgDoc.documentElement;
 
-  const w = parseFloat(svgEl.getAttribute("width") || "1200");
-  const h = parseFloat(svgEl.getAttribute("height") || "800");
-  const SCALE = 5;
+    const w = parseFloat(svgEl.getAttribute("width") || "1200");
+    const h = parseFloat(svgEl.getAttribute("height") || "800");
 
-  const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
+    // Cap scale so canvas area stays under the browser hard limit (~268 M px).
+    const MAX_CANVAS_PIXELS = 200_000_000;
+    const SCALE = Math.min(5, Math.sqrt(MAX_CANVAS_PIXELS / (w * h)));
 
-  const img = new Image();
-  img.onload = () => {
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(w * SCALE);
-    canvas.height = Math.round(h * SCALE);
-    const ctx = canvas.getContext("2d", { alpha: false })!;
-    ctx.fillStyle = "#f8fafc";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.scale(SCALE, SCALE);
-    ctx.drawImage(img, 0, 0, w, h);
-    URL.revokeObjectURL(url);
+    const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
 
-    canvas.toBlob(
-      (pngBlob) => { if (pngBlob) downloadBlob(pngBlob, filename); },
-      "image/png",
-    );
-  };
-  img.onerror = () => URL.revokeObjectURL(url);
-  img.src = url;
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(w * SCALE);
+      canvas.height = Math.round(h * SCALE);
+      const ctx = canvas.getContext("2d", { alpha: false })!;
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.scale(SCALE, SCALE);
+      ctx.drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+
+      canvas.toBlob(
+        (pngBlob) => {
+          if (pngBlob) { downloadBlob(pngBlob, filename); resolve(); }
+          else reject(new Error("Failed to create PNG blob"));
+        },
+        "image/png",
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Failed to load SVG for PNG export")); };
+    img.src = url;
+  });
 }
 
 // ============================================
