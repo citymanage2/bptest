@@ -4,8 +4,6 @@ import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/lib/auth";
 import { cn, formatDateTime } from "@/lib/utils";
 import { exportToPNG, exportToBPMN, exportToPDF } from "@/lib/export";
-import { createBpmnContext, canConnect } from "@/lib/bpmn";
-import type { BpmnSession } from "@/lib/bpmn";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1024,9 +1022,6 @@ export function ProcessPage() {
   const [editConditionLabel, setEditConditionLabel] = useState("");
   const [editIsDefault, setEditIsDefault] = useState(false);
   const [editConnections, setEditConnections] = useState<string[]>([]);
-  const [editConnectionError, setEditConnectionError] = useState<string | null>(null);
-  /** Live BPMN session rebuilt whenever `data` changes */
-  const bpmnSessionRef = useRef<BpmnSession | null>(null);
   const [editFunnelStage, setEditFunnelStage] = useState("");
   const [editChecklist, setEditChecklist] = useState("");
 
@@ -1086,13 +1081,6 @@ export function ProcessPage() {
   const process = processQuery.data;
   const data = process?.data as ProcessData | undefined;
 
-  // ---- BPMN session (rebuilt when data changes) ----
-  useEffect(() => {
-    if (data) {
-      bpmnSessionRef.current = createBpmnContext(data);
-    }
-  }, [data]);
-
   const selectedBlock = useMemo(() => {
     if (!data || !selectedBlockId) return null;
     return data.blocks.find((b) => b.id === selectedBlockId) || null;
@@ -1128,7 +1116,6 @@ export function ProcessPage() {
       setEditConditionLabel(block.conditionLabel || "");
       setEditIsDefault(block.isDefault || false);
       setEditConnections(block.connections || []);
-      setEditConnectionError(null);
       setEditFunnelStage(block.funnelStage || "");
       setEditChecklist(block.checklist?.join("\n") || "");
     },
@@ -1639,45 +1626,9 @@ export function ProcessPage() {
             onSetEditConditionLabel={setEditConditionLabel}
             onSetEditIsDefault={setEditIsDefault}
             editConnections={editConnections}
-            editConnectionError={editConnectionError}
             editFunnelStage={editFunnelStage}
             editChecklist={editChecklist}
-            onSetEditConnections={(ids) => {
-              setEditConnections(ids);
-              setEditConnectionError(null);
-            }}
-            onAddEditConnection={(targetId) => {
-              if (!editingBlock || !data) return;
-              const session = bpmnSessionRef.current;
-              if (!session) {
-                // Fallback: no validation
-                if (!editConnections.includes(targetId)) {
-                  setEditConnections([...editConnections, targetId]);
-                }
-                return;
-              }
-              // Rebuild a temporary context with current editConnections state
-              // so canConnect sees live incoming/outgoing
-              const tempData = {
-                ...data,
-                blocks: data.blocks.map((b) =>
-                  b.id === editingBlock.id
-                    ? { ...b, connections: editConnections }
-                    : b,
-                ),
-              };
-              const tempSession = createBpmnContext(tempData);
-              const sourceBO = tempSession.ctx.blocks.get(editingBlock.id);
-              const targetBO = tempSession.ctx.blocks.get(targetId);
-              if (!sourceBO || !targetBO) return;
-              const result = canConnect(sourceBO, targetBO);
-              if (!result.allowed) {
-                setEditConnectionError(result.reason);
-                return;
-              }
-              setEditConnectionError(null);
-              setEditConnections([...editConnections, targetId]);
-            }}
+            onSetEditConnections={setEditConnections}
             onSetEditFunnelStage={setEditFunnelStage}
             onSetEditChecklist={setEditChecklist}
             onScaleChange={setCanvasScale}
@@ -1797,11 +1748,9 @@ interface DiagramTabProps {
   onSetEditConditionLabel: (v: string) => void;
   onSetEditIsDefault: (v: boolean) => void;
   editConnections: string[];
-  editConnectionError: string | null;
   editFunnelStage: string;
   editChecklist: string;
   onSetEditConnections: (v: string[]) => void;
-  onAddEditConnection: (targetId: string) => void;
   onSetEditFunnelStage: (v: string) => void;
   onSetEditChecklist: (v: string) => void;
   onScaleChange: (scale: number) => void;
@@ -1852,11 +1801,9 @@ function DiagramTab({
   onSetEditConditionLabel,
   onSetEditIsDefault,
   editConnections,
-  editConnectionError,
   editFunnelStage,
   editChecklist,
   onSetEditConnections,
-  onAddEditConnection,
   onSetEditFunnelStage,
   onSetEditChecklist,
   onScaleChange,
@@ -2210,11 +2157,11 @@ function DiagramTab({
                         );
                       })}
                       <select
-                        className={`flex h-7 w-full rounded-md border bg-transparent px-2 text-xs ${editConnectionError ? "border-red-400" : "border-gray-300"}`}
+                        className="flex h-7 w-full rounded-md border border-gray-300 bg-transparent px-2 text-xs"
                         value=""
                         onChange={(e) => {
-                          if (e.target.value) {
-                            onAddEditConnection(e.target.value);
+                          if (e.target.value && !editConnections.includes(e.target.value)) {
+                            onSetEditConnections([...editConnections, e.target.value]);
                           }
                           e.target.value = "";
                         }}
@@ -2232,9 +2179,6 @@ function DiagramTab({
                             </option>
                           ))}
                       </select>
-                      {editConnectionError && (
-                        <p className="text-xs text-red-500 mt-0.5">{editConnectionError}</p>
-                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 pt-2 border-t">
