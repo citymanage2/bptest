@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/lib/auth";
 import { cn, formatDateTime } from "@/lib/utils";
-import { exportToPNG, exportToBPMN, exportToPDF } from "@/lib/export";
+import { exportToPNG, exportToBPMN, exportToPDF, exportToSVG } from "@/lib/export";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,6 +68,7 @@ import {
   ArrowLeft,
   Loader2,
   FileImage,
+  FileCode,
   FileCode2,
   FileText,
   ZoomIn,
@@ -1228,22 +1229,23 @@ export function ProcessPage() {
     );
   }, [data, processId, updateDataMutation]);
 
-  const handleExportPNG = useCallback(() => {
-    if (canvasContainerRef.current) {
-      exportToPNG(canvasContainerRef.current, `${data?.name || "process"}.png`);
-    }
+  const handleExportPNG = useCallback(async (): Promise<void> => {
+    const svg = canvasHandleRef.current?.exportDiagramSVG();
+    if (svg) await exportToPNG(svg, `${data?.name || "process"}.png`);
+  }, [data?.name]);
+
+  const handleExportSVG = useCallback(async (): Promise<void> => {
+    const svg = canvasHandleRef.current?.exportDiagramSVG();
+    if (svg) exportToSVG(svg, `${data?.name || "process"}.svg`);
   }, [data?.name]);
 
   const handleExportBPMN = useCallback(() => {
-    if (data) {
-      exportToBPMN(data, `${data.name || "process"}.bpmn`);
-    }
+    if (data) exportToBPMN(data, `${data.name || "process"}.bpmn`);
   }, [data]);
 
-  const handleExportPDF = useCallback(() => {
-    if (canvasContainerRef.current && data) {
-      exportToPDF(canvasContainerRef.current, `${data.name || "process"}.pdf`, data.name);
-    }
+  const handleExportPDF = useCallback(async (): Promise<void> => {
+    const svg = canvasHandleRef.current?.exportDiagramSVG();
+    if (svg && data) await exportToPDF(svg, `${data.name || "process"}.pdf`, data.name);
   }, [data]);
 
   const handleRequestChange = useCallback(() => {
@@ -1633,6 +1635,7 @@ export function ProcessPage() {
             onSetEditChecklist={setEditChecklist}
             onScaleChange={setCanvasScale}
             onExportPNG={handleExportPNG}
+            onExportSVG={handleExportSVG}
             onExportBPMN={handleExportBPMN}
             onExportPDF={handleExportPDF}
             onToggleActive={handleToggleActive}
@@ -1754,9 +1757,10 @@ interface DiagramTabProps {
   onSetEditFunnelStage: (v: string) => void;
   onSetEditChecklist: (v: string) => void;
   onScaleChange: (scale: number) => void;
-  onExportPNG: () => void;
+  onExportPNG: () => Promise<void>;
+  onExportSVG: () => Promise<void>;
   onExportBPMN: () => void;
-  onExportPDF: () => void;
+  onExportPDF: () => Promise<void>;
   onToggleActive: (blockId: string) => void;
   onUndo: () => void;
   onRedo: () => void;
@@ -1766,6 +1770,7 @@ interface DiagramTabProps {
 
 function DiagramTab({
   data,
+  processId,
   selectedBlockId,
   selectedBlock,
   editingBlock,
@@ -1808,6 +1813,7 @@ function DiagramTab({
   onSetEditChecklist,
   onScaleChange,
   onExportPNG,
+  onExportSVG,
   onExportBPMN,
   onExportPDF,
   onToggleActive,
@@ -1816,6 +1822,15 @@ function DiagramTab({
   canUndo,
   canRedo,
 }: DiagramTabProps) {
+  const [exporting, setExporting] = React.useState<Record<string, boolean>>({});
+
+  const runExport = React.useCallback(async (key: string, fn: () => Promise<void> | void) => {
+    setExporting((prev) => ({ ...prev, [key]: true }));
+    // Yield to the browser so React can commit the spinner before heavy work starts.
+    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    try { await fn(); } finally { setExporting((prev) => ({ ...prev, [key]: false })); }
+  }, []);
+
   return (
     <div className="flex gap-4">
       {/* Main Canvas Area */}
@@ -1882,16 +1897,40 @@ function DiagramTab({
           </div>
 
           <div className="flex items-center gap-1">
-            <Button variant="outline" size="sm" onClick={onExportPNG}>
-              <FileImage className="w-4 h-4" />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={exporting["png"]}
+              onClick={() => runExport("png", onExportPNG)}
+            >
+              {exporting["png"] ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileImage className="w-4 h-4" />}
               PNG
             </Button>
-            <Button variant="outline" size="sm" onClick={onExportBPMN}>
-              <FileCode2 className="w-4 h-4" />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={exporting["svg"]}
+              onClick={() => runExport("svg", onExportSVG)}
+            >
+              {exporting["svg"] ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCode className="w-4 h-4" />}
+              SVG
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={exporting["bpmn"]}
+              onClick={() => runExport("bpmn", onExportBPMN)}
+            >
+              {exporting["bpmn"] ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCode2 className="w-4 h-4" />}
               BPMN
             </Button>
-            <Button variant="outline" size="sm" onClick={onExportPDF}>
-              <FileText className="w-4 h-4" />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={exporting["pdf"]}
+              onClick={() => runExport("pdf", onExportPDF)}
+            >
+              {exporting["pdf"] ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
               PDF
             </Button>
           </div>
