@@ -1822,9 +1822,9 @@ function DiagramTab({
   canUndo,
   canRedo,
 }: DiagramTabProps) {
-  const [exporting, setExporting] = React.useState<Record<string, boolean>>({});
+  const [exporting, setExporting] = useState<Record<string, boolean>>({});
 
-  const runExport = React.useCallback(async (key: string, fn: () => Promise<void> | void) => {
+  const runExport = useCallback(async (key: string, fn: () => Promise<void> | void) => {
     setExporting((prev) => ({ ...prev, [key]: true }));
     // Yield to the browser so React can commit the spinner before heavy work starts.
     await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
