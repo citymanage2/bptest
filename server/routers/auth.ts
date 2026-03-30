@@ -94,32 +94,38 @@ export const authRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      const user = await db.query.users.findFirst({
-        where: eq(users.email, input.email),
-      });
+      console.log("[LOGIN] Handler reached, email:", input.email);
+      try {
+        const user = await db.query.users.findFirst({
+          where: eq(users.email, input.email),
+        });
 
-      if (!user) {
-        throw new Error("Неверный email или пароль");
+        if (!user) {
+          throw new Error("Неверный email или пароль");
+        }
+
+        const valid = await bcrypt.compare(input.password, user.passwordHash);
+        if (!valid) {
+          throw new Error("Неверный email или пароль");
+        }
+
+        const token = signToken(user.id, user.role);
+
+        return {
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+            tokenBalance: user.tokenBalance,
+            createdAt: user.createdAt.toISOString(),
+          },
+          token,
+        };
+      } catch (e) {
+        console.error("[LOGIN ERROR]", e);
+        throw e;
       }
-
-      const valid = await bcrypt.compare(input.password, user.passwordHash);
-      if (!valid) {
-        throw new Error("Неверный email или пароль");
-      }
-
-      const token = signToken(user.id, user.role);
-
-      return {
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-          tokenBalance: user.tokenBalance,
-          createdAt: user.createdAt.toISOString(),
-        },
-        token,
-      };
     }),
 
   me: protectedProcedure.query(async ({ ctx }) => {
