@@ -49,8 +49,8 @@ export default function App() {
   return (
     <>
       <Routes>
+        <Route path="/" element={user ? <Navigate to="/companies" replace /> : <LandingPage />} />
         <Route element={<PublicLayout />}>
-          <Route path="/" element={user ? <Navigate to="/companies" replace /> : <LandingPage />} />
           <Route path="/login" element={user ? <Navigate to="/companies" replace /> : <LoginPage />} />
           <Route path="/register" element={user ? <Navigate to="/companies" replace /> : <RegisterPage />} />
           <Route path="/faq" element={<FaqPage />} />

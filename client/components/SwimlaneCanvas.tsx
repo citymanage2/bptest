@@ -16,6 +16,7 @@ import {
   drawConnectionLabel,
 } from "./routingHelpers";
 import type { LayoutBlock as HLayoutBlock } from "./routingHelpers";
+import { generateDiagramSVG } from "../lib/svgDiagramExport";
 
 // ============================================================
 // Constants
@@ -33,7 +34,7 @@ const FONT_FAMILY = "'Inter', system-ui, -apple-system, sans-serif";
 // ============================================================
 // Internal Types
 // ============================================================
-interface LayoutBlock {
+export interface LayoutBlock {
   block: ProcessBlock;
   x: number;
   y: number;
@@ -41,7 +42,7 @@ interface LayoutBlock {
   h: number;
 }
 
-interface LayoutInfo {
+export interface LayoutInfo {
   blocks: LayoutBlock[];
   totalWidth: number;
   totalHeight: number;
@@ -66,6 +67,8 @@ export interface SwimlaneCanvasHandle {
   zoomReset: () => void;
   getScale: () => number;
   toggleFullscreen: () => void;
+  exportDiagram: () => HTMLCanvasElement;
+  exportDiagramSVG: () => string;
 }
 
 export interface SwimlaneCanvasProps {
@@ -178,7 +181,7 @@ function hexToRgba(hex: string, alpha: number): string {
 // ============================================================
 // Layout Computation
 // ============================================================
-function computeLayout(data: ProcessData): LayoutInfo {
+export function computeLayout(data: ProcessData): LayoutInfo {
   const sortedStages = [...data.stages].sort((a, b) => a.order - b.order);
   const roleOrder = data.roles.map((r) => r.id);
   const stageOrder = sortedStages.map((s) => s.id);
@@ -1531,8 +1534,24 @@ export const SwimlaneCanvas = forwardRef<SwimlaneCanvasHandle, SwimlaneCanvasPro
         zoomReset,
         getScale: () => scaleRef.current,
         toggleFullscreen,
+        exportDiagram: () => {
+          const EXPORT_SCALE = 4; // 4× resolution for crisp print/PDF quality
+          const offscreen = document.createElement("canvas");
+          offscreen.width = Math.round(layout.totalWidth * EXPORT_SCALE);
+          offscreen.height = Math.round(layout.totalHeight * EXPORT_SCALE);
+          const ctx = offscreen.getContext("2d", { alpha: false });
+          if (ctx) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "high";
+            ctx.setTransform(EXPORT_SCALE, 0, 0, EXPORT_SCALE, 0, 0);
+            renderDiagram(ctx, data, layout, null, selectedBlockId);
+          }
+          return offscreen;
+        },
+        exportDiagramSVG: () => generateDiagramSVG(data, layout),
       }),
-      [fitToScreen, zoomIn, zoomOut, zoomReset, toggleFullscreen],
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [fitToScreen, zoomIn, zoomOut, zoomReset, toggleFullscreen, layout, data, selectedBlockId],
     );
 
     // ---- Cursor Style ----
