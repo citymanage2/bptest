@@ -11,6 +11,6 @@ echo "==> Building server..."
 npx tsc -p tsconfig.server.json
 
 echo "==> Pushing database schema..."
-npx drizzle-kit push --force
+yes | npx drizzle-kit push --force
 
 echo "==> Build complete!"
