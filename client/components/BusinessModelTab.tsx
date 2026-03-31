@@ -2,7 +2,7 @@
  * BusinessModelTab — financial model (P&L reverse planning) + Osterwalder BMC canvas
  * Shown inside CompanyPage as a separate tab.
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Loader2,
   Plus,
   Trash2,
@@ -32,6 +42,7 @@ import {
   ChevronDown,
   ChevronRight,
   X,
+  Wand2,
 } from "lucide-react";
 import { toast } from "@/components/ui/toaster";
 import type {
@@ -42,6 +53,7 @@ import type {
   MoneyUnit,
   DealsRounding,
   BusinessModelCanvasInput,
+  ProcessData,
 } from "@shared/types";
 
 // ─────────────────────────────────────────
@@ -96,6 +108,73 @@ const DEFAULT_INPUT: BusinessModelInput = {
 
 function cloneInput(inp: BusinessModelInput): BusinessModelInput {
   return JSON.parse(JSON.stringify(inp));
+}
+
+// ─────────────────────────────────────────
+// Canvas pre-fill from processes
+// ─────────────────────────────────────────
+
+function uniq(arr: string[]): string[] {
+  return [...new Set(arr.filter(Boolean))];
+}
+
+function buildCanvasFromProcesses(processList: { data: ProcessData }[]): Partial<BusinessModelCanvasInput> {
+  const keyResources: string[] = [];
+  const keyActivities: string[] = [];
+  const valuePropositions: string[] = [];
+  const costStructure: string[] = [];
+
+  for (const proc of processList) {
+    const d = proc.data;
+    if (!d) continue;
+
+    // Value propositions ← process goal
+    if (d.goal) valuePropositions.push(d.goal);
+
+    // Key resources ← roles
+    for (const role of d.roles ?? []) {
+      if (role.name) keyResources.push(role.name);
+    }
+
+    // Key resources ← info systems used in blocks
+    for (const block of d.blocks ?? []) {
+      for (const sys of block.infoSystems ?? []) {
+        if (sys) keyResources.push(sys);
+      }
+    }
+
+    // Key activities ← action and product blocks
+    for (const block of d.blocks ?? []) {
+      if (block.type === "action" || block.type === "product") {
+        if (block.name) keyActivities.push(block.name);
+      }
+    }
+
+    // Cost structure ← role names as payroll items
+    for (const role of d.roles ?? []) {
+      if (role.name) costStructure.push(role.name);
+    }
+  }
+
+  return {
+    key_resources: uniq(keyResources),
+    key_activities: uniq(keyActivities),
+    value_propositions: uniq(valuePropositions),
+    cost_structure: uniq(costStructure),
+  };
+}
+
+/** Returns true if all 9 canvas array fields are empty */
+function isCanvasEmpty(canvas: BusinessModelCanvasInput): boolean {
+  const arrayFields: (keyof BusinessModelCanvasInput)[] = [
+    "customer_segments", "value_propositions", "channels",
+    "customer_relationships", "revenue_streams", "key_resources",
+    "key_activities", "key_partners", "cost_structure",
+  ];
+  return arrayFields.every((f) => {
+    const v = canvas[f];
+    return !v || (Array.isArray(v) && v.length === 0);
+  });
 }
 
 // ─────────────────────────────────────────
@@ -217,6 +296,13 @@ export function BusinessModelTab({ companyId, processCount }: Props) {
   );
   const models = listQuery.data ?? [];
 
+  // ── Processes (for canvas pre-fill) ──────
+  const processesQuery = trpc.company.getProcesses.useQuery(
+    { companyId },
+    { enabled: processCount > 0 }
+  );
+  const processList = (processesQuery.data ?? []) as { data: ProcessData }[];
+
   // ── Active model selection ────────────────
   const [activeId, setActiveId] = useState<number | null>(null);
   const activeModel = models.find((m) => m.id === activeId) ?? null;
@@ -227,6 +313,10 @@ export function BusinessModelTab({ companyId, processCount }: Props) {
   const [previewOutput, setPreviewOutput] = useState<BusinessModelOutput | null>(null);
   const [innerTab, setInnerTab] = useState<"form" | "finance" | "canvas">("form");
   const [showMonthlyInputs, setShowMonthlyInputs] = useState(true);
+
+  // ── Canvas pre-fill state ─────────────────
+  const [fillConfirmOpen, setFillConfirmOpen] = useState(false);
+  const autoFilledRef = useRef(false);
 
   // ── Mutations ─────────────────────────────
   const previewMutation = trpc.businessModel.preview.useMutation({
@@ -278,6 +368,7 @@ export function BusinessModelTab({ companyId, processCount }: Props) {
       setFormInput(cloneInput(m.input as BusinessModelInput));
       setPreviewOutput(m.output as BusinessModelOutput);
       setInnerTab("finance");
+      autoFilledRef.current = true; // model already has saved data, skip auto-fill
     },
     [models]
   );
@@ -312,6 +403,53 @@ export function BusinessModelTab({ companyId, processCount }: Props) {
       canvas: { ...prev.canvas, ...patch },
     }));
   };
+
+  // ── Canvas pre-fill helpers ───────────────
+  const applyCanvasFill = useCallback(() => {
+    const suggestions = buildCanvasFromProcesses(processList);
+    setFormInput((prev) => {
+      const next = cloneInput(prev);
+      // Only fill empty array fields; don't overwrite non-empty ones
+      for (const key of Object.keys(suggestions) as (keyof typeof suggestions)[]) {
+        const suggested = suggestions[key] as string[];
+        const current = next.canvas[key] as string[] | null;
+        if (!current || current.length === 0) {
+          (next.canvas as any)[key] = suggested;
+        }
+      }
+      return next;
+    });
+  }, [processList]);
+
+  const handleFillFromProcesses = () => {
+    if (!isCanvasEmpty(formInput.canvas)) {
+      setFillConfirmOpen(true);
+    } else {
+      applyCanvasFill();
+    }
+  };
+
+  const handleFillConfirmed = () => {
+    // Overwrite all suggested fields regardless of current value
+    const suggestions = buildCanvasFromProcesses(processList);
+    setFormInput((prev) => {
+      const next = cloneInput(prev);
+      for (const key of Object.keys(suggestions) as (keyof typeof suggestions)[]) {
+        (next.canvas as any)[key] = suggestions[key];
+      }
+      return next;
+    });
+    setFillConfirmOpen(false);
+  };
+
+  // Auto-fill once when process data arrives and canvas is still empty
+  useEffect(() => {
+    if (autoFilledRef.current) return;
+    if (processList.length === 0) return;
+    if (!isCanvasEmpty(formInput.canvas)) return;
+    autoFilledRef.current = true;
+    applyCanvasFill();
+  }, [processList, applyCanvasFill, formInput.canvas]);
 
   const setCostLine = (idx: number, patch: Partial<BmCostLine>) => {
     setFormInput((prev) => {
@@ -411,6 +549,7 @@ export function BusinessModelTab({ companyId, processCount }: Props) {
                   setModelName(`Бизнес-модель ${models.length + 1}`);
                   setPreviewOutput(null);
                   setInnerTab("form");
+                  autoFilledRef.current = false; // allow auto-fill on fresh form
                 } else {
                   loadModel(Number(v));
                 }
@@ -762,7 +901,26 @@ export function BusinessModelTab({ companyId, processCount }: Props) {
           {/* Canvas form */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-semibold">Канвас Остервальдера</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-sm font-semibold">Канвас Остервальдера</CardTitle>
+                {processCount > 0 && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs gap-1.5"
+                    onClick={handleFillFromProcesses}
+                    disabled={processesQuery.isLoading}
+                  >
+                    {processesQuery.isLoading ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Wand2 className="w-3 h-3" />
+                    )}
+                    Заполнить из процессов
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -857,6 +1015,24 @@ export function BusinessModelTab({ companyId, processCount }: Props) {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Confirm overwrite dialog */}
+      <AlertDialog open={fillConfirmOpen} onOpenChange={setFillConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Перезаписать данные канваса?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Некоторые блоки канваса уже заполнены. Данные из процессов заменят текущие значения
+              в блоках «Ключевые ресурсы», «Ключевые активности», «Ценностные предложения» и
+              «Структура издержек». Остальные блоки не изменятся.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction onClick={handleFillConfirmed}>Заполнить</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
