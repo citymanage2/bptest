@@ -36,9 +36,20 @@ export function RegisterPage() {
       navigate("/companies");
     },
     onError: (err) => {
-      setError(
-        err.message || "Не удалось зарегистрироваться. Попробуйте снова."
-      );
+      const msg = err.message ?? "";
+      if (/already exists|duplicate|unique|уже существует/i.test(msg)) {
+        setError("Пользователь с таким email уже зарегистрирован.");
+      } else if (/null value in column|not-null constraint|role/i.test(msg)) {
+        setError("Ошибка сервера при создании аккаунта. Обратитесь в поддержку.");
+      } else if (/invalid email|некорректный email/i.test(msg)) {
+        setError("Введите корректный email.");
+      } else if (/пароль|password|min.*6|6.*симв/i.test(msg)) {
+        setError("Пароль слишком короткий.");
+      } else if (/network|fetch|ECONNREFUSED|failed to fetch/i.test(msg)) {
+        setError("Не удалось подключиться к серверу. Проверьте интернет-соединение.");
+      } else {
+        setError("Произошла ошибка при регистрации. Попробуйте ещё раз.");
+      }
     },
   });
 

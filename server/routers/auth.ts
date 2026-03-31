@@ -43,6 +43,7 @@ export const authRouter = router({
           email: input.email,
           passwordHash,
           name: input.name,
+          role: "user",
         })
         .returning();
 
