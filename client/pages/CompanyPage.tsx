@@ -249,8 +249,8 @@ export function CompanyPage() {
             </div>
           </div>
 
-          {/* Create process button — hidden */}
-          {false && <Dialog
+          {/* Create process button */}
+          <Dialog
             open={interviewDialogOpen}
             onOpenChange={setInterviewDialogOpen}
           >
@@ -357,13 +357,17 @@ export function CompanyPage() {
                 </Button>
               </DialogFooter>
             </DialogContent>
-          </Dialog>}
+          </Dialog>
         </div>
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="business-model">
+      <Tabs defaultValue="processes">
         <TabsList className="mb-6">
+          <TabsTrigger value="processes" className="gap-1.5">
+            <GitBranch className="w-4 h-4" />
+            Процессы
+          </TabsTrigger>
           <TabsTrigger value="business-model" className="gap-1.5">
             <BarChart3 className="w-4 h-4" />
             Бизнес-модель
@@ -382,8 +386,8 @@ export function CompanyPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ===== PROCESSES TAB — hidden ===== */}
-        {false && <TabsContent value="processes">
+        {/* ===== PROCESSES TAB ===== */}
+        <TabsContent value="processes">
           {processesQuery.isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
@@ -546,15 +550,15 @@ export function CompanyPage() {
               )}
             </div>
           )}
-        </TabsContent>}
+        </TabsContent>
 
-        {/* ===== BUSINESS MODEL TAB ===== */}
-        <TabsContent value="business-model">
+        {/* ===== BUSINESS MODEL TAB — hidden ===== */}
+        {false && <TabsContent value="business-model">
           <BusinessModelTab
             companyId={companyId}
             processCount={processes.length}
           />
-        </TabsContent>
+        </TabsContent>}
 
         {/* ===== DOCUMENTS TAB ===== */}
         <TabsContent value="documents">
