@@ -29,7 +29,6 @@ export function Layout() {
   const navItems = [
     { href: "/companies", label: "Компании", icon: Building2 },
     { href: "/support", label: "Поддержка", icon: MessageSquare },
-    { href: "/faq", label: "База знаний", icon: HelpCircle },
   ];
 
   if (user?.role === "admin") {
@@ -145,9 +144,6 @@ export function Layout() {
               <span className="text-sm text-muted-foreground">— Business Process Builder</span>
             </div>
             <div className="flex items-center gap-6 text-sm text-muted-foreground flex-wrap justify-center">
-              <Link to="/faq" className="hover:text-foreground transition-colors">
-                База знаний
-              </Link>
               <Link to="/support" className="hover:text-foreground transition-colors">
                 Поддержка
               </Link>

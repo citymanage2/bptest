@@ -249,8 +249,8 @@ export function CompanyPage() {
             </div>
           </div>
 
-          {/* Create process button */}
-          <Dialog
+          {/* Create process button — hidden */}
+          {false && <Dialog
             open={interviewDialogOpen}
             onOpenChange={setInterviewDialogOpen}
           >
@@ -357,17 +357,13 @@ export function CompanyPage() {
                 </Button>
               </DialogFooter>
             </DialogContent>
-          </Dialog>
+          </Dialog>}
         </div>
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="processes">
+      <Tabs defaultValue="business-model">
         <TabsList className="mb-6">
-          <TabsTrigger value="processes" className="gap-1.5">
-            <GitBranch className="w-4 h-4" />
-            Процессы
-          </TabsTrigger>
           <TabsTrigger value="business-model" className="gap-1.5">
             <BarChart3 className="w-4 h-4" />
             Бизнес-модель
@@ -386,8 +382,8 @@ export function CompanyPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* ===== PROCESSES TAB ===== */}
-        <TabsContent value="processes">
+        {/* ===== PROCESSES TAB — hidden ===== */}
+        {false && <TabsContent value="processes">
           {processesQuery.isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
@@ -550,7 +546,7 @@ export function CompanyPage() {
               )}
             </div>
           )}
-        </TabsContent>
+        </TabsContent>}
 
         {/* ===== BUSINESS MODEL TAB ===== */}
         <TabsContent value="business-model">

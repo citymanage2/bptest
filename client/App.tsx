@@ -53,7 +53,7 @@ export default function App() {
         <Route element={<PublicLayout />}>
           <Route path="/login" element={user ? <Navigate to="/companies" replace /> : <LoginPage />} />
           <Route path="/register" element={user ? <Navigate to="/companies" replace /> : <RegisterPage />} />
-          <Route path="/faq" element={<FaqPage />} />
+          <Route path="/faq" element={<Navigate to="/" replace />} />
           <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
           <Route path="/cookie-policy" element={<CookiePolicyPage />} />
         </Route>
@@ -66,8 +66,8 @@ export default function App() {
         >
           <Route path="/companies" element={<CompaniesPage />} />
           <Route path="/companies/:id" element={<CompanyPage />} />
-          <Route path="/interview/:id" element={<InterviewPage />} />
-          <Route path="/process/:id" element={<ProcessPage />} />
+          <Route path="/interview/:id" element={<Navigate to="/companies" replace />} />
+          <Route path="/process/:id" element={<Navigate to="/companies" replace />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/support" element={<SupportPage />} />
         </Route>
