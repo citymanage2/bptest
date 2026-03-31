@@ -38,7 +38,7 @@ export const users = pgTable("users", {
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   name: varchar("name", { length: 255 }).notNull(),
   role: userRoleEnum("role").notNull().default("user"),
-  tokenBalance: integer("token_balance").notNull().default(5000),
+  tokenBalance: integer("token_balance").notNull().default(8000),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

@@ -630,8 +630,8 @@ export function LandingPage() {
       {/* ============================================================ */}
       <footer className="bg-white border-t border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-            <div>
+          <div className="flex flex-col sm:flex-row items-start gap-8">
+            <div className="flex-1">
               <a href="#" className="flex items-center gap-2 mb-4">
                 <div className="w-6 h-6 bg-purple-600 rounded-lg flex items-center justify-center">
                   <Home className="w-4 h-4 text-white" />
@@ -654,22 +654,6 @@ export function LandingPage() {
                   <li key={i}><button onClick={() => scrollTo(l.id)} className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{l.label}</button></li>
                 ))}
               </ul>
-            </div>
-            <div>
-              <h4 className="text-sm font-semibold text-gray-900 mb-4">Поддержка</h4>
-              <ul className="space-y-2">
-                {["Частые вопросы", "Контакты", "Политика конфиденциальности", "Пользовательское соглашение"].map((l, i) => (
-                  <li key={i}><a href="#" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">{l}</a></li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <h4 className="text-sm font-semibold text-gray-900 mb-4">Контакты</h4>
-              <div className="space-y-2 text-sm text-gray-500">
-                <p><a href="mailto:info@biz-process.ru" className="hover:text-gray-900 transition-colors">info@biz-process.ru</a></p>
-                <p><a href="tel:+7XXXXXXXXXX" className="hover:text-gray-900 transition-colors">+7 (XXX) XXX-XX-XX</a></p>
-                <p><a href="https://t.me/bizprocess" className="hover:text-gray-900 transition-colors">Телеграм: @bizprocess</a></p>
-              </div>
             </div>
           </div>
           <div className="mt-8 pt-6 border-t border-gray-200 text-center text-sm text-gray-400">

@@ -116,7 +116,7 @@ export function RegisterPage() {
             {/* Bonus banner */}
             <div className="flex items-center gap-2 p-3 rounded-lg bg-purple-50 border border-purple-200 text-purple-700 text-sm">
               <Gift className="w-4 h-4 shrink-0" />
-              <span>5 000 токенов бесплатно при регистрации</span>
+              <span>8 000 токенов бесплатно при регистрации</span>
             </div>
 
             {error && (
