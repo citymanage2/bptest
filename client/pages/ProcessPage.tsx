@@ -1082,6 +1082,31 @@ export function ProcessPage() {
   const process = processQuery.data;
   const data = process?.data as ProcessData | undefined;
 
+  // ---- Interview query for salary pre-fill ----
+  const interviewQuery = trpc.interview.getById.useQuery(
+    { id: process?.interviewId ?? 0 },
+    { enabled: !!process?.interviewId }
+  );
+
+  // Build roleName → salary map from interview answer "e1"
+  const interviewRoleSalaries = useMemo(() => {
+    const raw = interviewQuery.data?.answers?.["e1"];
+    if (!raw) return {} as Record<string, number>;
+    try {
+      const rows = JSON.parse(raw) as Array<{ name: string; salary: string }>;
+      const map: Record<string, number> = {};
+      for (const row of rows) {
+        if (row.name && row.salary) {
+          const v = parseFloat(row.salary);
+          if (!isNaN(v) && v > 0) map[row.name.trim()] = v;
+        }
+      }
+      return map;
+    } catch {
+      return {} as Record<string, number>;
+    }
+  }, [interviewQuery.data]);
+
   const selectedBlock = useMemo(() => {
     if (!data || !selectedBlockId) return null;
     return data.blocks.find((b) => b.id === selectedBlockId) || null;
@@ -1653,7 +1678,7 @@ export function ProcessPage() {
 
         {/* ======== Tab: Metrics ======== */}
         <TabsContent value="metrics">
-          <MetricsTab metrics={metrics} data={data} />
+          <MetricsTab metrics={metrics} data={data} interviewRoleSalaries={interviewRoleSalaries} />
         </TabsContent>
 
         {/* ======== Tab: CRM Funnels ======== */}
@@ -2748,14 +2773,41 @@ function orderBlocksByConnections(
 function MetricsTab({
   metrics,
   data,
+  interviewRoleSalaries,
 }: {
   metrics: ProcessMetrics | null;
   data: ProcessData;
+  interviewRoleSalaries: Record<string, number>;
 }) {
-  // salary per roleId (monthly, RUB) — local state for cost calculation
+  // salary per roleId (monthly, RUB) — pre-filled from interview, remains editable
   const [salaries, setSalaries] = useState<Record<string, string>>(() =>
-    Object.fromEntries(data.roles.map((r) => [r.id, ""]))
+    Object.fromEntries(
+      data.roles.map((r) => {
+        const fromInterview = interviewRoleSalaries[r.name?.trim() ?? ""];
+        return [r.id, fromInterview ? String(fromInterview) : ""];
+      })
+    )
   );
+
+  // Re-sync when interview data loads (async) without overwriting user edits
+  const salariesInitializedRef = useRef(false);
+  useEffect(() => {
+    if (salariesInitializedRef.current) return;
+    const hasAnySalary = Object.values(interviewRoleSalaries).some((v) => v > 0);
+    if (!hasAnySalary) return;
+    salariesInitializedRef.current = true;
+    setSalaries((prev) => {
+      const next = { ...prev };
+      for (const role of data.roles) {
+        // Only fill if field is currently empty
+        if (!next[role.id]) {
+          const v = interviewRoleSalaries[role.name?.trim() ?? ""];
+          if (v) next[role.id] = String(v);
+        }
+      }
+      return next;
+    });
+  }, [interviewRoleSalaries, data.roles]);
 
   if (!metrics) return null;
 
