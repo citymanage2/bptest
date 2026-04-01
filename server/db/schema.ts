@@ -57,6 +57,7 @@ export const companies = pgTable("companies", {
     .references(() => users.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
   industry: varchar("industry", { length: 255 }).notNull(),
+  inn: varchar("inn", { length: 20 }),
   description: text("description"),
   contactInfo: text("contact_info"),
   logoUrl: varchar("logo_url", { length: 1024 }),
