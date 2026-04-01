@@ -66,8 +66,8 @@ export default function App() {
         >
           <Route path="/companies" element={<CompaniesPage />} />
           <Route path="/companies/:id" element={<CompanyPage />} />
-          <Route path="/interview/:id" element={<Navigate to="/companies" replace />} />
-          <Route path="/process/:id" element={<Navigate to="/companies" replace />} />
+          <Route path="/interview/:id" element={<InterviewPage />} />
+          <Route path="/process/:id" element={<ProcessPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/support" element={<SupportPage />} />
         </Route>
