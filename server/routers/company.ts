@@ -53,7 +53,7 @@ export const companyRouter = router({
           userId: ctx.userId,
           name: input.name,
           industry: input.industry,
-          inn: input.inn || null,
+          ...(input.inn ? { inn: input.inn } : {}),
           description: input.description || null,
           contactInfo: input.contactInfo || null,
         })

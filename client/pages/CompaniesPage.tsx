@@ -31,6 +31,7 @@ import {
   Briefcase,
   FolderOpen,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
@@ -47,6 +48,7 @@ export function CompaniesPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [aiDescLoading, setAiDescLoading] = useState(false);
   const [aiDescError, setAiDescError] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
   const companiesQuery = trpc.company.list.useQuery();
 
@@ -58,6 +60,13 @@ export function CompaniesPage() {
     },
     onError: (err) => {
       setCreateError(err.message || "Не удалось создать компанию");
+    },
+  });
+
+  const deleteMutation = trpc.company.delete.useMutation({
+    onSuccess: () => {
+      utils.company.list.invalidate();
+      setDeleteConfirmId(null);
     },
   });
 
@@ -271,6 +280,30 @@ export function CompaniesPage() {
         </Dialog>
       </div>
 
+      {/* Delete confirmation dialog */}
+      <Dialog open={deleteConfirmId !== null} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Удалить компанию?</DialogTitle>
+            <DialogDescription>
+              Это действие нельзя отменить. Все бизнес-процессы и данные компании будут удалены.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteConfirmId(null)} disabled={deleteMutation.isPending}>
+              Отмена
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={deleteMutation.isPending}
+              onClick={() => deleteConfirmId !== null && deleteMutation.mutate({ id: deleteConfirmId })}
+            >
+              {deleteMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Удалить"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Companies grid */}
       {companies.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
@@ -302,7 +335,16 @@ export function CompaniesPage() {
                   <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center shrink-0">
                     <Building2 className="w-5 h-5 text-purple-600" />
                   </div>
-                  <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-purple-500 transition-colors" />
+                  <div className="flex items-center gap-2">
+                    <button
+                      className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-50 text-gray-400 hover:text-red-500"
+                      onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(company.id); }}
+                      title="Удалить компанию"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-purple-500 transition-colors" />
+                  </div>
                 </div>
                 <CardTitle className="text-lg mt-3">{company.name}</CardTitle>
                 <CardDescription>
