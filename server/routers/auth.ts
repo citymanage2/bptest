@@ -97,20 +97,30 @@ export const authRouter = router({
     .mutation(async ({ input }) => {
       console.log("[LOGIN] Handler reached, email:", input.email);
       try {
-        const user = await db.query.users.findFirst({
-          where: eq(users.email, input.email),
-        });
+        let user;
+        try {
+          user = await db.query.users.findFirst({
+            where: eq(users.email, input.email),
+          });
+        } catch (dbErr) {
+          console.error("[LOGIN] DB query failed:", dbErr);
+          throw dbErr;
+        }
 
         if (!user) {
+          console.log("[LOGIN] User not found for email:", input.email);
           throw new Error("Неверный email или пароль");
         }
 
+        console.log("[LOGIN] User found, id:", user.id, "— comparing password");
         const valid = await bcrypt.compare(input.password, user.passwordHash);
         if (!valid) {
+          console.log("[LOGIN] Password mismatch for user id:", user.id);
           throw new Error("Неверный email или пароль");
         }
 
         const token = signToken(user.id, user.role);
+        console.log("[LOGIN] Success for user id:", user.id);
 
         return {
           user: {
@@ -124,7 +134,9 @@ export const authRouter = router({
           token,
         };
       } catch (e) {
-        console.error("[LOGIN ERROR]", e);
+        if ((e as Error).message !== "Неверный email или пароль") {
+          console.error("[LOGIN] Unexpected error:", e);
+        }
         throw e;
       }
     }),
