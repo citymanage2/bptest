@@ -11,7 +11,7 @@ import { sql } from "drizzle-orm";
 import { appRouter } from "./routers";
 import { createContext } from "./trpc";
 import { db } from "./db";
-import { blockFiles, users, processes, companies, companyRequisites, legalAttachments, regulations } from "./db/schema";
+import { blockFiles, users, processes, companies, companyRequisites, legalAttachments, interviewAttachments, interviews, documents, regulations } from "./db/schema";
 import { eq, and } from "drizzle-orm";
 import { TOKEN_COSTS } from "../shared/types";
 
@@ -119,7 +119,23 @@ async function runMigrations() {
         UNIQUE (process_id, role_name, doc_type)
       )
     `);
-    console.log("[migration] block_files + business_models + kpi_plans + legal + legal_attachments + companies.inn + regulations ready");
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS interview_attachments (
+        id SERIAL PRIMARY KEY,
+        interview_id INTEGER NOT NULL REFERENCES interviews(id) ON DELETE CASCADE,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        original_name VARCHAR(500) NOT NULL,
+        stored_name VARCHAR(500) NOT NULL,
+        mime_type VARCHAR(100) NOT NULL,
+        file_size INTEGER NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await db.execute(sql`
+      ALTER TABLE documents ADD COLUMN IF NOT EXISTS source VARCHAR(100)
+    `);
+    console.log("[migration] block_files + business_models + kpi_plans + legal + legal_attachments + companies.inn + regulations + interview_attachments + documents.source ready");
   } catch (err) {
     console.error("[migration] failed:", err);
   }
@@ -395,6 +411,113 @@ app.delete("/api/legal/upload/:id", async (req, res) => {
   fs.unlink(path.join(UPLOADS_DIR, record.storedName), () => {});
   await db.delete(legalAttachments).where(eq(legalAttachments.id, fileId));
   res.json({ success: true });
+});
+
+// ── Interview File Upload ────────────────────────────────────────────────────
+const INTERVIEW_ALLOWED_MIMES = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
+  "text/plain",
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+
+// POST /api/interview/upload — upload attachment for interview (questionnaire)
+app.post("/api/interview/upload", upload.single("file"), async (req, res) => {
+  const userId = extractUserId(req);
+  if (!userId) { res.status(401).json({ error: "Необходима авторизация" }); return; }
+  if (!req.file) { res.status(400).json({ error: "Файл не получен" }); return; }
+
+  if (!INTERVIEW_ALLOWED_MIMES.has(req.file.mimetype)) {
+    fs.unlink(req.file.path, () => {});
+    res.status(400).json({ error: "Разрешены: PDF, Word, TXT, JPG, PNG, GIF, WebP" });
+    return;
+  }
+
+  const interviewId = parseInt(req.body.interviewId);
+  if (!interviewId) {
+    fs.unlink(req.file.path, () => {});
+    res.status(400).json({ error: "interviewId обязателен" });
+    return;
+  }
+
+  const interview = await db.query.interviews.findFirst({
+    where: eq(interviews.id, interviewId),
+    with: { company: true },
+  });
+  if (!interview || (interview.company as any).userId !== userId) {
+    fs.unlink(req.file.path, () => {});
+    res.status(403).json({ error: "Доступ запрещён" });
+    return;
+  }
+
+  const [record] = await db.insert(interviewAttachments).values({
+    interviewId,
+    companyId: interview.companyId,
+    userId,
+    originalName: req.file.originalname,
+    storedName: req.file.filename,
+    mimeType: req.file.mimetype,
+    fileSize: req.file.size,
+  }).returning();
+
+  res.json({
+    id: record.id,
+    originalName: record.originalName,
+    mimeType: record.mimeType,
+    fileSize: record.fileSize,
+    createdAt: record.createdAt.toISOString(),
+  });
+});
+
+// DELETE /api/interview/upload/:id — delete an interview attachment
+app.delete("/api/interview/upload/:id", async (req, res) => {
+  const userId = extractUserId(req);
+  if (!userId) { res.status(401).json({ error: "Необходима авторизация" }); return; }
+
+  const fileId = parseInt(req.params.id);
+  const record = await db.query.interviewAttachments.findFirst({ where: eq(interviewAttachments.id, fileId) });
+  if (!record) { res.status(404).json({ error: "Файл не найден" }); return; }
+  if (record.userId !== userId) { res.status(403).json({ error: "Доступ запрещён" }); return; }
+
+  fs.unlink(path.join(UPLOADS_DIR, record.storedName), () => {});
+  await db.delete(interviewAttachments).where(eq(interviewAttachments.id, fileId));
+  res.json({ success: true });
+});
+
+// GET /api/interview/files?interviewId= — list files for an interview
+app.get("/api/interview/files", async (req, res) => {
+  const userId = extractUserId(req);
+  if (!userId) { res.status(401).json({ error: "Необходима авторизация" }); return; }
+
+  const interviewId = parseInt(req.query.interviewId as string);
+  if (!interviewId) { res.status(400).json({ error: "interviewId обязателен" }); return; }
+
+  const interview = await db.query.interviews.findFirst({
+    where: eq(interviews.id, interviewId),
+    with: { company: true },
+  });
+  if (!interview || (interview.company as any).userId !== userId) {
+    res.status(403).json({ error: "Доступ запрещён" });
+    return;
+  }
+
+  const files = await db.query.interviewAttachments.findMany({
+    where: eq(interviewAttachments.interviewId, interviewId),
+    orderBy: interviewAttachments.createdAt,
+  });
+
+  res.json({ files: files.map((f) => ({
+    id: f.id,
+    originalName: f.originalName,
+    mimeType: f.mimeType,
+    fileSize: f.fileSize,
+    createdAt: f.createdAt.toISOString(),
+  })) });
 });
 
 // GET /uploads/:filename — serve uploaded files

@@ -2,18 +2,22 @@ import { z } from "zod";
 import { eq, and, desc } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import { db } from "../db";
+import path from "path";
 import {
   processes,
   processVersions,
   changeRequests,
   recommendations,
   interviews,
+  interviewAttachments,
+  documents,
   companies,
   users,
   tokenOperations,
   regulations,
 } from "../db/schema";
 import { generateProcess, applyChanges, generateRecommendations, generatePassport, generateRegulationDocument, generateCrmFunnelVariants, applyRecommendationChanges } from "../services/ai";
+import type { LegalAttachedFile } from "../services/ai";
 import { validateProcess } from "../services/validation";
 import type { ProcessData } from "../../shared/types";
 import { TOKEN_COSTS } from "../../shared/types";
@@ -46,12 +50,29 @@ export const processRouter = router({
       // Deduct tokens
       await deductTokens(ctx.userId, TOKEN_COSTS.generation, "generation", "Генерация бизнес-процесса");
 
+      // Load interview attachments for AI context
+      const UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
+      const attachmentRecords = await db.query.interviewAttachments.findMany({
+        where: eq(interviewAttachments.interviewId, input.interviewId),
+        orderBy: interviewAttachments.createdAt,
+      });
+      const attachedFiles: LegalAttachedFile[] = attachmentRecords.map((f) => ({
+        storedPath: path.join(UPLOADS_DIR, f.storedName),
+        originalName: f.originalName,
+        mimeType: f.mimeType,
+      }));
+
       // Generate process via AI
       const answers = interview.answers as Record<string, string>;
-      const processData = await generateProcess(answers, interview.company.name, interview.company.industry);
+      const processData = await generateProcess(
+        answers,
+        interview.company.name,
+        interview.company.industry,
+        attachedFiles
+      );
 
       // Save process
-      const [process] = await db
+      const [savedProcess] = await db
         .insert(processes)
         .values({
           interviewId: interview.id,
@@ -63,7 +84,7 @@ export const processRouter = router({
 
       // Create initial version
       await db.insert(processVersions).values({
-        processId: process.id,
+        processId: savedProcess.id,
         data: processData,
         description: "Первоначальная генерация",
       });
@@ -74,14 +95,28 @@ export const processRouter = router({
         .set({ status: "completed", updatedAt: new Date() })
         .where(eq(interviews.id, interview.id));
 
+      // Save user-uploaded files to documents tab
+      if (attachmentRecords.length > 0) {
+        await db.insert(documents).values(
+          attachmentRecords.map((f) => ({
+            companyId: interview.companyId,
+            name: f.originalName,
+            fileUrl: `/uploads/${f.storedName}`,
+            fileType: f.mimeType.split("/")[1] ?? f.mimeType,
+            fileSize: f.fileSize,
+            source: "user_upload",
+          }))
+        );
+      }
+
       return {
-        id: process.id,
-        interviewId: process.interviewId,
-        companyId: process.companyId,
-        status: process.status,
-        data: process.data as ProcessData,
-        createdAt: process.createdAt.toISOString(),
-        updatedAt: process.updatedAt.toISOString(),
+        id: savedProcess.id,
+        interviewId: savedProcess.interviewId,
+        companyId: savedProcess.companyId,
+        status: savedProcess.status,
+        data: savedProcess.data as ProcessData,
+        createdAt: savedProcess.createdAt.toISOString(),
+        updatedAt: savedProcess.updatedAt.toISOString(),
       };
     }),
 

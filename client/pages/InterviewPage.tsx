@@ -28,7 +28,7 @@ import {
   FileText,
 } from "lucide-react";
 
-type AttachedFile = { name: string; type: string; size: number };
+type ServerFile = { id: number; originalName: string; mimeType: string; fileSize: number };
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} Б`;
@@ -48,6 +48,8 @@ export function InterviewPage() {
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   const [recordingQuestionId, setRecordingQuestionId] = useState<string | null>(null);
   const [optionRows, setOptionRows] = useState<Record<string, Array<{ name: string; salary: string }>>>({});
+  const [uploadedFiles, setUploadedFiles] = useState<ServerFile[]>([]);
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -181,47 +183,62 @@ export function InterviewPage() {
   );
 
   // ── Attached files ────────────────────────────────────────────
-  // Files are stored in answers["__files"] as a JSON array so they
-  // are auto-saved and included in AI generation automatically.
-  const uploadedFiles = useMemo<AttachedFile[]>(() => {
-    try {
-      const raw = answers["__files"];
-      if (!raw) return [];
-      const parsed = JSON.parse(raw) as unknown[];
-      return Array.isArray(parsed)
-        ? (parsed as AttachedFile[]).filter(
-            (f) => f && typeof f.name === "string" && typeof f.size === "number",
-          )
-        : [];
-    } catch {
-      return [];
-    }
-  }, [answers["__files"]]);
+  // Load files from server on mount
+  useEffect(() => {
+    if (!interviewId) return;
+    const token = localStorage.getItem("auth_token");
+    fetch(`/api/interview/files?interviewId=${interviewId}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.files)) setUploadedFiles(data.files);
+      })
+      .catch(() => {});
+  }, [interviewId]);
 
   const handleAddFiles = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files ?? []) as File[];
-      if (!files.length) return;
-      const existingNames = new Set(uploadedFiles.map((f) => f.name));
-      const toAdd: AttachedFile[] = files
-        .filter((f: File) => !existingNames.has(f.name))
-        .map((f: File) => ({ name: f.name, type: f.type, size: f.size }));
-      handleAnswerChange(
-        "__files",
-        JSON.stringify([...uploadedFiles, ...toAdd]),
-      );
-      // Reset so same file can be re-selected
       e.target.value = "";
+      if (!files.length) return;
+
+      const token = localStorage.getItem("auth_token");
+      setIsUploadingFile(true);
+      try {
+        for (const file of files) {
+          const fd = new FormData();
+          fd.append("file", file);
+          fd.append("interviewId", String(interviewId));
+          const res = await fetch("/api/interview/upload", {
+            method: "POST",
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: fd,
+          });
+          if (res.ok) {
+            const record = await res.json() as ServerFile;
+            setUploadedFiles((prev) => [...prev, record]);
+          }
+        }
+      } finally {
+        setIsUploadingFile(false);
+      }
     },
-    [uploadedFiles, handleAnswerChange],
+    [interviewId],
   );
 
   const handleRemoveFile = useCallback(
-    (name: string) => {
-      const filtered = uploadedFiles.filter((f) => f.name !== name);
-      handleAnswerChange("__files", JSON.stringify(filtered));
+    async (id: number) => {
+      const token = localStorage.getItem("auth_token");
+      const res = await fetch(`/api/interview/upload/${id}`, {
+        method: "DELETE",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (res.ok) {
+        setUploadedFiles((prev) => prev.filter((f) => f.id !== id));
+      }
     },
-    [uploadedFiles, handleAnswerChange],
+    [],
   );
 
   // Voice recording
@@ -621,10 +638,15 @@ export function InterviewPage() {
               variant="outline"
               size="sm"
               className="h-8 text-xs gap-1.5"
+              disabled={isUploadingFile}
               onClick={() => fileInputRef.current?.click()}
             >
-              <Paperclip className="w-3.5 h-3.5" />
-              Прикрепить файлы
+              {isUploadingFile ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Paperclip className="w-3.5 h-3.5" />
+              )}
+              {isUploadingFile ? "Загрузка..." : "Прикрепить файлы"}
             </Button>
           </div>
 
@@ -632,7 +654,7 @@ export function InterviewPage() {
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp"
+            accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.gif,.webp"
             className="hidden"
             onChange={handleAddFiles}
           />
@@ -645,27 +667,27 @@ export function InterviewPage() {
             >
               <FileText className="w-7 h-7" />
               <span className="text-xs">
-                PDF, DOC, XLSX, изображения — передаются ИИ как контекст
+                PDF, DOC, TXT, изображения — содержимое передаётся ИИ как контекст
               </span>
             </button>
           ) : (
             <ul className="space-y-1">
               {uploadedFiles.map((file) => (
                 <li
-                  key={file.name}
+                  key={file.id}
                   className="flex items-center justify-between gap-2 bg-gray-50 rounded-md px-3 py-2"
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <FileText className="w-4 h-4 shrink-0 text-purple-400" />
-                    <span className="text-sm text-gray-800 truncate">{file.name}</span>
+                    <span className="text-sm text-gray-800 truncate">{file.originalName}</span>
                     <span className="text-xs text-gray-400 shrink-0">
-                      {formatFileSize(file.size)}
+                      {formatFileSize(file.fileSize)}
                     </span>
                   </div>
                   <button
                     type="button"
                     className="shrink-0 text-gray-400 hover:text-red-500 transition-colors"
-                    onClick={() => handleRemoveFile(file.name)}
+                    onClick={() => handleRemoveFile(file.id)}
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>

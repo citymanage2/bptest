@@ -591,6 +591,11 @@ export function CompanyPage() {
                           <Badge variant="outline" className="text-xs">
                             {doc.fileType}
                           </Badge>
+                          {doc.source === "user_upload" && (
+                            <Badge variant="secondary" className="text-xs">
+                              Загружено пользователем
+                            </Badge>
+                          )}
                           <span className="text-xs text-gray-400">
                             {(doc.fileSize / 1024).toFixed(1)} КБ
                           </span>

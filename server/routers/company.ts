@@ -184,6 +184,7 @@ export const companyRouter = router({
         fileUrl: d.fileUrl as string | null,
         fileType: d.fileType,
         fileSize: d.fileSize,
+        source: d.source ?? null,
         createdAt: d.createdAt.toISOString(),
       }));
 
@@ -196,6 +197,7 @@ export const companyRouter = router({
         fileUrl: null as string | null,
         fileType: "docx",
         fileSize: r.content.length,
+        source: null as string | null,
         createdAt: r.createdAt.toISOString(),
       }));
 

@@ -164,47 +164,42 @@ const PROCESS_GENERATION_PROMPT = `Ты — эксперт-аналитик по
 export async function generateProcess(
   answers: Record<string, string>,
   companyName: string,
-  industry: string
+  industry: string,
+  attachedFiles: LegalAttachedFile[] = []
 ): Promise<ProcessData> {
-  // Separate attached files metadata from questionnaire answers
-  const attachedFiles = (() => {
-    try {
-      const raw = answers["__files"];
-      if (!raw) return [];
-      const parsed = JSON.parse(raw) as Array<{ name: string }>;
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  })();
-
   const answersText = Object.entries(answers)
     .filter(([k, v]) => k !== "__files" && v && v.trim())
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
 
-  const filesSection = attachedFiles.length > 0
-    ? `\nПрикреплённые документы компании: ${attachedFiles.map((f) => f.name).join(", ")}`
-    : "";
-
-  try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 16000,
-      messages: [
-        {
-          role: "user",
-          content: `${PROCESS_GENERATION_PROMPT}
+  const textPrompt = `${PROCESS_GENERATION_PROMPT}
 
 Компания: ${companyName}
-Отрасль: ${industry}${filesSection}
+Отрасль: ${industry}
 
 Ответы на анкету (структурированы по BMC/VPC):
 ${answersText}
 
-Построй бизнес-процесс по 10-шаговой методологии. Ответ — ТОЛЬКО JSON.`,
-        },
-      ],
+Построй бизнес-процесс по 10-шаговой методологии. Ответ — ТОЛЬКО JSON.`;
+
+  try {
+    let messageContent: Anthropic.Messages.MessageParam["content"];
+
+    if (attachedFiles.length > 0) {
+      const fileBlocks = await buildFileContentBlocks(attachedFiles);
+      const headerBlock: Anthropic.Messages.TextBlockParam = {
+        type: "text",
+        text: "Дополнительные материалы от пользователя:",
+      };
+      messageContent = [...fileBlocks, headerBlock, { type: "text", text: textPrompt }] as any;
+    } else {
+      messageContent = textPrompt;
+    }
+
+    const response = await anthropic.messages.create({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 16000,
+      messages: [{ role: "user", content: messageContent }],
     });
 
     const text = response.content[0].type === "text" ? response.content[0].text : "";

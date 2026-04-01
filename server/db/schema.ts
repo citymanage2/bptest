@@ -174,6 +174,7 @@ export const documents = pgTable("documents", {
   fileUrl: varchar("file_url", { length: 1024 }).notNull(),
   fileType: varchar("file_type", { length: 50 }).notNull(),
   fileSize: integer("file_size").notNull(),
+  source: varchar("source", { length: 100 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -437,6 +438,31 @@ export const legalAttachments = pgTable("legal_attachments", {
 export const legalAttachmentsRelations = relations(legalAttachments, ({ one }) => ({
   company: one(companies, { fields: [legalAttachments.companyId], references: [companies.id] }),
   user: one(users, { fields: [legalAttachments.userId], references: [users.id] }),
+}));
+
+// Interview Attachments — files uploaded during interview (questionnaire) filling
+export const interviewAttachments = pgTable("interview_attachments", {
+  id: serial("id").primaryKey(),
+  interviewId: integer("interview_id")
+    .notNull()
+    .references(() => interviews.id, { onDelete: "cascade" }),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  originalName: varchar("original_name", { length: 500 }).notNull(),
+  storedName: varchar("stored_name", { length: 500 }).notNull(),
+  mimeType: varchar("mime_type", { length: 100 }).notNull(),
+  fileSize: integer("file_size").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const interviewAttachmentsRelations = relations(interviewAttachments, ({ one }) => ({
+  interview: one(interviews, { fields: [interviewAttachments.interviewId], references: [interviews.id] }),
+  company: one(companies, { fields: [interviewAttachments.companyId], references: [companies.id] }),
+  user: one(users, { fields: [interviewAttachments.userId], references: [users.id] }),
 }));
 
 // Regulations — generated regulation and job-instruction documents for process roles
