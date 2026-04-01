@@ -4931,8 +4931,26 @@ function RegulationsTab({
   const [allGenProgress, setAllGenProgress] = useState<{ done: number; total: number } | null>(null);
   const [generatingAll, setGeneratingAll] = useState(false);
   const [expandedDocs, setExpandedDocs] = useState<Record<string, boolean>>({});
+  const [initialized, setInitialized] = useState(false);
   const generateMutation = trpc.process.generateDocument.useMutation();
   const genTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+
+  const savedRegulationsQuery = trpc.process.getRegulations.useQuery(
+    { processId },
+    { enabled: !!processId }
+  );
+
+  // On first load, populate documents state from DB
+  useEffect(() => {
+    if (!initialized && savedRegulationsQuery.data) {
+      const saved: Record<string, string> = {};
+      for (const reg of savedRegulationsQuery.data) {
+        saved[reg.key] = reg.content;
+      }
+      setDocuments(saved);
+      setInitialized(true);
+    }
+  }, [savedRegulationsQuery.data, initialized]);
 
   const anyGenerating = Object.values(generating).some(Boolean) || generatingAll;
 

@@ -11,7 +11,7 @@ import { sql } from "drizzle-orm";
 import { appRouter } from "./routers";
 import { createContext } from "./trpc";
 import { db } from "./db";
-import { blockFiles, users, processes, companies, companyRequisites, legalAttachments } from "./db/schema";
+import { blockFiles, users, processes, companies, companyRequisites, legalAttachments, regulations } from "./db/schema";
 import { eq, and } from "drizzle-orm";
 import { TOKEN_COSTS } from "../shared/types";
 
@@ -105,7 +105,21 @@ async function runMigrations() {
     await db.execute(sql`
       ALTER TABLE companies ADD COLUMN IF NOT EXISTS inn VARCHAR(20)
     `);
-    console.log("[migration] block_files + business_models + kpi_plans + legal + legal_attachments + companies.inn ready");
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS regulations (
+        id SERIAL PRIMARY KEY,
+        process_id INTEGER NOT NULL REFERENCES processes(id) ON DELETE CASCADE,
+        company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        role_name VARCHAR(255) NOT NULL,
+        doc_type VARCHAR(50) NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        UNIQUE (process_id, role_name, doc_type)
+      )
+    `);
+    console.log("[migration] block_files + business_models + kpi_plans + legal + legal_attachments + companies.inn + regulations ready");
   } catch (err) {
     console.error("[migration] failed:", err);
   }

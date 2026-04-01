@@ -438,3 +438,28 @@ export const legalAttachmentsRelations = relations(legalAttachments, ({ one }) =
   company: one(companies, { fields: [legalAttachments.companyId], references: [companies.id] }),
   user: one(users, { fields: [legalAttachments.userId], references: [users.id] }),
 }));
+
+// Regulations — generated regulation and job-instruction documents for process roles
+export const regulations = pgTable("regulations", {
+  id: serial("id").primaryKey(),
+  processId: integer("process_id")
+    .notNull()
+    .references(() => processes.id, { onDelete: "cascade" }),
+  companyId: integer("company_id")
+    .notNull()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  userId: integer("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  roleName: varchar("role_name", { length: 255 }).notNull(),
+  docType: varchar("doc_type", { length: 50 }).notNull(), // "regulation" | "job_instruction"
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const regulationsRelations = relations(regulations, ({ one }) => ({
+  process: one(processes, { fields: [regulations.processId], references: [processes.id] }),
+  company: one(companies, { fields: [regulations.companyId], references: [companies.id] }),
+  user: one(users, { fields: [regulations.userId], references: [users.id] }),
+}));

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, and, desc } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import { db } from "../db";
-import { companies, processes, interviews, documents } from "../db/schema";
+import { companies, processes, interviews, documents, regulations } from "../db/schema";
 import Anthropic from "@anthropic-ai/sdk";
 
 const anthropic = new Anthropic({
@@ -166,13 +166,41 @@ export const companyRouter = router({
       });
       if (!company) throw new Error("Компания не найдена");
 
-      const result = await db.query.documents.findMany({
-        where: eq(documents.companyId, input.companyId),
-        orderBy: desc(documents.createdAt),
-      });
-      return result.map((d) => ({
-        ...d,
+      const [docs, regs] = await Promise.all([
+        db.query.documents.findMany({
+          where: eq(documents.companyId, input.companyId),
+          orderBy: desc(documents.createdAt),
+        }),
+        db.query.regulations.findMany({
+          where: eq(regulations.companyId, input.companyId),
+          orderBy: desc(regulations.createdAt),
+        }),
+      ]);
+
+      const docItems = docs.map((d) => ({
+        id: d.id,
+        companyId: d.companyId,
+        name: d.name,
+        fileUrl: d.fileUrl as string | null,
+        fileType: d.fileType,
+        fileSize: d.fileSize,
         createdAt: d.createdAt.toISOString(),
       }));
+
+      const regItems = regs.map((r) => ({
+        id: r.id,
+        companyId: r.companyId,
+        name: r.docType === "regulation"
+          ? `Регламент: ${r.roleName}`
+          : `Должностная инструкция: ${r.roleName}`,
+        fileUrl: null as string | null,
+        fileType: "docx",
+        fileSize: r.content.length,
+        createdAt: r.createdAt.toISOString(),
+      }));
+
+      return [...docItems, ...regItems].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
     }),
 });
