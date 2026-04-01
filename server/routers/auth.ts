@@ -112,6 +112,8 @@ export const authRouter = router({
           throw new Error("Неверный email или пароль");
         }
 
+        console.log("[LOGIN] passwordHash value:", user.passwordHash);
+        console.log("[LOGIN] all user keys:", Object.keys(user));
         console.log("[LOGIN] User found, id:", user.id, "— comparing password");
         const valid = await bcrypt.compare(input.password, user.passwordHash);
         if (!valid) {
