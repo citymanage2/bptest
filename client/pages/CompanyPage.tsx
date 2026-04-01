@@ -368,10 +368,6 @@ export function CompanyPage() {
             <GitBranch className="w-4 h-4" />
             Процессы
           </TabsTrigger>
-          <TabsTrigger value="business-model" className="gap-1.5">
-            <BarChart3 className="w-4 h-4" />
-            Бизнес-модель
-          </TabsTrigger>
           <TabsTrigger value="documents" className="gap-1.5">
             <FileText className="w-4 h-4" />
             Документы

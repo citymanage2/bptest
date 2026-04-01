@@ -1,5 +1,5 @@
 import { Outlet, Link } from "react-router-dom";
-import { Home, HelpCircle } from "lucide-react";
+import { Home } from "lucide-react";
 
 export function PublicLayout() {
   return (
@@ -18,13 +18,6 @@ export function PublicLayout() {
 
             {/* Navigation */}
             <nav className="hidden md:flex items-center gap-1">
-              <Link
-                to="/faq"
-                className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-gray-100 transition-colors"
-              >
-                <HelpCircle className="w-4 h-4" />
-                База знаний
-              </Link>
             </nav>
 
             {/* Auth buttons */}
@@ -45,16 +38,6 @@ export function PublicLayout() {
           </div>
         </div>
 
-        {/* Mobile nav */}
-        <div className="md:hidden border-t border-border px-4 py-2 flex gap-1">
-          <Link
-            to="/faq"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground"
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-            База знаний
-          </Link>
-        </div>
       </header>
 
       {/* Main content */}
@@ -74,9 +57,6 @@ export function PublicLayout() {
               <span className="text-sm text-muted-foreground">— Business Process Builder</span>
             </div>
             <div className="flex items-center gap-6 text-sm text-muted-foreground flex-wrap justify-center">
-              <Link to="/faq" className="hover:text-foreground transition-colors">
-                База знаний
-              </Link>
               <Link to="/privacy-policy" className="hover:text-foreground transition-colors">
                 Конфиденциальность
               </Link>
