@@ -30,6 +30,7 @@ import {
   AlertCircle,
   Briefcase,
   FolderOpen,
+  Sparkles,
 } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 
@@ -40,9 +41,12 @@ export function CompaniesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formName, setFormName] = useState("");
   const [formIndustry, setFormIndustry] = useState("");
+  const [formInn, setFormInn] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [formContactInfo, setFormContactInfo] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
+  const [aiDescLoading, setAiDescLoading] = useState(false);
+  const [aiDescError, setAiDescError] = useState<string | null>(null);
 
   const companiesQuery = trpc.company.list.useQuery();
 
@@ -57,12 +61,40 @@ export function CompaniesPage() {
     },
   });
 
+  const generateDescMutation = trpc.company.generateDescription.useMutation({
+    onSuccess: (data) => {
+      setFormDescription(data.description);
+      setAiDescLoading(false);
+    },
+    onError: (err) => {
+      setAiDescError(err.message || "Не удалось сформировать описание");
+      setAiDescLoading(false);
+    },
+  });
+
+  const handleGenerateDescription = () => {
+    if (!formName.trim() || !formIndustry.trim()) {
+      setAiDescError("Сначала заполните название компании и отрасль");
+      return;
+    }
+    setAiDescError(null);
+    setAiDescLoading(true);
+    generateDescMutation.mutate({
+      name: formName.trim(),
+      industry: formIndustry.trim(),
+      inn: formInn.trim() || undefined,
+    });
+  };
+
   const resetForm = () => {
     setFormName("");
     setFormIndustry("");
+    setFormInn("");
     setFormDescription("");
     setFormContactInfo("");
     setCreateError(null);
+    setAiDescError(null);
+    setAiDescLoading(false);
   };
 
   const handleCreate = (e: React.FormEvent) => {
@@ -81,6 +113,7 @@ export function CompaniesPage() {
     createMutation.mutate({
       name: formName.trim(),
       industry: formIndustry.trim(),
+      inn: formInn.trim() || undefined,
       description: formDescription.trim() || undefined,
       contactInfo: formContactInfo.trim() || undefined,
     });
@@ -159,14 +192,46 @@ export function CompaniesPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="company-description">Описание</Label>
+                <Label htmlFor="company-inn">ИНН</Label>
+                <Input
+                  id="company-inn"
+                  placeholder="1234567890"
+                  value={formInn}
+                  onChange={(e) => setFormInn(e.target.value)}
+                  disabled={createMutation.isPending}
+                  maxLength={12}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="company-description">Описание</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleGenerateDescription}
+                    disabled={aiDescLoading || createMutation.isPending}
+                    className="text-xs h-7 px-2 gap-1 text-purple-600 border-purple-200 hover:bg-purple-50 hover:text-purple-700"
+                  >
+                    {aiDescLoading ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3 h-3" />
+                    )}
+                    Сформировать описание с помощью ИИ
+                  </Button>
+                </div>
+                {aiDescError && (
+                  <p className="text-xs text-red-600">{aiDescError}</p>
+                )}
                 <Textarea
                   id="company-description"
                   placeholder="Краткое описание деятельности компании..."
                   value={formDescription}
                   onChange={(e) => setFormDescription(e.target.value)}
                   rows={3}
-                  disabled={createMutation.isPending}
+                  disabled={createMutation.isPending || aiDescLoading}
                 />
               </div>
 

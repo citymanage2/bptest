@@ -3,6 +3,11 @@ import { eq, and, desc } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import { db } from "../db";
 import { companies, processes, interviews, documents } from "../db/schema";
+import Anthropic from "@anthropic-ai/sdk";
+
+const anthropic = new Anthropic({
+  apiKey: process.env.CLAUDE_API_KEY || "dummy-key",
+});
 
 export const companyRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -36,6 +41,7 @@ export const companyRouter = router({
       z.object({
         name: z.string().min(1, "Введите название компании"),
         industry: z.string().min(1, "Введите сферу деятельности"),
+        inn: z.string().optional(),
         description: z.string().optional(),
         contactInfo: z.string().optional(),
       })
@@ -47,6 +53,7 @@ export const companyRouter = router({
           userId: ctx.userId,
           name: input.name,
           industry: input.industry,
+          inn: input.inn || null,
           description: input.description || null,
           contactInfo: input.contactInfo || null,
         })
@@ -58,12 +65,47 @@ export const companyRouter = router({
       };
     }),
 
+  generateDescription: protectedProcedure
+    .input(
+      z.object({
+        name: z.string().min(1),
+        industry: z.string().min(1),
+        inn: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      const prompt = `Ты — эксперт по бизнес-процессам. Напиши краткое описание компании для системы построения бизнес-процессов.
+
+Компания: ${input.name}
+Отрасль: ${input.industry}${input.inn ? `\nИНН: ${input.inn}` : ""}
+
+Требования к описанию:
+- Максимум 500 символов
+- Только проверенная и достоверная информация об отрасли
+- Акцент на ключевых бизнес-процессах компании данной отрасли
+- Укажи типичные процессы: продажи, производство, логистика, сервис — в зависимости от отрасли
+- Без воды, конкретно и по делу
+- На русском языке
+
+Верни только текст описания, без заголовков и пояснений.`;
+
+      const message = await anthropic.messages.create({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 300,
+        messages: [{ role: "user", content: prompt }],
+      });
+
+      const text = message.content[0].type === "text" ? message.content[0].text.trim() : "";
+      return { description: text.slice(0, 500) };
+    }),
+
   update: protectedProcedure
     .input(
       z.object({
         id: z.number(),
         name: z.string().min(1).optional(),
         industry: z.string().min(1).optional(),
+        inn: z.string().optional(),
         description: z.string().optional(),
         contactInfo: z.string().optional(),
       })
