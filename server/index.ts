@@ -102,7 +102,10 @@ async function runMigrations() {
       EXCEPTION WHEN duplicate_object THEN null;
       END $$;
     `);
-    console.log("[migration] block_files + business_models + kpi_plans + legal + legal_attachments tables ready");
+    await db.execute(sql`
+      ALTER TABLE companies ADD COLUMN IF NOT EXISTS inn VARCHAR(20)
+    `);
+    console.log("[migration] block_files + business_models + kpi_plans + legal + legal_attachments + companies.inn ready");
   } catch (err) {
     console.error("[migration] failed:", err);
   }
