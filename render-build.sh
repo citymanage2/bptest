@@ -19,7 +19,29 @@ sql\`DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_ro
   .catch(e => { console.error('Enum error:', e); sql.end(); process.exit(1); });
 "
 
+echo "==> Pre-creating new tables to avoid drizzle-kit interactive prompts..."
+node -e "
+const postgres = require('postgres');
+const sql = postgres(process.env.DATABASE_URL);
+Promise.all([
+  sql\`CREATE TABLE IF NOT EXISTS interview_attachments (
+    id SERIAL PRIMARY KEY,
+    interview_id INTEGER NOT NULL REFERENCES interviews(id) ON DELETE CASCADE,
+    company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    original_name VARCHAR(500) NOT NULL,
+    stored_name VARCHAR(500) NOT NULL,
+    mime_type VARCHAR(100) NOT NULL,
+    file_size INTEGER NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )\`,
+  sql\`ALTER TABLE documents ADD COLUMN IF NOT EXISTS source VARCHAR(100)\`,
+])
+  .then(() => { console.log('Pre-migration done'); return sql.end(); })
+  .catch(e => { console.error('Pre-migration error:', e); sql.end(); process.exit(1); });
+"
+
 echo "==> Pushing database schema..."
-printf '\n' | npx drizzle-kit push --force
+npx drizzle-kit push --force
 
 echo "==> Build complete!"
