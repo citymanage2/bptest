@@ -20,6 +20,6 @@ sql\`DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_ro
 "
 
 echo "==> Pushing database schema..."
-yes | npx drizzle-kit push --force
+printf '\n' | npx drizzle-kit push --force
 
 echo "==> Build complete!"
