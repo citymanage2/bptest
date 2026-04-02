@@ -135,7 +135,10 @@ async function runMigrations() {
     await db.execute(sql`
       ALTER TABLE documents ADD COLUMN IF NOT EXISTS source VARCHAR(100)
     `);
-    console.log("[migration] block_files + business_models + kpi_plans + legal + legal_attachments + companies.inn + regulations + interview_attachments + documents.source ready");
+    await db.execute(sql`
+      ALTER TABLE users ALTER COLUMN token_balance SET DEFAULT 8000
+    `);
+    console.log("[migration] block_files + business_models + kpi_plans + legal + legal_attachments + companies.inn + regulations + interview_attachments + documents.source + users.token_balance default ready");
   } catch (err) {
     console.error("[migration] failed:", err);
   }
