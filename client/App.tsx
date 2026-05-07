@@ -17,6 +17,7 @@ import { PrivacyPolicyPage } from "./pages/PrivacyPolicyPage";
 import { CookiePolicyPage } from "./pages/CookiePolicyPage";
 import { PricingPage } from "./pages/PricingPage";
 import { OfferPage } from "./pages/OfferPage";
+import { PaymentSuccessPage } from "./pages/PaymentSuccessPage";
 import { CookieConsentBanner } from "./components/CookieConsentBanner";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -74,6 +75,7 @@ export default function App() {
           <Route path="/process/:id" element={<ProcessPage />} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/support" element={<SupportPage />} />
+          <Route path="/payment/success" element={<PaymentSuccessPage />} />
         </Route>
         <Route
           path="/admin/*"

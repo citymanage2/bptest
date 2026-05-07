@@ -41,6 +41,8 @@ import {
   Layers,
   GitBranch,
   UserCheck,
+  CreditCard,
+  TrendingUp,
 } from "lucide-react";
 import type { User, SupportChat, SupportMessage, FaqArticle } from "@shared/types";
 
@@ -1415,6 +1417,188 @@ function ConsentStatsTab() {
   );
 }
 
+// ==================== Payments Tab ====================
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  pending: "Ожидает",
+  confirmed: "Успешно",
+  cancelled: "Отменён",
+  failed: "Ошибка",
+};
+const PAYMENT_STATUS_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+  pending: "outline",
+  confirmed: "default",
+  cancelled: "secondary",
+  failed: "destructive",
+};
+
+function PaymentsTab() {
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const paymentsQuery = trpc.payment.adminGetAll.useQuery();
+
+  const payments = paymentsQuery.data ?? [];
+  const filtered = statusFilter === "all"
+    ? payments
+    : payments.filter((p) => p.status === statusFilter);
+
+  const totalRevenue = payments
+    .filter((p) => p.status === "confirmed")
+    .reduce((sum, p) => sum + p.amount, 0);
+
+  return (
+    <div className="space-y-4">
+      {/* Summary */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card className="bg-white">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-purple-100 flex items-center justify-center">
+                <CreditCard className="w-4 h-4 text-purple-600" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Всего</p>
+                <p className="text-lg font-bold text-gray-900">{payments.length}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-white">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-green-100 flex items-center justify-center">
+                <TrendingUp className="w-4 h-4 text-green-600" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Выручка</p>
+                <p className="text-lg font-bold text-gray-900">
+                  {(totalRevenue / 100).toLocaleString("ru-RU")} ₽
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-white">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-100 flex items-center justify-center">
+                <Coins className="w-4 h-4 text-blue-600" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Успешных</p>
+                <p className="text-lg font-bold text-gray-900">
+                  {payments.filter((p) => p.status === "confirmed").length}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="bg-white">
+          <CardContent className="p-3">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center">
+                <Layers className="w-4 h-4 text-orange-600" />
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Ожидают</p>
+                <p className="text-lg font-bold text-gray-900">
+                  {payments.filter((p) => p.status === "pending").length}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Filter */}
+      <div className="flex items-center gap-1.5">
+        <Filter className="w-4 h-4 text-gray-400" />
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="flex h-9 rounded-md border border-gray-300 bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-400"
+        >
+          <option value="all">Все статусы</option>
+          <option value="pending">Ожидает</option>
+          <option value="confirmed">Успешно</option>
+          <option value="cancelled">Отменён</option>
+          <option value="failed">Ошибка</option>
+        </select>
+      </div>
+
+      {/* Table */}
+      {paymentsQuery.isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-12">
+          <CreditCard className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-500">Транзакции не найдены</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-200 bg-gray-50">
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">ID</th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Пользователь</th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Пакет</th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Сумма</th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Токены</th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Статус</th>
+                  <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">Дата</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filtered.map((p) => (
+                  <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 text-sm text-gray-500">{p.id}</td>
+                    <td className="px-4 py-3">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{p.userName}</p>
+                        <p className="text-[10px] text-gray-400">{p.userEmail}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {p.packageName}
+                      {p.isFirstPayment && (
+                        <span className="ml-1.5 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">
+                          ×2
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {(p.amount / 100).toLocaleString("ru-RU")} ₽
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        <Coins className="w-3.5 h-3.5 text-yellow-500" />
+                        <span className="text-sm font-medium text-gray-900">
+                          {p.status === "confirmed"
+                            ? p.tokensCredited.toLocaleString("ru-RU")
+                            : p.tokens.toLocaleString("ru-RU")}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge variant={PAYMENT_STATUS_VARIANTS[p.status] ?? "outline"}>
+                        {PAYMENT_STATUS_LABELS[p.status] ?? p.status}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      {formatDateTime(p.createdAt.toISOString())}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ==================== Main Admin Page ====================
 export function AdminPage() {
   const { user } = useAuth();
@@ -1450,6 +1634,10 @@ export function AdminPage() {
             <Shield className="w-4 h-4" />
             Согласия
           </TabsTrigger>
+          <TabsTrigger value="payments" className="gap-1.5">
+            <CreditCard className="w-4 h-4" />
+            Платежи
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="users">
@@ -1470,6 +1658,10 @@ export function AdminPage() {
 
         <TabsContent value="consents">
           <ConsentStatsTab />
+        </TabsContent>
+
+        <TabsContent value="payments">
+          <PaymentsTab />
         </TabsContent>
       </Tabs>
     </div>
