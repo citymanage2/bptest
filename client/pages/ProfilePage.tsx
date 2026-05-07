@@ -12,15 +12,7 @@ import {
   CardTitle,
   CardDescription,
   CardContent,
-  CardFooter,
 } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import {
   User,
   Mail,
@@ -31,8 +23,6 @@ import {
   Coins,
   Calendar,
   Shield,
-  TrendingDown,
-  TrendingUp,
   Sparkles,
   RefreshCw,
   MessageSquare,
@@ -43,14 +33,13 @@ import {
   CheckCircle2,
   Plus,
 } from "lucide-react";
-import { formatDate, formatDateTime } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 
 export function ProfilePage() {
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
 
-  // --- Top-up modal ---
-  const [topUpOpen, setTopUpOpen] = useState(false);
+  // top-up modal removed — button now navigates to /pricing
 
   // --- Edit profile ---
   const [isEditing, setIsEditing] = useState(false);
@@ -209,7 +198,7 @@ export function ProfilePage() {
                 <Button
                   size="sm"
                   className="mt-3 gap-1.5 bg-yellow-500 hover:bg-yellow-600 text-white"
-                  onClick={() => setTopUpOpen(true)}
+                  onClick={() => navigate("/pricing")}
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Пополнить баланс
@@ -219,33 +208,6 @@ export function ProfilePage() {
                 <Coins className="w-8 h-8 text-yellow-500" />
               </div>
             </div>
-
-            <Dialog open={topUpOpen} onOpenChange={setTopUpOpen}>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2">
-                    <Coins className="w-5 h-5 text-yellow-500" />
-                    Пополнение баланса токенов
-                  </DialogTitle>
-                </DialogHeader>
-                <p className="text-sm text-gray-600 leading-relaxed">
-                  Для пополнения баланса обратитесь в чат поддержки. Наши операторы помогут вам
-                  приобрести токены и зачислят их на ваш счёт.
-                </p>
-                <DialogFooter className="gap-2 sm:gap-0">
-                  <Button variant="outline" onClick={() => setTopUpOpen(false)}>
-                    Закрыть
-                  </Button>
-                  <Button
-                    className="gap-1.5"
-                    onClick={() => { setTopUpOpen(false); navigate("/support"); }}
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    Написать в поддержку
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
 
             {/* Cost reference */}
             <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">

@@ -15,6 +15,8 @@ import { FaqPage } from "./pages/FaqPage";
 import { AdminPage } from "./pages/AdminPage";
 import { PrivacyPolicyPage } from "./pages/PrivacyPolicyPage";
 import { CookiePolicyPage } from "./pages/CookiePolicyPage";
+import { PricingPage } from "./pages/PricingPage";
+import { OfferPage } from "./pages/OfferPage";
 import { CookieConsentBanner } from "./components/CookieConsentBanner";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -56,6 +58,8 @@ export default function App() {
           <Route path="/faq" element={<Navigate to="/" replace />} />
           <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
           <Route path="/cookie-policy" element={<CookiePolicyPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/offer" element={<OfferPage />} />
         </Route>
         <Route
           element={
