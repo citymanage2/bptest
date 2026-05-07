@@ -6,21 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Card,
   CardHeader,
   CardTitle,
   CardDescription,
   CardContent,
-  CardFooter,
 } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import {
   User,
   Mail,
@@ -31,8 +24,6 @@ import {
   Coins,
   Calendar,
   Shield,
-  TrendingDown,
-  TrendingUp,
   Sparkles,
   RefreshCw,
   MessageSquare,
@@ -42,6 +33,7 @@ import {
   X,
   CheckCircle2,
   Plus,
+  History,
 } from "lucide-react";
 import { formatDate, formatDateTime } from "@/lib/utils";
 
@@ -49,8 +41,7 @@ export function ProfilePage() {
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
 
-  // --- Top-up modal ---
-  const [topUpOpen, setTopUpOpen] = useState(false);
+  // top-up modal removed — button now navigates to /pricing
 
   // --- Edit profile ---
   const [isEditing, setIsEditing] = useState(false);
@@ -148,6 +139,19 @@ export function ProfilePage() {
     <div className="max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Мой профиль</h1>
 
+      <Tabs defaultValue="profile">
+        <TabsList className="mb-6">
+          <TabsTrigger value="profile" className="gap-1.5">
+            <User className="w-4 h-4" />
+            Профиль
+          </TabsTrigger>
+          <TabsTrigger value="history" className="gap-1.5">
+            <History className="w-4 h-4" />
+            История пополнений
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="profile">
       <div className="space-y-6">
         {/* Profile info card */}
         <Card>
@@ -209,7 +213,7 @@ export function ProfilePage() {
                 <Button
                   size="sm"
                   className="mt-3 gap-1.5 bg-yellow-500 hover:bg-yellow-600 text-white"
-                  onClick={() => setTopUpOpen(true)}
+                  onClick={() => navigate("/pricing")}
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Пополнить баланс
@@ -219,33 +223,6 @@ export function ProfilePage() {
                 <Coins className="w-8 h-8 text-yellow-500" />
               </div>
             </div>
-
-            <Dialog open={topUpOpen} onOpenChange={setTopUpOpen}>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-2">
-                    <Coins className="w-5 h-5 text-yellow-500" />
-                    Пополнение баланса токенов
-                  </DialogTitle>
-                </DialogHeader>
-                <p className="text-sm text-gray-600 leading-relaxed">
-                  Для пополнения баланса обратитесь в чат поддержки. Наши операторы помогут вам
-                  приобрести токены и зачислят их на ваш счёт.
-                </p>
-                <DialogFooter className="gap-2 sm:gap-0">
-                  <Button variant="outline" onClick={() => setTopUpOpen(false)}>
-                    Закрыть
-                  </Button>
-                  <Button
-                    className="gap-1.5"
-                    onClick={() => { setTopUpOpen(false); navigate("/support"); }}
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    Написать в поддержку
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
 
             {/* Cost reference */}
             <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -398,6 +375,121 @@ export function ProfilePage() {
             )}
           </CardContent>
         </Card>
+      </div>
+        </TabsContent>
+
+        <TabsContent value="history">
+          <PaymentHistoryTab />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  pending: "Ожидает",
+  confirmed: "Успешно",
+  cancelled: "Отменён",
+  failed: "Ошибка",
+};
+
+const PAYMENT_STATUS_VARIANTS: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+  pending: "outline",
+  confirmed: "default",
+  cancelled: "secondary",
+  failed: "destructive",
+};
+
+function PaymentHistoryTab() {
+  const navigate = useNavigate();
+  const { data, isLoading } = trpc.payment.getUserHistory.useQuery();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+      </div>
+    );
+  }
+
+  if (!data || data.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 gap-4">
+        <div className="w-14 h-14 bg-yellow-50 rounded-full flex items-center justify-center">
+          <CreditCard className="w-7 h-7 text-yellow-400" />
+        </div>
+        <p className="text-gray-500 text-sm">У вас пока нет пополнений</p>
+        <Button
+          size="sm"
+          className="gap-1.5 bg-yellow-500 hover:bg-yellow-600 text-white"
+          onClick={() => navigate("/pricing")}
+        >
+          <Plus className="w-3.5 h-3.5" />
+          Пополнить баланс
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-gray-200 bg-gray-50">
+              <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                Дата
+              </th>
+              <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                Пакет
+              </th>
+              <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                Сумма
+              </th>
+              <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                Токены
+              </th>
+              <th className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider px-4 py-3">
+                Статус
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {data.map((p) => (
+              <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                <td className="px-4 py-3 text-sm text-gray-500">
+                  {formatDateTime(p.createdAt.toISOString())}
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-900 font-medium">
+                  {p.packageName}
+                  {p.isFirstPayment && (
+                    <span className="ml-1.5 text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">
+                      ×2
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-900">
+                  {(p.amount / 100).toLocaleString("ru-RU")} ₽
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-1">
+                    <Coins className="w-3.5 h-3.5 text-yellow-500" />
+                    <span className="text-sm font-medium text-gray-900">
+                      {p.status === "confirmed"
+                        ? p.tokensCredited.toLocaleString("ru-RU")
+                        : p.tokens.toLocaleString("ru-RU")}
+                    </span>
+                  </div>
+                </td>
+                <td className="px-4 py-3">
+                  <Badge variant={PAYMENT_STATUS_VARIANTS[p.status] ?? "outline"}>
+                    {PAYMENT_STATUS_LABELS[p.status] ?? p.status}
+                  </Badge>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

@@ -11,8 +11,10 @@ import { sql } from "drizzle-orm";
 import { appRouter } from "./routers";
 import { createContext } from "./trpc";
 import { db } from "./db";
-import { blockFiles, users, processes, companies, companyRequisites, legalAttachments, interviewAttachments, interviews, documents, regulations } from "./db/schema";
+import { blockFiles, users, processes, companies, companyRequisites, legalAttachments, interviewAttachments, interviews, documents, regulations, payments, tokenOperations } from "./db/schema";
 import { eq, and } from "drizzle-orm";
+import { verifyWebhookSignature } from "./payments/tbank";
+import { TOKEN_PACKAGES } from "./payments/packages";
 import { TOKEN_COSTS } from "../shared/types";
 
 // Auto-migrate: create block_files table if not exists
@@ -182,6 +184,20 @@ function extractUserId(req: express.Request): number | null {
 }
 
 // Middleware
+const tBankDomains = "https://*.tinkoff.ru https://*.tcsbank.ru https://*.tbank.ru https://*.nspk.ru https://*.t-static.ru";
+app.use((_req, res, next) => {
+  res.setHeader(
+    "Content-Security-Policy",
+    [
+      `script-src 'self' ${tBankDomains}`,
+      `img-src 'self' data: ${tBankDomains}`,
+      `connect-src 'self' ${tBankDomains}`,
+      `style-src 'self' 'unsafe-inline' ${tBankDomains}`,
+    ].join("; ")
+  );
+  next();
+});
+
 app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
 app.use(express.json({ limit: "16mb" }));
@@ -529,6 +545,87 @@ app.use("/uploads", express.static(UPLOADS_DIR));
 // Health check
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+// ── T-Bank Webhook ───────────────────────────────────────────────────────────
+app.post("/api/payments/webhook", async (req, res) => {
+  const body = req.body as Record<string, unknown>;
+
+  if (!verifyWebhookSignature(body)) {
+    console.error("[webhook] Invalid signature, body:", JSON.stringify(body));
+    res.status(400).json({ Success: false });
+    return;
+  }
+
+  const status = body.Status as string;
+  const orderId = body.OrderId as string;
+
+  if (status === "CONFIRMED") {
+    const payment = await db.query.payments.findFirst({
+      where: eq(payments.orderId, orderId),
+    });
+
+    if (!payment) {
+      console.error("[webhook] Payment not found:", orderId);
+      res.json({ Success: true });
+      return;
+    }
+
+    const pkg = TOKEN_PACKAGES.find((p) => p.id === payment.packageId);
+    if (!pkg) {
+      console.error("[webhook] Unknown packageId:", payment.packageId);
+      res.json({ Success: true });
+      return;
+    }
+
+    const tokensToCredit = pkg.tokens * (payment.isFirstPayment ? 2 : 1);
+
+    try {
+      await db.transaction(async (tx) => {
+        // Atomic idempotency: only claim the row if it's still pending.
+        // Concurrent webhooks both see pending outside the tx — this WHERE
+        // ensures only one of them actually transitions to confirmed.
+        const [claimed] = await tx
+          .update(payments)
+          .set({ status: "confirmed", tokensCredited: tokensToCredit, updatedAt: new Date() })
+          .where(and(eq(payments.id, payment.id), eq(payments.status, "pending")))
+          .returning({ id: payments.id });
+
+        if (!claimed) return; // already processed by a concurrent webhook
+
+        await tx
+          .update(users)
+          .set({ tokenBalance: sql`token_balance + ${tokensToCredit}` })
+          .where(eq(users.id, payment.userId));
+
+        await tx.insert(tokenOperations).values({
+          userId: payment.userId,
+          amount: tokensToCredit,
+          type: "topup",
+          description: `Пополнение баланса: пакет ${pkg.name} (${pkg.tokens} токенов)`,
+        });
+      });
+    } catch (err) {
+      console.error("[webhook] Transaction failed:", err);
+      res.status(500).json({ Success: false });
+      return;
+    }
+  } else if (status === "CANCELLED" || status === "DEADLINE_EXPIRED") {
+    const payment = await db.query.payments.findFirst({
+      where: eq(payments.orderId, orderId),
+    });
+    if (payment && payment.status === "pending") {
+      await db
+        .update(payments)
+        .set({ status: "cancelled", updatedAt: new Date() })
+        .where(eq(payments.id, payment.id));
+    }
+  } else if (status === "AUTHORIZED") {
+    // Two-step terminal mode: configure OneStage=true in T-Bank dashboard to avoid this
+    console.log("[webhook] AUTHORIZED received for orderId:", orderId, "— confirm manually or enable OneStage=true");
+  }
+
+  res.json({ Success: true });
 });
 
 // Serve static files — always serve the built client if it exists

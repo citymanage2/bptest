@@ -57,6 +57,12 @@ export function PublicLayout() {
               <span className="text-sm text-muted-foreground">— Business Process Builder</span>
             </div>
             <div className="flex items-center gap-6 text-sm text-muted-foreground flex-wrap justify-center">
+              <Link to="/pricing" className="hover:text-foreground transition-colors">
+                Тарифы
+              </Link>
+              <Link to="/offer" className="hover:text-foreground transition-colors">
+                Оферта
+              </Link>
               <Link to="/privacy-policy" className="hover:text-foreground transition-colors">
                 Конфиденциальность
               </Link>

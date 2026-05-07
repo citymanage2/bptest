@@ -19,6 +19,15 @@ sql\`DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'user_ro
   .catch(e => { console.error('Enum error:', e); sql.end(); process.exit(1); });
 "
 
+echo "==> Pre-creating payment_status enum..."
+node -e "
+const postgres = require('postgres');
+const sql = postgres(process.env.DATABASE_URL);
+sql\`DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_status') THEN CREATE TYPE payment_status AS ENUM ('pending','confirmed','cancelled','failed'); END IF; END \$\$\`
+  .then(() => { console.log('payment_status enum ready'); return sql.end(); })
+  .catch(e => { console.error('payment_status enum error:', e); sql.end(); process.exit(1); });
+"
+
 echo "==> Pre-creating new tables to avoid drizzle-kit interactive prompts..."
 node -e "
 const postgres = require('postgres');
