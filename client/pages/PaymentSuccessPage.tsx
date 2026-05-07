@@ -16,8 +16,11 @@ export function PaymentSuccessPage() {
     { orderId },
     {
       enabled: !!orderId,
-      refetchInterval: (query) =>
-        query.state.data?.status === "confirmed" ? false : timedOut ? false : 2000,
+      refetchInterval: (query) => {
+        const s = query.state.data?.status;
+        if (s === "confirmed" || s === "cancelled" || s === "failed") return false;
+        return timedOut ? false : 2000;
+      },
     }
   );
 

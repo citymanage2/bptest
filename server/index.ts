@@ -571,11 +571,6 @@ app.post("/api/payments/webhook", async (req, res) => {
       return;
     }
 
-    if (payment.status !== "pending") {
-      res.json({ Success: true });
-      return;
-    }
-
     const pkg = TOKEN_PACKAGES.find((p) => p.id === payment.packageId);
     if (!pkg) {
       console.error("[webhook] Unknown packageId:", payment.packageId);
@@ -587,6 +582,17 @@ app.post("/api/payments/webhook", async (req, res) => {
 
     try {
       await db.transaction(async (tx) => {
+        // Atomic idempotency: only claim the row if it's still pending.
+        // Concurrent webhooks both see pending outside the tx — this WHERE
+        // ensures only one of them actually transitions to confirmed.
+        const [claimed] = await tx
+          .update(payments)
+          .set({ status: "confirmed", tokensCredited: tokensToCredit, updatedAt: new Date() })
+          .where(and(eq(payments.id, payment.id), eq(payments.status, "pending")))
+          .returning({ id: payments.id });
+
+        if (!claimed) return; // already processed by a concurrent webhook
+
         await tx
           .update(users)
           .set({ tokenBalance: sql`token_balance + ${tokensToCredit}` })
@@ -598,11 +604,6 @@ app.post("/api/payments/webhook", async (req, res) => {
           type: "topup",
           description: `Пополнение баланса: пакет ${pkg.name} (${pkg.tokens} токенов)`,
         });
-
-        await tx
-          .update(payments)
-          .set({ status: "confirmed", tokensCredited: tokensToCredit, updatedAt: new Date() })
-          .where(eq(payments.id, payment.id));
       });
     } catch (err) {
       console.error("[webhook] Transaction failed:", err);
