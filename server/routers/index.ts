@@ -9,6 +9,7 @@ import { consentRouter } from "./consent";
 import { businessModelRouter } from "./businessModel";
 import { kpiMotivationRouter } from "./kpiMotivation";
 import { legalDocumentsRouter } from "./legalDocuments";
+import { paymentRouter } from "./payment";
 
 export const appRouter = router({
   auth: authRouter,
@@ -21,6 +22,7 @@ export const appRouter = router({
   businessModel: businessModelRouter,
   kpiMotivation: kpiMotivationRouter,
   legalDocuments: legalDocumentsRouter,
+  payment: paymentRouter,
 });
 
 export type AppRouter = typeof appRouter;

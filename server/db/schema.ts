@@ -47,6 +47,7 @@ export const usersRelations = relations(users, ({ many }) => ({
   companies: many(companies),
   tokenOperations: many(tokenOperations),
   supportChats: many(supportChats),
+  payments: many(payments),
 }));
 
 // Companies
@@ -488,4 +489,31 @@ export const regulationsRelations = relations(regulations, ({ one }) => ({
   process: one(processes, { fields: [regulations.processId], references: [processes.id] }),
   company: one(companies, { fields: [regulations.companyId], references: [companies.id] }),
   user: one(users, { fields: [regulations.userId], references: [users.id] }),
+}));
+
+// Payments
+export const paymentStatusEnum = pgEnum("payment_status", [
+  "pending",
+  "confirmed",
+  "cancelled",
+  "failed",
+]);
+
+export const payments = pgTable("payments", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  orderId: varchar("order_id", { length: 100 }).notNull().unique(),
+  paymentId: varchar("payment_id", { length: 50 }),
+  packageId: varchar("package_id", { length: 50 }).notNull(),
+  amount: integer("amount").notNull(),
+  tokens: integer("tokens").notNull(),
+  tokensCredited: integer("tokens_credited").notNull().default(0),
+  isFirstPayment: boolean("is_first_payment").notNull().default(false),
+  status: paymentStatusEnum("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const paymentsRelations = relations(payments, ({ one }) => ({
+  user: one(users, { fields: [payments.userId], references: [users.id] }),
 }));
