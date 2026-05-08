@@ -69,6 +69,13 @@ export async function initPayment(params: {
     body: JSON.stringify(reqBody),
   });
 
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    throw new Error(
+      `T-Bank вернул неожиданный ответ (HTTP ${response.status}). Проверьте TBANK_TERMINAL_KEY и TBANK_PASSWORD в настройках окружения.`
+    );
+  }
+
   const data = (await response.json()) as {
     Success: boolean;
     PaymentURL?: string;
