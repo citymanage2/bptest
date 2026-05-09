@@ -1,7 +1,10 @@
 import { Outlet, Link } from "react-router-dom";
 import { Home } from "lucide-react";
+import { useAuth } from "@/lib/auth";
 
 export function PublicLayout() {
+  const { user } = useAuth();
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header */}
@@ -22,18 +25,29 @@ export function PublicLayout() {
 
             {/* Auth buttons */}
             <div className="flex items-center gap-2">
-              <Link
-                to="/login"
-                className="px-4 py-2 text-sm font-medium text-foreground hover:text-primary transition-colors"
-              >
-                Войти
-              </Link>
-              <Link
-                to="/register"
-                className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
-              >
-                Регистрация
-              </Link>
+              {user ? (
+                <Link
+                  to="/companies"
+                  className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
+                >
+                  Перейти к сервису
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    to="/login"
+                    className="px-4 py-2 text-sm font-medium text-foreground hover:text-primary transition-colors"
+                  >
+                    Войти
+                  </Link>
+                  <Link
+                    to="/register"
+                    className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition-colors"
+                  >
+                    Регистрация
+                  </Link>
+                </>
+              )}
             </div>
           </div>
         </div>
