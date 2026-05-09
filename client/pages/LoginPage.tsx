@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import { Mail, Lock, AlertCircle, Loader2 } from "lucide-react";
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { login } = useAuth();
 
   const [email, setEmail] = useState("");
@@ -26,7 +27,8 @@ export function LoginPage() {
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: (data) => {
       login(data.token, data.user);
-      navigate("/companies");
+      const redirect = searchParams.get("redirect");
+      navigate(redirect || "/companies");
     },
     onError: (err) => {
       setError(err.message || "Не удалось войти. Проверьте данные и попробуйте снова.");
