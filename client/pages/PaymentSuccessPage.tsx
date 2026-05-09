@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2, CheckCircle2, XCircle, Coins, Package, ArrowRight } from "lucide-react";
@@ -8,9 +9,11 @@ import { Loader2, CheckCircle2, XCircle, Coins, Package, ArrowRight } from "luci
 export function PaymentSuccessPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { user, updateUser } = useAuth();
   const orderId = searchParams.get("orderId") ?? "";
 
   const [timedOut, setTimedOut] = useState(false);
+  const balanceUpdated = useRef(false);
 
   const { data, error } = trpc.payment.getStatus.useQuery(
     { orderId },
@@ -28,6 +31,13 @@ export function PaymentSuccessPage() {
     const timer = setTimeout(() => setTimedOut(true), 30_000);
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (data?.status === "confirmed" && !balanceUpdated.current && user) {
+      balanceUpdated.current = true;
+      updateUser({ ...user, tokenBalance: data.tokenBalance });
+    }
+  }, [data?.status, data?.tokenBalance, user, updateUser]);
 
   if (!orderId) {
     return (
