@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./lib/auth";
 import { Layout } from "./components/Layout";
 import { PublicLayout } from "./components/PublicLayout";
@@ -19,6 +19,14 @@ import { PricingPage } from "./pages/PricingPage";
 import { OfferPage } from "./pages/OfferPage";
 import { PaymentSuccessPage } from "./pages/PaymentSuccessPage";
 import { CookieConsentBanner } from "./components/CookieConsentBanner";
+
+function LoginOrRedirect({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const location = useLocation();
+  if (!user) return <>{children}</>;
+  const params = new URLSearchParams(location.search);
+  return <Navigate to={params.get("redirect") || "/companies"} replace />;
+}
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -54,8 +62,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={user ? <Navigate to="/companies" replace /> : <LandingPage />} />
         <Route element={<PublicLayout />}>
-          <Route path="/login" element={user ? <Navigate to="/companies" replace /> : <LoginPage />} />
-          <Route path="/register" element={user ? <Navigate to="/companies" replace /> : <RegisterPage />} />
+          <Route path="/login" element={<LoginOrRedirect><LoginPage /></LoginOrRedirect>} />
+          <Route path="/register" element={<LoginOrRedirect><RegisterPage /></LoginOrRedirect>} />
           <Route path="/faq" element={<Navigate to="/" replace />} />
           <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
           <Route path="/cookie-policy" element={<CookiePolicyPage />} />
