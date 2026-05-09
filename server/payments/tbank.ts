@@ -46,6 +46,8 @@ export function buildReceipt(
   };
 }
 
+const NOTIFICATION_URL = "https://biz-process.ru/api/payments/webhook";
+
 export async function initPayment(params: {
   orderId: string;
   amount: number;
@@ -61,6 +63,7 @@ export async function initPayment(params: {
     Description: params.description,
     SuccessURL: params.successUrl,
     FailURL: params.failUrl,
+    NotificationURL: NOTIFICATION_URL,
     Receipt: params.receipt,
   };
 
