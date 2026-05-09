@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   Check,
@@ -51,6 +51,7 @@ function useFadeIn() {
 }
 
 export function LandingPage() {
+  const navigate = useNavigate();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -108,7 +109,7 @@ export function LandingPage() {
               <Link to="/login" className="inline-flex items-center justify-center h-9 px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors">
                 Войти
               </Link>
-              <button onClick={() => scrollTo("pricing")} className="inline-flex items-center justify-center h-9 px-4 py-2 text-sm font-medium border border-gray-300 bg-white rounded-md shadow-sm hover:bg-gray-50 transition-colors">
+              <button onClick={() => navigate("/pricing")} className="inline-flex items-center justify-center h-9 px-4 py-2 text-sm font-medium border border-gray-300 bg-white rounded-md shadow-sm hover:bg-gray-50 transition-colors">
                 Пополнить счёт
               </button>
               <Link to="/register" className="inline-flex items-center justify-center h-9 px-4 py-2 text-sm font-medium bg-purple-600 text-white rounded-md shadow hover:bg-purple-700 transition-colors">
@@ -528,7 +529,7 @@ export function LandingPage() {
 
           {/* CTA под тарифами */}
           <div className="text-center">
-            <button onClick={() => scrollTo("cta")} className="inline-flex items-center gap-2 h-11 px-8 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors">
+            <button onClick={() => navigate("/pricing?bonus=true")} className="inline-flex items-center gap-2 h-11 px-8 bg-purple-600 text-white text-sm font-medium rounded-md shadow hover:bg-purple-700 transition-colors">
               Пополнить счёт и получить ×2
               <ArrowRight className="w-4 h-4" />
             </button>

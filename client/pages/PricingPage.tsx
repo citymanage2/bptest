@@ -1,4 +1,4 @@
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import {
   Star,
   ArrowLeft,
   Gift,
+  AlertCircle,
 } from "lucide-react";
 
 const PACKAGES = [
@@ -62,6 +63,8 @@ const COSTS = [
 export function PricingPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isBonus = searchParams.get("bonus") === "true";
 
   const createOrderMutation = trpc.payment.createOrder.useMutation({
     onSuccess: ({ paymentUrl }) => {
@@ -72,9 +75,16 @@ export function PricingPage() {
     },
   });
 
+  const historyQuery = trpc.payment.getUserHistory.useQuery(undefined, {
+    enabled: !!user && isBonus,
+  });
+
+  const hasConfirmedPayment =
+    !!historyQuery.data?.some((p) => p.status === "confirmed");
+
   const handleBuy = (packageId: "start" | "basic" | "pro") => {
     if (!user) {
-      navigate(`/login?redirect=/pricing`);
+      navigate(`/login?redirect=/pricing${isBonus ? "?bonus=true" : ""}`);
       return;
     }
     createOrderMutation.mutate({ packageId });
@@ -93,10 +103,12 @@ export function PricingPage() {
 
         {/* Header */}
         <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 bg-yellow-100 text-yellow-800 text-sm font-medium px-4 py-1.5 rounded-full mb-4">
-            <Gift className="w-4 h-4" />
-            Первое пополнение — токены ×2
-          </div>
+          {isBonus && !hasConfirmedPayment && (
+            <div className="inline-flex items-center gap-2 bg-yellow-100 text-yellow-800 text-sm font-medium px-4 py-1.5 rounded-full mb-4">
+              <Gift className="w-4 h-4" />
+              Первое пополнение — токены ×2
+            </div>
+          )}
           <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-3">
             Тарифы
           </h1>
@@ -105,6 +117,19 @@ export function PricingPage() {
             Токены не сгорают.
           </p>
         </div>
+
+        {/* Already used bonus banner */}
+        {isBonus && hasConfirmedPayment && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-6 flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-amber-900">Бонус ×2 уже был использован</p>
+              <p className="text-sm text-amber-700">
+                Акция на удвоение токенов применяется только при первом пополнении. Вы можете пополнить счёт по обычному тарифу.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Package cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
@@ -180,7 +205,13 @@ export function PricingPage() {
                   onClick={() => handleBuy(pkg.id)}
                   disabled={createOrderMutation.isPending}
                 >
-                  {isPending ? "Перенаправление..." : "Купить"}
+                  {isPending
+                    ? "Перенаправление..."
+                    : isBonus && hasConfirmedPayment
+                    ? `Оплатить ×1 — ${pkg.name}`
+                    : isBonus && !hasConfirmedPayment
+                    ? "Купить с бонусом ×2"
+                    : "Купить"}
                 </Button>
               </div>
             );
@@ -188,20 +219,22 @@ export function PricingPage() {
         </div>
 
         {/* First payment bonus */}
-        <div className="bg-gradient-to-r from-yellow-50 to-amber-50 border border-yellow-200 rounded-2xl p-6 mb-10 flex items-start gap-4">
-          <div className="w-10 h-10 bg-yellow-100 rounded-xl flex items-center justify-center shrink-0">
-            <Gift className="w-5 h-5 text-yellow-600" />
+        {!(isBonus && hasConfirmedPayment) && (
+          <div className="bg-gradient-to-r from-yellow-50 to-amber-50 border border-yellow-200 rounded-2xl p-6 mb-10 flex items-start gap-4">
+            <div className="w-10 h-10 bg-yellow-100 rounded-xl flex items-center justify-center shrink-0">
+              <Gift className="w-5 h-5 text-yellow-600" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-yellow-900 mb-1">
+                Бонус первого пополнения — токены ×2
+              </h3>
+              <p className="text-sm text-yellow-800">
+                При первом пополнении мы удваиваем количество токенов. Купили пакет «Профи» на 50 000
+                токенов — получите 100 000. Акция применяется автоматически.
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="font-semibold text-yellow-900 mb-1">
-              Бонус первого пополнения — токены ×2
-            </h3>
-            <p className="text-sm text-yellow-800">
-              При первом пополнении мы удваиваем количество токенов. Купили пакет «Профи» на 50 000
-              токенов — получите 100 000. Акция применяется автоматически.
-            </p>
-          </div>
-        </div>
+        )}
 
         {/* Cost reference table */}
         <div className="bg-white border border-gray-200 rounded-2xl p-6 mb-8">
