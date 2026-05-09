@@ -5,6 +5,10 @@ const TERMINAL_KEY = process.env.TBANK_TERMINAL_KEY!;
 const PASSWORD = process.env.TBANK_PASSWORD!;
 const API_URL = process.env.TBANK_API_URL || "https://rest-api-test.tinkoff.ru/v2";
 
+console.log("[T-Bank] TBANK_TERMINAL_KEY:", TERMINAL_KEY ? `set (${TERMINAL_KEY.slice(0, 4)}...)` : "NOT SET");
+console.log("[T-Bank] TBANK_PASSWORD:", PASSWORD ? "set" : "NOT SET");
+console.log("[T-Bank] TBANK_API_URL:", API_URL);
+
 const SIGNATURE_EXCLUDED = new Set(["Token", "Receipt", "DATA"]);
 
 export function buildSignature(params: Record<string, string | number | boolean>): string {
@@ -63,6 +67,8 @@ export async function initPayment(params: {
   const token = buildSignature(reqBody as Record<string, string | number | boolean>);
   reqBody.Token = token;
 
+  console.log("[T-Bank] POST", `${API_URL}/Init`, JSON.stringify({ ...reqBody, Token: reqBody.Token, Receipt: "[omitted]" }));
+
   const response = await fetch(`${API_URL}/Init`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -71,6 +77,8 @@ export async function initPayment(params: {
 
   const contentType = response.headers.get("content-type") ?? "";
   if (!contentType.includes("application/json")) {
+    const rawBody = await response.text();
+    console.error("[T-Bank] Non-JSON response", response.status, contentType, rawBody.slice(0, 500));
     throw new Error(
       `T-Bank вернул неожиданный ответ (HTTP ${response.status}). Проверьте TBANK_TERMINAL_KEY и TBANK_PASSWORD в настройках окружения.`
     );
