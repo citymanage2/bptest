@@ -46,7 +46,7 @@ export const paymentRouter = router({
           amount: pkg.amount,
           description: `Пополнение токенового баланса (${pkg.tokens} токенов)`,
           receipt,
-          successUrl: "https://biz-process.ru/payment/success",
+          successUrl: `https://biz-process.ru/payment/success?orderId=${orderId}`,
           failUrl: "https://biz-process.ru/pricing",
         }));
       } catch (err) {
