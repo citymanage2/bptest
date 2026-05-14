@@ -1,11 +1,56 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type { ProcessData, ProcessBlock, ProcessRole, ProcessStage, ProcessPassport, CrmFunnel } from "../../shared/types";
 import { SWIMLANE_COLORS } from "../../shared/types";
 import { logger } from "./logger";
 
-const anthropic = new Anthropic({
-  apiKey: process.env.CLAUDE_API_KEY || "dummy-key",
-});
+const YANDEX_API_KEY = process.env.YANDEX_API_KEY ?? "";
+const YANDEX_FOLDER_ID = process.env.YANDEX_FOLDER_ID ?? "";
+if (!YANDEX_API_KEY || !YANDEX_FOLDER_ID) {
+  throw new Error("YANDEX_API_KEY и YANDEX_FOLDER_ID обязательны");
+}
+const YANDEX_MODEL_URI = `gpt://${YANDEX_FOLDER_ID}/yandexgpt-5.1/latest`;
+const YANDEX_ENDPOINT = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion";
+
+// ─── Шаг 2: callYandex helper ─────────────────────────────────────────────────
+async function callYandex(
+  messages: Array<{ role: "user" | "assistant" | "system"; text: string }>,
+  maxTokens: number
+): Promise<string> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(YANDEX_ENDPOINT, {
+      method: "POST",
+      signal: AbortSignal.timeout(110_000),
+      headers: {
+        "Authorization": `Api-Key ${YANDEX_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        modelUri: YANDEX_MODEL_URI,
+        completionOptions: { stream: false, temperature: 0.2, maxTokens },
+        messages,
+      }),
+    });
+
+    if (res.status === 429) {
+      await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000 + Math.random() * 500));
+      continue;
+    }
+    if (!res.ok) throw new Error(`YandexGPT ${res.status}: ${await res.text()}`);
+
+    const data = await res.json() as { result?: { alternatives?: Array<{ message?: { text?: string } }> } };
+    const text = data.result?.alternatives?.[0]?.message?.text;
+    if (!text) throw new Error(`YandexGPT: пустой ответ: ${JSON.stringify(data)}`);
+    return text as string;
+  }
+  throw new Error("YandexGPT: превышено число попыток (429)");
+}
+
+// ─── Шаг 3: extractJson helper ───────────────────────────────────────────────
+function extractJson(text: string, mode: "object" | "array" = "object"): string | null {
+  const block = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (block) return block[1].trim();
+  if (mode === "array") return text.match(/\[[\s\S]*\]/)?.[0] ?? null;
+  return text.match(/\{[\s\S]*\}/)?.[0] ?? null;
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // BMC/VPC → BPMN MAPPING TABLE (embedded in prompt)
@@ -182,57 +227,34 @@ ${answersText}
 
 Построй бизнес-процесс по 10-шаговой методологии. Ответ — ТОЛЬКО JSON.`;
 
-  try {
-    let messageContent: Anthropic.Messages.MessageParam["content"];
-
-    if (attachedFiles.length > 0) {
-      const fileBlocks = await buildFileContentBlocks(attachedFiles);
-      const headerBlock: Anthropic.Messages.TextBlockParam = {
-        type: "text",
-        text: "Дополнительные материалы от пользователя:",
-      };
-      messageContent = [...fileBlocks, headerBlock, { type: "text", text: textPrompt }] as any;
-    } else {
-      messageContent = textPrompt;
-    }
-
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 16000,
-      messages: [{ role: "user", content: messageContent }],
-    });
-
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("Не удалось извлечь JSON из ответа");
-
-    const data = JSON.parse(jsonMatch[0]) as ProcessData;
-
-    // Assign colors to roles
-    data.roles = data.roles.map((role, i) => ({
-      ...role,
-      color: SWIMLANE_COLORS[i % SWIMLANE_COLORS.length],
-    }));
-
-    return data;
-  } catch (error) {
-    console.error("AI generation error:", error);
-    return generateFallbackProcess(answers, companyName);
+  const filesText = attachedFiles.length > 0
+    ? `\n\nДополнительные материалы от пользователя:\n${await extractFileTexts(attachedFiles)}`
+    : "";
+  const fullPrompt = textPrompt + filesText;
+  if (fullPrompt.length > 80000) {
+    logger.warn("AI", "generateProcess: prompt is large", { chars: fullPrompt.length });
   }
+
+  const text = await callYandex([{ role: "user", text: fullPrompt }], 16000);
+  const jsonStr = extractJson(text);
+  if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа generateProcess");
+
+  const data = JSON.parse(jsonStr) as ProcessData;
+
+  // Assign colors to roles
+  data.roles = data.roles.map((role, i) => ({
+    ...role,
+    color: SWIMLANE_COLORS[i % SWIMLANE_COLORS.length],
+  }));
+
+  return data;
 }
 
 export async function applyChanges(
   currentData: ProcessData,
   changeDescription: string
 ): Promise<ProcessData> {
-  try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 16000,
-      messages: [
-        {
-          role: "user",
-          content: `Ты — эксперт по бизнес-процессам и BPMN 2.0 Swimlane.
+  const prompt = `Ты — эксперт по бизнес-процессам и BPMN 2.0 Swimlane.
 
 Тебе дан текущий бизнес-процесс в формате JSON и описание требуемых изменений.
 Верни обновлённый процесс в том же формате JSON.
@@ -245,21 +267,18 @@ export async function applyChanges(
 - Ответ — ТОЛЬКО валидный JSON
 
 Текущий процесс:
-${JSON.stringify(currentData, null, 2)}
+${JSON.stringify(currentData)}
 
 Требуемые изменения:
 ${changeDescription}
 
-Верни полный обновлённый JSON процесса.`,
-        },
-      ],
-    });
+Верни полный обновлённый JSON процесса.`;
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("Не удалось извлечь JSON из ответа");
-
-    return JSON.parse(jsonMatch[0]) as ProcessData;
+  try {
+    const text = await callYandex([{ role: "user", text: prompt }], 16000);
+    const jsonStr = extractJson(text);
+    if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа");
+    return JSON.parse(jsonStr) as ProcessData;
   } catch (error) {
     console.error("AI change error:", error);
     throw new Error("Не удалось применить изменения через ИИ");
@@ -278,16 +297,10 @@ export async function generateRecommendations(
   }>
 > {
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 16000,
-      messages: [
-        {
-          role: "user",
-          content: `Ты — консультант по операционной эффективности (Lean / BPM / BPMN 2.0) и автоматизации (CRM, ERP, RPA). Твоя задача: на основе бизнес-процесса выявить слабые зоны и дать рекомендации по улучшению.
+    const recPromptHeader = `Ты — консультант по операционной эффективности (Lean / BPM / BPMN 2.0) и автоматизации (CRM, ERP, RPA). Твоя задача: на основе бизнес-процесса выявить слабые зоны и дать рекомендации по улучшению.
 
 ВХОДНЫЕ ДАННЫЕ:
-${JSON.stringify(processData, null, 2)}
+${JSON.stringify(processData)}
 
 ТРЕБОВАНИЯ:
 - Пиши на русском, максимально прикладно
@@ -376,21 +389,18 @@ ${JSON.stringify(processData, null, 2)}
 - В relatedSteps указывай id блоков для технической связи
 - Для ролей используй их названия (поле "name"), а не id
 - Если метрик нет — делай выводы по структуре и указывай предположения
-- Backlog должен содержать минимум 10-12 конкретных пунктов`,
-        },
-      ],
-    });
+- Backlog должен содержать минимум 10-12 конкретных пунктов`;
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const text = await callYandex([{ role: "user", text: recPromptHeader }], 16000);
     logger.info("AI", "Recommendations response received", { length: text.length });
 
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
+    const jsonStr = extractJson(text, "array");
+    if (!jsonStr) {
       logger.error("AI", "Failed to extract JSON from recommendations response", { textPreview: text.slice(0, 500) });
       throw new Error("Не удалось извлечь JSON из ответа");
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsed = JSON.parse(jsonStr);
     logger.info("AI", "Recommendations parsed successfully", { count: parsed.length });
     return parsed;
   } catch (error) {
@@ -464,15 +474,10 @@ ${blockList}
 Используй реальные blockId из процесса в relatedBlockIds. Только JSON, без пояснений.`;
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 8000,
-      messages: [{ role: "user", content: prompt }],
-    });
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error("Не удалось извлечь JSON из ответа");
-    const variants = JSON.parse(jsonMatch[0]) as CrmFunnel[];
+    const text = await callYandex([{ role: "user", text: prompt }], 8000);
+    const jsonStr = extractJson(text, "array");
+    if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа");
+    const variants = JSON.parse(jsonStr) as CrmFunnel[];
     return variants.slice(0, 3);
   } catch (error) {
     logger.error("AI", "CRM variants generation failed", error);
@@ -495,7 +500,7 @@ export async function applyRecommendationChanges(
 ПРОЦЕСС: ${processData.name}
 
 ТЕКУЩИЕ РЕКОМЕНДАЦИИ:
-${JSON.stringify(currentRecs, null, 2)}
+${JSON.stringify(currentRecs)}
 
 ЗАПРОС НА ИЗМЕНЕНИЕ:
 ${changeDescription}
@@ -504,15 +509,10 @@ ${changeDescription}
 [{"category":"...","title":"...","description":"...","priority":"high|medium|low","relatedSteps":["blockId"]}]`;
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 10000,
-      messages: [{ role: "user", content: prompt }],
-    });
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error("Не удалось извлечь JSON из ответа");
-    return JSON.parse(jsonMatch[0]);
+    const text = await callYandex([{ role: "user", text: prompt }], 10000);
+    const jsonStr = extractJson(text, "array");
+    if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа");
+    return JSON.parse(jsonStr);
   } catch (error) {
     logger.error("AI", "Recommendation change failed", error);
     throw new Error("Не удалось применить изменения к рекомендациям");
@@ -986,13 +986,10 @@ ${processContext ? `Данные о процессе и задачах:\n${proce
 Требования: строгий деловой язык, конкретные формулировки. Раздел 3 должен быть максимально подробным с чек-листами по каждому направлению.`;
 
   try {
-    const response = await anthropic.messages.create({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 4000,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-    });
-    return response.content[0].type === "text" ? response.content[0].text : "";
+    return await callYandex([
+      { role: "system", text: systemPrompt },
+      { role: "user", text: userPrompt },
+    ], 4000);
   } catch (error) {
     logger.error("AI", "Document generation failed", error);
     throw error;
@@ -1054,63 +1051,44 @@ export interface LegalAttachedFile {
   mimeType: string;
 }
 
-type AnthropicContentBlock = Anthropic.Messages.TextBlockParam | Anthropic.Messages.ImageBlockParam | Anthropic.Messages.DocumentBlockParam;
-
-async function buildFileContentBlocks(files: LegalAttachedFile[]): Promise<AnthropicContentBlock[]> {
-  const blocks: AnthropicContentBlock[] = [];
-
-  for (const file of files) {
-    const { storedPath, originalName, mimeType } = file;
-
-    // Images → image block
+// ─── Шаг 4: extractFileTexts (вместо buildFileContentBlocks) ──────────────────
+async function extractFileTexts(files: LegalAttachedFile[]): Promise<string> {
+  const parts: string[] = [];
+  for (const { storedPath, originalName, mimeType } of files) {
     if (mimeType.startsWith("image/")) {
-      const data = await import("fs/promises").then((m) => m.readFile(storedPath));
-      const base64 = data.toString("base64");
-      // HEIC not natively supported by Claude, treat as JPEG
-      const mediaType = mimeType === "image/heic" || mimeType === "image/heif"
-        ? "image/jpeg"
-        : (mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp");
-      blocks.push({
-        type: "image",
-        source: { type: "base64", media_type: mediaType, data: base64 },
-      } as Anthropic.Messages.ImageBlockParam);
-      blocks.push({ type: "text", text: `[Прикреплён файл: ${originalName}]` });
+      parts.push(`[Прикреплён файл: ${originalName} — изображения не поддерживаются]`);
       continue;
     }
-
-    // PDF → document block (Claude supports PDFs natively)
     if (mimeType === "application/pdf") {
-      const data = await import("fs/promises").then((m) => m.readFile(storedPath));
-      const base64 = data.toString("base64");
-      blocks.push({
-        type: "document",
-        source: { type: "base64", media_type: "application/pdf", data: base64 },
-      } as Anthropic.Messages.DocumentBlockParam);
-      blocks.push({ type: "text", text: `[Прикреплён PDF: ${originalName}]` });
+      try {
+        const stat = await import("fs/promises").then(m => m.stat(storedPath));
+        if (stat.size > 50 * 1024 * 1024) {
+          parts.push(`[PDF: ${originalName} — файл слишком большой для обработки]`);
+          continue;
+        }
+        // pdf-parse has CJS exports; use createRequire for compatibility
+        const { createRequire } = await import("module");
+        const pdfParse = createRequire(import.meta.url)("pdf-parse") as (buf: Buffer) => Promise<{ text: string }>;
+        const buf = await import("fs/promises").then(m => m.readFile(storedPath));
+        const parsed = await pdfParse(buf);
+        parts.push(`[PDF: ${originalName}]\n${parsed.text}`);
+      } catch {
+        parts.push(`[PDF: ${originalName} — не удалось извлечь текст]`);
+      }
       continue;
     }
-
-    // Word (.docx / .doc) → extract text with mammoth
-    if (
-      mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-      mimeType === "application/msword"
-    ) {
+    if (mimeType.includes("wordprocessingml") || mimeType === "application/msword") {
       try {
         const mammoth = await import("mammoth");
         const result = await mammoth.extractRawText({ path: storedPath });
-        const text = result.value.trim();
-        blocks.push({
-          type: "text",
-          text: `[Прикреплён Word-документ: ${originalName}]\n\n${text}`,
-        });
+        parts.push(`[Word: ${originalName}]\n${result.value.trim()}`);
       } catch {
-        blocks.push({ type: "text", text: `[Прикреплён файл: ${originalName} — не удалось извлечь текст]` });
+        parts.push(`[Word: ${originalName} — не удалось извлечь текст]`);
       }
       continue;
     }
   }
-
-  return blocks;
+  return parts.join("\n\n");
 }
 
 export async function generateLegalDocument(
@@ -1121,21 +1099,15 @@ export async function generateLegalDocument(
   const reqBlock = buildRequisitesBlock(requisites);
   const textPrompt = `${reqBlock}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${userPrompt}`;
 
-  // Build message content: files first, then text prompt
-  const fileBlocks = await buildFileContentBlocks(attachedFiles);
-  const contentBlocks: AnthropicContentBlock[] = [
-    ...fileBlocks,
-    { type: "text", text: textPrompt },
-  ];
+  const filesText = attachedFiles.length > 0
+    ? `\n\nПриложенные документы:\n${await extractFileTexts(attachedFiles)}`
+    : "";
 
-  const response = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 8000,
-    system: LEGAL_SYSTEM_PROMPT,
-    messages: [{ role: "user", content: contentBlocks as any }],
-  });
+  const raw = await callYandex([
+    { role: "system", text: LEGAL_SYSTEM_PROMPT },
+    { role: "user", text: textPrompt + filesText },
+  ], 8000);
 
-  const raw = response.content[0].type === "text" ? response.content[0].text.trim() : "";
   const lines = raw.split("\n");
   const title = lines[0].replace(/^#+\s*/, "").trim() || "Документ";
   return { title, content: raw };

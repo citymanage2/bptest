@@ -3,11 +3,10 @@ import { eq, and, desc } from "drizzle-orm";
 import { router, protectedProcedure } from "../trpc";
 import { db } from "../db";
 import { companies, processes, interviews, documents, regulations } from "../db/schema";
-import Anthropic from "@anthropic-ai/sdk";
-
-const anthropic = new Anthropic({
-  apiKey: process.env.CLAUDE_API_KEY || "dummy-key",
-});
+const YANDEX_API_KEY = process.env.YANDEX_API_KEY ?? "";
+const YANDEX_FOLDER_ID = process.env.YANDEX_FOLDER_ID ?? "";
+const YANDEX_MODEL_URI = `gpt://${YANDEX_FOLDER_ID}/yandexgpt-5.1/latest`;
+const YANDEX_ENDPOINT = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion";
 
 export const companyRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -89,13 +88,22 @@ export const companyRouter = router({
 
 Верни только текст описания, без заголовков и пояснений.`;
 
-      const message = await anthropic.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 300,
-        messages: [{ role: "user", content: prompt }],
+      const res = await fetch(YANDEX_ENDPOINT, {
+        method: "POST",
+        signal: AbortSignal.timeout(30_000),
+        headers: {
+          "Authorization": `Api-Key ${YANDEX_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          modelUri: YANDEX_MODEL_URI,
+          completionOptions: { stream: false, temperature: 0.2, maxTokens: 300 },
+          messages: [{ role: "user", text: prompt }],
+        }),
       });
-
-      const text = message.content[0].type === "text" ? message.content[0].text.trim() : "";
+      if (!res.ok) throw new Error(`YandexGPT ${res.status}`);
+      const json = await res.json() as { result?: { alternatives?: Array<{ message?: { text?: string } }> } };
+      const text = (json.result?.alternatives?.[0]?.message?.text ?? "").trim();
       return { description: text.slice(0, 500) };
     }),
 
