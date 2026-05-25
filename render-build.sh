@@ -67,6 +67,24 @@ sql\`CREATE TABLE IF NOT EXISTS api_call_logs (
   .catch(e => { console.error('api_call_logs error:', e); sql.end(); process.exit(1); });
 "
 
+echo "==> Ensuring token_operation_type enum and casting type column..."
+node -e "
+const postgres = require('postgres');
+const sql = postgres(process.env.DATABASE_URL);
+async function run() {
+  await sql\`DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'token_operation_type') THEN CREATE TYPE token_operation_type AS ENUM ('generation','regeneration','change_request','recommendations','transcription','topup','file_upload'); END IF; END \$\$\`;
+  const col = await sql\`SELECT data_type FROM information_schema.columns WHERE table_name = 'token_operations' AND column_name = 'type'\`;
+  if (col.length > 0 && col[0].data_type !== 'USER-DEFINED') {
+    await sql\`ALTER TABLE token_operations ALTER COLUMN type TYPE token_operation_type USING type::token_operation_type\`;
+    console.log('type column cast to token_operation_type');
+  } else {
+    console.log('type column already correct type or table not yet created');
+  }
+  await sql.end();
+}
+run().catch(e => { console.error('token_operation_type cast error:', e); process.exit(1); });
+"
+
 echo "==> Pushing database schema..."
 npx drizzle-kit push --force
 
