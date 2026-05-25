@@ -5,9 +5,9 @@ import { db } from "../db";
 import { apiCallLogs } from "../db/schema";
 import Anthropic from "@anthropic-ai/sdk";
 
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
+const ANTHROPIC_API_KEY = process.env.CLAUDE_API_KEY ?? "";
 if (!ANTHROPIC_API_KEY) {
-  throw new Error("ANTHROPIC_API_KEY обязателен");
+  throw new Error("CLAUDE_API_KEY обязателен");
 }
 
 const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
