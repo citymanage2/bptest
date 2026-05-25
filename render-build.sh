@@ -91,6 +91,12 @@ async function run() {
   }
   console.log('Column casts done');
 
+  // Clean up orphaned rows that would block FK constraint creation
+  await sql\`DELETE FROM interview_attachments WHERE interview_id NOT IN (SELECT id FROM interviews)\`;
+  await sql\`DELETE FROM interview_attachments WHERE company_id NOT IN (SELECT id FROM companies)\`;
+  await sql\`DELETE FROM interview_attachments WHERE user_id NOT IN (SELECT id FROM users)\`;
+  console.log('Orphaned rows cleaned');
+
   await sql.end();
 }
 run().catch(e => { console.error('Pre-migration error:', e); process.exit(1); });
