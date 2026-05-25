@@ -84,7 +84,7 @@ export function PricingPage() {
 
   const handleBuy = (packageId: "start" | "basic" | "pro") => {
     if (!user) {
-      navigate(`/login?redirect=/pricing${isBonus ? "?bonus=true" : ""}`);
+      navigate(`/login?redirect=${encodeURIComponent(isBonus ? "/pricing?bonus=true" : "/pricing")}`);
       return;
     }
     createOrderMutation.mutate({ packageId });

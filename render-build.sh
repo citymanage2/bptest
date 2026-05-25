@@ -50,6 +50,23 @@ Promise.all([
   .catch(e => { console.error('Pre-migration error:', e); sql.end(); process.exit(1); });
 "
 
+echo "==> Pre-creating api_call_logs table..."
+node -e "
+const postgres = require('postgres');
+const sql = postgres(process.env.DATABASE_URL);
+sql\`CREATE TABLE IF NOT EXISTS api_call_logs (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+  operation_type VARCHAR(100) NOT NULL,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT NOW()
+)\`
+  .then(() => { console.log('api_call_logs ready'); return sql.end(); })
+  .catch(e => { console.error('api_call_logs error:', e); sql.end(); process.exit(1); });
+"
+
 echo "==> Pushing database schema..."
 npx drizzle-kit push --force
 

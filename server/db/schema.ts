@@ -517,3 +517,18 @@ export const payments = pgTable("payments", {
 export const paymentsRelations = relations(payments, ({ one }) => ({
   user: one(users, { fields: [payments.userId], references: [users.id] }),
 }));
+
+// API Call Logs — tracks actual YandexGPT token usage per operation
+export const apiCallLogs = pgTable("api_call_logs", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  operationType: varchar("operation_type", { length: 100 }).notNull(),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  totalTokens: integer("total_tokens").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const apiCallLogsRelations = relations(apiCallLogs, ({ one }) => ({
+  user: one(users, { fields: [apiCallLogs.userId], references: [users.id] }),
+}));

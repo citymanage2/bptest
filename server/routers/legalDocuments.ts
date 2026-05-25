@@ -174,7 +174,7 @@ export const legalDocumentsRouter = router({
       );
 
       // Generate via AI
-      const { title, content } = await generateLegalDocument(requisites, input.prompt, attachedFiles);
+      const { title, content } = await generateLegalDocument(requisites, input.prompt, attachedFiles, ctx.userId);
 
       // Save document
       const [doc] = await db

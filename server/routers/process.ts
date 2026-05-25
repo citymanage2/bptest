@@ -68,7 +68,8 @@ export const processRouter = router({
         answers,
         interview.company.name,
         interview.company.industry,
-        attachedFiles
+        attachedFiles,
+        ctx.userId
       );
 
       // Save process
@@ -198,7 +199,7 @@ export const processRouter = router({
 
       // Regenerate
       const answers = (process.interview as any).answers as Record<string, string>;
-      const newData = await generateProcess(answers, process.company.name, process.company.industry);
+      const newData = await generateProcess(answers, process.company.name, process.company.industry, [], ctx.userId);
 
       const [updated] = await db
         .update(processes)
@@ -236,7 +237,7 @@ export const processRouter = router({
       await deductTokens(ctx.userId, TOKEN_COSTS.change_request, "change_request", "Запрос изменений");
 
       const currentData = process.data as ProcessData;
-      const newData = await applyChanges(currentData, input.description);
+      const newData = await applyChanges(currentData, input.description, ctx.userId);
 
       const [changeRequest] = await db
         .insert(changeRequests)
@@ -425,7 +426,7 @@ export const processRouter = router({
       await deductTokens(ctx.userId, TOKEN_COSTS.recommendations, "recommendations", "Генерация рекомендаций");
 
       const processData = process.data as ProcessData;
-      const recs = await generateRecommendations(processData);
+      const recs = await generateRecommendations(processData, ctx.userId);
 
       // Save recommendations
       const saved = [];
@@ -472,7 +473,7 @@ export const processRouter = router({
 
       await deductTokens(ctx.userId, TOKEN_COSTS.crm_variants, "change_request", "Генерация вариантов CRM-воронки");
 
-      const variants = await generateCrmFunnelVariants(process.data as ProcessData, input.description);
+      const variants = await generateCrmFunnelVariants(process.data as ProcessData, input.description, ctx.userId);
       return variants;
     }),
 
@@ -505,7 +506,7 @@ export const processRouter = router({
         relatedSteps: r.relatedSteps as string[],
       }));
 
-      const newRecs = await applyRecommendationChanges(recData, process.data as ProcessData, input.description);
+      const newRecs = await applyRecommendationChanges(recData, process.data as ProcessData, input.description, ctx.userId);
       return { previous: recData, updated: newRecs };
     }),
 
@@ -626,7 +627,8 @@ export const processRouter = router({
         input.roleName,
         input.docType,
         process.company.name,
-        process.data as import("../../shared/types").ProcessData
+        process.data as import("../../shared/types").ProcessData,
+        ctx.userId
       );
 
       // Persist: upsert regulation so it survives page reloads

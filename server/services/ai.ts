@@ -1,6 +1,8 @@
 import type { ProcessData, ProcessBlock, ProcessRole, ProcessStage, ProcessPassport, CrmFunnel } from "../../shared/types";
 import { SWIMLANE_COLORS } from "../../shared/types";
 import { logger } from "./logger";
+import { db } from "../db";
+import { apiCallLogs } from "../db/schema";
 
 const YANDEX_API_KEY = process.env.YANDEX_API_KEY ?? "";
 const YANDEX_FOLDER_ID = process.env.YANDEX_FOLDER_ID ?? "";
@@ -10,10 +12,13 @@ if (!YANDEX_API_KEY || !YANDEX_FOLDER_ID) {
 const YANDEX_MODEL_URI = `gpt://${YANDEX_FOLDER_ID}/yandexgpt-5.1/latest`;
 const YANDEX_ENDPOINT = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion";
 
-// ─── Шаг 2: callYandex helper ─────────────────────────────────────────────────
+type YandexUsage = { inputTokens: number; outputTokens: number; totalTokens: number };
+
+// ─── callYandex helper ────────────────────────────────────────────────────────
 async function callYandex(
   messages: Array<{ role: "user" | "assistant" | "system"; text: string }>,
-  maxTokens: number
+  maxTokens: number,
+  meta?: { userId?: number; operationType?: string }
 ): Promise<string> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await fetch(YANDEX_ENDPOINT, {
@@ -36,9 +41,30 @@ async function callYandex(
     }
     if (!res.ok) throw new Error(`YandexGPT ${res.status}: ${await res.text()}`);
 
-    const data = await res.json() as { result?: { alternatives?: Array<{ message?: { text?: string } }> } };
+    const data = await res.json() as {
+      result?: {
+        alternatives?: Array<{ message?: { text?: string } }>;
+        usage?: { inputTextTokens?: string; completionTokens?: string; totalTokens?: string };
+      };
+    };
     const text = data.result?.alternatives?.[0]?.message?.text;
     if (!text) throw new Error(`YandexGPT: пустой ответ: ${JSON.stringify(data)}`);
+
+    // Log API token usage asynchronously (fire and forget)
+    const usage = data.result?.usage;
+    if (usage && meta?.operationType) {
+      const inputTokens = parseInt(usage.inputTextTokens ?? "0") || 0;
+      const outputTokens = parseInt(usage.completionTokens ?? "0") || 0;
+      const totalTokens = parseInt(usage.totalTokens ?? "0") || (inputTokens + outputTokens);
+      db.insert(apiCallLogs).values({
+        userId: meta.userId ?? null,
+        operationType: meta.operationType,
+        inputTokens,
+        outputTokens,
+        totalTokens,
+      }).catch((err) => logger.warn("AI", "Failed to log API usage", { err: String(err) }));
+    }
+
     return text as string;
   }
   throw new Error("YandexGPT: превышено число попыток (429)");
@@ -210,7 +236,8 @@ export async function generateProcess(
   answers: Record<string, string>,
   companyName: string,
   industry: string,
-  attachedFiles: LegalAttachedFile[] = []
+  attachedFiles: LegalAttachedFile[] = [],
+  userId?: number
 ): Promise<ProcessData> {
   const answersText = Object.entries(answers)
     .filter(([k, v]) => k !== "__files" && v && v.trim())
@@ -235,7 +262,7 @@ ${answersText}
     logger.warn("AI", "generateProcess: prompt is large", { chars: fullPrompt.length });
   }
 
-  const text = await callYandex([{ role: "user", text: fullPrompt }], 16000);
+  const text = await callYandex([{ role: "user", text: fullPrompt }], 16000, { userId, operationType: "generation" });
   const jsonStr = extractJson(text);
   if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа generateProcess");
 
@@ -252,7 +279,8 @@ ${answersText}
 
 export async function applyChanges(
   currentData: ProcessData,
-  changeDescription: string
+  changeDescription: string,
+  userId?: number
 ): Promise<ProcessData> {
   const prompt = `Ты — эксперт по бизнес-процессам и BPMN 2.0 Swimlane.
 
@@ -275,7 +303,7 @@ ${changeDescription}
 Верни полный обновлённый JSON процесса.`;
 
   try {
-    const text = await callYandex([{ role: "user", text: prompt }], 16000);
+    const text = await callYandex([{ role: "user", text: prompt }], 16000, { userId, operationType: "change_request" });
     const jsonStr = extractJson(text);
     if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа");
     return JSON.parse(jsonStr) as ProcessData;
@@ -286,7 +314,8 @@ ${changeDescription}
 }
 
 export async function generateRecommendations(
-  processData: ProcessData
+  processData: ProcessData,
+  userId?: number
 ): Promise<
   Array<{
     category: string;
@@ -391,7 +420,7 @@ ${JSON.stringify(processData)}
 - Если метрик нет — делай выводы по структуре и указывай предположения
 - Backlog должен содержать минимум 10-12 конкретных пунктов`;
 
-    const text = await callYandex([{ role: "user", text: recPromptHeader }], 16000);
+    const text = await callYandex([{ role: "user", text: recPromptHeader }], 16000, { userId, operationType: "recommendations" });
     logger.info("AI", "Recommendations response received", { length: text.length });
 
     const jsonStr = extractJson(text, "array");
@@ -423,7 +452,8 @@ ${JSON.stringify(processData)}
 
 export async function generateCrmFunnelVariants(
   data: ProcessData,
-  description: string
+  description: string,
+  userId?: number
 ): Promise<CrmFunnel[]> {
   const blockList = data.blocks
     .map((b) => `${b.id}: ${b.name} (${b.type}, role: ${b.role})`)
@@ -474,7 +504,7 @@ ${blockList}
 Используй реальные blockId из процесса в relatedBlockIds. Только JSON, без пояснений.`;
 
   try {
-    const text = await callYandex([{ role: "user", text: prompt }], 8000);
+    const text = await callYandex([{ role: "user", text: prompt }], 8000, { userId, operationType: "crm_variants" });
     const jsonStr = extractJson(text, "array");
     if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа");
     const variants = JSON.parse(jsonStr) as CrmFunnel[];
@@ -492,7 +522,8 @@ ${blockList}
 export async function applyRecommendationChanges(
   currentRecs: Array<{ category: string; title: string; description: string; priority: string; relatedSteps: string[] }>,
   processData: ProcessData,
-  changeDescription: string
+  changeDescription: string,
+  userId?: number
 ): Promise<Array<{ category: string; title: string; description: string; priority: string; relatedSteps: string[] }>> {
   const prompt = `Ты — консультант по оптимизации бизнес-процессов. Тебе даны текущие рекомендации по процессу и запрос на их изменение.
 Верни ОБНОВЛЁННЫЙ список рекомендаций в том же JSON-формате, применив изменения согласно запросу.
@@ -509,7 +540,7 @@ ${changeDescription}
 [{"category":"...","title":"...","description":"...","priority":"high|medium|low","relatedSteps":["blockId"]}]`;
 
   try {
-    const text = await callYandex([{ role: "user", text: prompt }], 10000);
+    const text = await callYandex([{ role: "user", text: prompt }], 10000, { userId, operationType: "recommendations" });
     const jsonStr = extractJson(text, "array");
     if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа");
     return JSON.parse(jsonStr);
@@ -784,7 +815,8 @@ export async function generateRegulationDocument(
   roleName: string,
   docType: "regulation" | "job_instruction",
   companyName: string,
-  processData?: ProcessData
+  processData?: ProcessData,
+  userId?: number
 ): Promise<string> {
   // Build rich context from process data for this role
   let processContext = "";
@@ -989,7 +1021,7 @@ ${processContext ? `Данные о процессе и задачах:\n${proce
     return await callYandex([
       { role: "system", text: systemPrompt },
       { role: "user", text: userPrompt },
-    ], 4000);
+    ], 4000, { userId, operationType: "regulation" });
   } catch (error) {
     logger.error("AI", "Document generation failed", error);
     throw error;
@@ -1094,7 +1126,8 @@ async function extractFileTexts(files: LegalAttachedFile[]): Promise<string> {
 export async function generateLegalDocument(
   requisites: Record<string, string | null>,
   userPrompt: string,
-  attachedFiles: LegalAttachedFile[] = []
+  attachedFiles: LegalAttachedFile[] = [],
+  userId?: number
 ): Promise<{ title: string; content: string }> {
   const reqBlock = buildRequisitesBlock(requisites);
   const textPrompt = `${reqBlock}\n\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n${userPrompt}`;
@@ -1106,7 +1139,7 @@ export async function generateLegalDocument(
   const raw = await callYandex([
     { role: "system", text: LEGAL_SYSTEM_PROMPT },
     { role: "user", text: textPrompt + filesText },
-  ], 8000);
+  ], 8000, { userId, operationType: "legal_document" });
 
   const lines = raw.split("\n");
   const title = lines[0].replace(/^#+\s*/, "").trim() || "Документ";

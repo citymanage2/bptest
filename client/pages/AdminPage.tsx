@@ -43,8 +43,565 @@ import {
   UserCheck,
   CreditCard,
   TrendingUp,
+  BarChart3,
+  Zap,
+  DollarSign,
+  Activity,
+  ArrowUpRight,
+  ArrowDownRight,
+  Bot,
+  Percent,
 } from "lucide-react";
 import type { User, SupportChat, SupportMessage, FaqArticle } from "@shared/types";
+
+// ==================== Overview Tab ====================
+function OverviewTab() {
+  const statsQuery = trpc.admin.getDashboardStats.useQuery();
+  const growthQuery = trpc.admin.getGrowthData.useQuery();
+
+  const stats = statsQuery.data;
+  const growth = growthQuery.data?.days ?? [];
+
+  const maxRevenue = Math.max(...growth.map(d => d.revenue), 1);
+  const maxUsers = Math.max(...growth.map(d => d.newUsers), 1);
+  const maxTokens = Math.max(...growth.map(d => d.tokensConsumed), 1);
+
+  if (statsQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+      </div>
+    );
+  }
+  if (!stats) return null;
+
+  const kpiCards = [
+    {
+      label: "Всего пользователей",
+      value: stats.users.total.toLocaleString("ru-RU"),
+      sub: `+${stats.users.new30d} за 30 дней`,
+      icon: Users,
+      color: "purple",
+      positive: stats.users.new30d > 0,
+    },
+    {
+      label: "Выручка (всего)",
+      value: `${(stats.revenue.totalKopecks / 100).toLocaleString("ru-RU")} ₽`,
+      sub: `${(stats.revenue.month30dKopecks / 100).toLocaleString("ru-RU")} ₽ за 30 дней`,
+      icon: TrendingUp,
+      color: "green",
+      positive: stats.revenue.month30dKopecks > 0,
+    },
+    {
+      label: "Токены продано",
+      value: stats.tokens.sold.toLocaleString("ru-RU"),
+      sub: `+${stats.tokens.sold30d.toLocaleString("ru-RU")} за 30 дней`,
+      icon: Coins,
+      color: "yellow",
+      positive: stats.tokens.sold30d > 0,
+    },
+    {
+      label: "Токены списано",
+      value: stats.tokens.consumed.toLocaleString("ru-RU"),
+      sub: `${stats.tokens.consumed30d.toLocaleString("ru-RU")} за 30 дней`,
+      icon: Zap,
+      color: "blue",
+      positive: false,
+    },
+    {
+      label: "Активных польз.",
+      value: stats.users.active30d.toLocaleString("ru-RU"),
+      sub: `из ${stats.users.total} всего`,
+      icon: Activity,
+      color: "indigo",
+      positive: true,
+    },
+    {
+      label: "Процессов",
+      value: stats.processes.total.toLocaleString("ru-RU"),
+      sub: `${stats.processes.active} активных`,
+      icon: FileText,
+      color: "orange",
+      positive: true,
+    },
+    {
+      label: "Стоимость API",
+      value: `${stats.api.costRub.toLocaleString("ru-RU")} ₽`,
+      sub: `≈ $${stats.api.costUsd.toFixed(2)} | ${stats.api.trackedCalls.toLocaleString("ru-RU")} вызовов`,
+      icon: Bot,
+      color: "rose",
+      positive: false,
+    },
+    {
+      label: "Открытых чатов",
+      value: stats.support.openChats.toLocaleString("ru-RU"),
+      sub: "требуют ответа",
+      icon: MessageSquare,
+      color: stats.support.openChats > 0 ? "red" : "gray",
+      positive: stats.support.openChats === 0,
+    },
+  ];
+
+  const colorMap: Record<string, string> = {
+    purple: "bg-purple-100 text-purple-600",
+    green: "bg-green-100 text-green-600",
+    yellow: "bg-yellow-100 text-yellow-600",
+    blue: "bg-blue-100 text-blue-600",
+    indigo: "bg-indigo-100 text-indigo-600",
+    orange: "bg-orange-100 text-orange-600",
+    rose: "bg-rose-100 text-rose-600",
+    red: "bg-red-100 text-red-600",
+    gray: "bg-gray-100 text-gray-500",
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {kpiCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <Card key={card.label} className="bg-white">
+              <CardContent className="p-4">
+                <div className="flex items-start gap-3">
+                  <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0", colorMap[card.color])}>
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-gray-500 leading-tight">{card.label}</p>
+                    <p className="text-lg font-bold text-gray-900 leading-tight mt-0.5">{card.value}</p>
+                    <p className="text-[11px] text-gray-400 mt-0.5 leading-tight">{card.sub}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+
+      {/* Charts row */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Revenue chart */}
+        <Card className="bg-white">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+              <TrendingUp className="w-4 h-4 text-green-500" />
+              Выручка (30 дней)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="flex items-end gap-0.5 h-20">
+              {growth.map((day, i) => (
+                <div
+                  key={day.date}
+                  className="flex-1 bg-green-200 hover:bg-green-400 rounded-t transition-colors cursor-default relative group"
+                  style={{ height: `${Math.max(2, (day.revenue / maxRevenue) * 100)}%` }}
+                  title={`${day.date}: ${day.revenue.toLocaleString("ru-RU")} ₽`}
+                >
+                  {i === growth.length - 1 && day.revenue > 0 && (
+                    <div className="absolute -top-5 right-0 text-[10px] text-green-700 font-medium whitespace-nowrap">
+                      {day.revenue > 0 ? `${(day.revenue / 1000).toFixed(0)}k` : ""}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">
+              Итого: {(stats.revenue.month30dKopecks / 100).toLocaleString("ru-RU")} ₽
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* New users chart */}
+        <Card className="bg-white">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-purple-500" />
+              Регистрации (30 дней)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="flex items-end gap-0.5 h-20">
+              {growth.map((day) => (
+                <div
+                  key={day.date}
+                  className="flex-1 bg-purple-200 hover:bg-purple-400 rounded-t transition-colors cursor-default"
+                  style={{ height: `${Math.max(2, (day.newUsers / maxUsers) * 100)}%` }}
+                  title={`${day.date}: ${day.newUsers} польз.`}
+                />
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">
+              Итого: +{stats.users.new30d} пользователей
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Tokens consumed chart */}
+        <Card className="bg-white">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+              <Zap className="w-4 h-4 text-blue-500" />
+              Токены списаны (30 дней)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4">
+            <div className="flex items-end gap-0.5 h-20">
+              {growth.map((day) => (
+                <div
+                  key={day.date}
+                  className="flex-1 bg-blue-200 hover:bg-blue-400 rounded-t transition-colors cursor-default"
+                  style={{ height: `${Math.max(2, (day.tokensConsumed / maxTokens) * 100)}%` }}
+                  title={`${day.date}: ${day.tokensConsumed.toLocaleString()} токенов`}
+                />
+              ))}
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">
+              Итого: {stats.tokens.consumed30d.toLocaleString("ru-RU")} токенов
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Quick stats */}
+      <div className="grid grid-cols-2 gap-4">
+        <Card className="bg-white">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-semibold text-gray-700">Пользователи</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-2">
+            {[
+              { label: "Всего", value: stats.users.total },
+              { label: "Новых за 7 дней", value: stats.users.new7d },
+              { label: "Новых за 30 дней", value: stats.users.new30d },
+              { label: "Активных за 30 дней", value: stats.users.active30d },
+              { label: "Администраторов", value: stats.users.admins },
+            ].map(row => (
+              <div key={row.label} className="flex items-center justify-between text-sm">
+                <span className="text-gray-500">{row.label}</span>
+                <span className="font-semibold text-gray-900">{row.value.toLocaleString("ru-RU")}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-semibold text-gray-700">Выручка и платежи</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-2">
+            {[
+              { label: "Всего выручка", value: `${(stats.revenue.totalKopecks / 100).toLocaleString("ru-RU")} ₽` },
+              { label: "За 30 дней", value: `${(stats.revenue.month30dKopecks / 100).toLocaleString("ru-RU")} ₽` },
+              { label: "За 7 дней", value: `${(stats.revenue.week7dKopecks / 100).toLocaleString("ru-RU")} ₽` },
+              { label: "Успешных платежей", value: stats.revenue.confirmedCount },
+              { label: "Токенов продано", value: stats.tokens.sold.toLocaleString("ru-RU") },
+            ].map(row => (
+              <div key={row.label} className="flex items-center justify-between text-sm">
+                <span className="text-gray-500">{row.label}</span>
+                <span className="font-semibold text-gray-900">{typeof row.value === "number" ? row.value.toLocaleString("ru-RU") : row.value}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ==================== Token Economics Tab ====================
+const OP_TYPE_LABELS: Record<string, string> = {
+  generation: "Генерация процесса",
+  regeneration: "Регенерация",
+  change_request: "Запрос изменений",
+  recommendations: "Рекомендации",
+  transcription: "Транскрибация",
+  topup: "Пополнение",
+  file_upload: "Загрузка файла",
+  legal_document: "Юр. документ",
+  regulation: "Регламент / инструкция",
+  crm_variants: "CRM-воронка",
+};
+
+const OP_COLORS: Record<string, string> = {
+  generation: "bg-purple-500",
+  regeneration: "bg-purple-400",
+  change_request: "bg-blue-500",
+  recommendations: "bg-indigo-500",
+  transcription: "bg-teal-500",
+  file_upload: "bg-gray-400",
+  legal_document: "bg-orange-500",
+  regulation: "bg-amber-500",
+  crm_variants: "bg-pink-500",
+};
+
+function TokenEconomicsTab() {
+  const economicsQuery = trpc.admin.getTokenEconomics.useQuery();
+  const data = economicsQuery.data;
+
+  if (economicsQuery.isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-6 h-6 animate-spin text-purple-600" />
+      </div>
+    );
+  }
+  if (!data) return null;
+
+  const { siteTokens, apiTokens, economics } = data;
+
+  // Site token consumption (excluding topup)
+  const consumptionEntries = Object.entries(siteTokens.byType)
+    .filter(([k]) => k !== "topup")
+    .sort(([, a], [, b]) => b - a);
+  const totalConsumedSite = consumptionEntries.reduce((s, [, v]) => s + v, 0);
+
+  // API token consumption by type
+  const apiEntries = Object.entries(apiTokens.byType).sort(
+    ([, a], [, b]) => (b.inputTokens + b.outputTokens) - (a.inputTokens + a.outputTokens)
+  );
+  const maxApiTokens = Math.max(...apiEntries.map(([, v]) => v.inputTokens + v.outputTokens), 1);
+
+  return (
+    <div className="space-y-5">
+      {/* Top economics cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Card className="bg-gradient-to-br from-green-50 to-white border-green-200">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <DollarSign className="w-4 h-4 text-green-600" />
+              <p className="text-xs font-medium text-green-700">Выручка</p>
+            </div>
+            <p className="text-2xl font-bold text-gray-900">{economics.revenueRub.toLocaleString("ru-RU")} ₽</p>
+            <p className="text-[11px] text-gray-400 mt-1">от продажи токенов</p>
+          </CardContent>
+        </Card>
+        <Card className="bg-gradient-to-br from-rose-50 to-white border-rose-200">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Bot className="w-4 h-4 text-rose-600" />
+              <p className="text-xs font-medium text-rose-700">Затраты YandexGPT</p>
+            </div>
+            <p className="text-2xl font-bold text-gray-900">{apiTokens.totalCostRub.toLocaleString("ru-RU")} ₽</p>
+            <p className="text-[11px] text-gray-400 mt-1">≈ ${apiTokens.totalCostUsd.toFixed(4)}</p>
+          </CardContent>
+        </Card>
+        <Card className={cn(
+          "bg-gradient-to-br to-white",
+          economics.grossMarginPct !== null && economics.grossMarginPct > 70
+            ? "from-emerald-50 border-emerald-200"
+            : economics.grossMarginPct !== null && economics.grossMarginPct > 30
+            ? "from-yellow-50 border-yellow-200"
+            : "from-gray-50 border-gray-200"
+        )}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Percent className="w-4 h-4 text-emerald-600" />
+              <p className="text-xs font-medium text-emerald-700">Маржа (по API)</p>
+            </div>
+            <p className="text-2xl font-bold text-gray-900">
+              {economics.grossMarginPct !== null ? `${economics.grossMarginPct.toFixed(1)}%` : "—"}
+            </p>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {economics.grossMarginPct === null ? "нет данных API" : "выручка − затраты API"}
+            </p>
+          </CardContent>
+        </Card>
+        <Card className="bg-white">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Activity className="w-4 h-4 text-blue-600" />
+              <p className="text-xs font-medium text-blue-700">API вызовов</p>
+            </div>
+            <p className="text-2xl font-bold text-gray-900">{apiTokens.trackedCalls.toLocaleString("ru-RU")}</p>
+            <p className="text-[11px] text-gray-400 mt-1">
+              {(apiTokens.inputTokens + apiTokens.outputTokens).toLocaleString("ru-RU")} токенов
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Token flow */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card className="bg-white">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+              <Coins className="w-4 h-4 text-yellow-500" />
+              Оборот токенов сайта
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-3">
+            {[
+              { label: "Продано (зачислено)", value: siteTokens.sold, color: "bg-green-500", sub: "покупки" },
+              { label: "Списано (расход)", value: siteTokens.consumed, color: "bg-red-400", sub: "операции AI" },
+              { label: "Остаток у пользователей", value: siteTokens.remainingBalances, color: "bg-blue-400", sub: "балансы" },
+            ].map(row => (
+              <div key={row.label}>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-gray-600">{row.label}</span>
+                  <span className="font-semibold text-gray-900">{row.value.toLocaleString("ru-RU")}</span>
+                </div>
+                <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className={cn("h-full rounded-full", row.color)}
+                    style={{ width: `${siteTokens.sold > 0 ? Math.min(100, (row.value / siteTokens.sold) * 100) : 0}%` }}
+                  />
+                </div>
+                <p className="text-[10px] text-gray-400 mt-0.5">{row.sub}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+              <Bot className="w-4 h-4 text-rose-500" />
+              Токены YandexGPT API
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-xs text-gray-500">Входящие (input)</p>
+                <p className="text-lg font-bold text-gray-900">{apiTokens.inputTokens.toLocaleString("ru-RU")}</p>
+                <p className="text-[10px] text-gray-400">{apiTokens.pricingInfo.inputPer1k} ₽/1k</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3">
+                <p className="text-xs text-gray-500">Исходящие (output)</p>
+                <p className="text-lg font-bold text-gray-900">{apiTokens.outputTokens.toLocaleString("ru-RU")}</p>
+                <p className="text-[10px] text-gray-400">{apiTokens.pricingInfo.outputPer1k} ₽/1k</p>
+              </div>
+            </div>
+            <div className="space-y-1.5 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Стоимость input</span>
+                <span className="font-medium">{((apiTokens.inputTokens / 1000) * apiTokens.pricingInfo.inputPer1k).toFixed(2)} ₽</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Стоимость output</span>
+                <span className="font-medium">{((apiTokens.outputTokens / 1000) * apiTokens.pricingInfo.outputPer1k).toFixed(2)} ₽</span>
+              </div>
+              <div className="flex justify-between border-t border-gray-100 pt-1.5">
+                <span className="text-gray-700 font-medium">Итого</span>
+                <span className="font-bold text-rose-600">{apiTokens.totalCostRub.toFixed(2)} ₽ (≈${apiTokens.totalCostUsd.toFixed(4)})</span>
+              </div>
+            </div>
+            <p className="text-[10px] text-gray-400 bg-gray-50 rounded p-2">
+              Цены: input {apiTokens.pricingInfo.inputPer1k} ₽/1k · output {apiTokens.pricingInfo.outputPer1k} ₽/1k · курс {apiTokens.pricingInfo.usdRate} ₽/$ · {apiTokens.trackedCalls === 0 ? "данные появятся после первых AI-запросов" : `${apiTokens.trackedCalls} вызовов отслежено`}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Cost ratio analysis */}
+      <Card className="bg-white">
+        <CardHeader className="pb-2 pt-4 px-4">
+          <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+            <BarChart3 className="w-4 h-4 text-purple-500" />
+            Соотношение: токены сайта ↔ токены API
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="text-center p-3 bg-purple-50 rounded-xl">
+              <p className="text-xs text-purple-600 font-medium mb-1">Выручка / токен сайта</p>
+              <p className="text-xl font-bold text-gray-900">{economics.revenuePerSiteToken.toFixed(4)} ₽</p>
+              <p className="text-[10px] text-gray-400">сколько ₽ приносит 1 токен</p>
+            </div>
+            <div className="text-center p-3 bg-rose-50 rounded-xl">
+              <p className="text-xs text-rose-600 font-medium mb-1">Затраты API / токен сайта</p>
+              <p className="text-xl font-bold text-gray-900">
+                {apiTokens.trackedCalls > 0 ? `${economics.apiCostPerSiteToken.toFixed(5)} ₽` : "—"}
+              </p>
+              <p className="text-[10px] text-gray-400">стоимость API на 1 списанный токен</p>
+            </div>
+            <div className="text-center p-3 bg-green-50 rounded-xl">
+              <p className="text-xs text-green-600 font-medium mb-1">Прибыль на токен</p>
+              <p className="text-xl font-bold text-gray-900">
+                {apiTokens.trackedCalls > 0
+                  ? `${(economics.revenuePerSiteToken - economics.apiCostPerSiteToken).toFixed(5)} ₽`
+                  : "—"}
+              </p>
+              <p className="text-[10px] text-gray-400">выручка − затраты API</p>
+            </div>
+          </div>
+
+          {/* Consumption by operation type */}
+          {consumptionEntries.length > 0 && (
+            <>
+              <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wider mb-3">Расход токенов сайта по типу операции</h4>
+              <div className="space-y-2">
+                {consumptionEntries.map(([type, amount]) => (
+                  <div key={type}>
+                    <div className="flex items-center justify-between text-sm mb-1">
+                      <span className="text-gray-700 flex items-center gap-1.5">
+                        <span className={cn("w-2 h-2 rounded-full flex-shrink-0", OP_COLORS[type] ?? "bg-gray-400")} />
+                        {OP_TYPE_LABELS[type] ?? type}
+                      </span>
+                      <span className="font-semibold text-gray-900">
+                        {amount.toLocaleString("ru-RU")}
+                        <span className="text-gray-400 font-normal ml-1 text-xs">
+                          ({totalConsumedSite > 0 ? Math.round((amount / totalConsumedSite) * 100) : 0}%)
+                        </span>
+                      </span>
+                    </div>
+                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                      <div
+                        className={cn("h-full rounded-full", OP_COLORS[type] ?? "bg-gray-400")}
+                        style={{ width: `${totalConsumedSite > 0 ? (amount / totalConsumedSite) * 100 : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* API usage by operation type */}
+      {apiEntries.length > 0 && (
+        <Card className="bg-white">
+          <CardHeader className="pb-2 pt-4 px-4">
+            <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+              <Bot className="w-4 h-4 text-rose-500" />
+              API-токены YandexGPT по типу операции
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-4 space-y-2">
+            {apiEntries.map(([type, usage]) => {
+              const total = usage.inputTokens + usage.outputTokens;
+              const cost = (usage.inputTokens / 1000) * apiTokens.pricingInfo.inputPer1k +
+                           (usage.outputTokens / 1000) * apiTokens.pricingInfo.outputPer1k;
+              return (
+                <div key={type}>
+                  <div className="flex items-center justify-between text-sm mb-1">
+                    <span className="text-gray-700 flex items-center gap-1.5">
+                      <span className={cn("w-2 h-2 rounded-full flex-shrink-0", OP_COLORS[type] ?? "bg-gray-400")} />
+                      {OP_TYPE_LABELS[type] ?? type}
+                      <span className="text-gray-400 text-xs">({usage.calls} вызовов)</span>
+                    </span>
+                    <span className="font-semibold text-gray-900 text-right">
+                      {total.toLocaleString("ru-RU")} токенов
+                      <span className="text-rose-500 ml-2">{cost.toFixed(2)} ₽</span>
+                    </span>
+                  </div>
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className={cn("h-full rounded-full", OP_COLORS[type] ?? "bg-gray-400")}
+                      style={{ width: `${(total / maxApiTokens) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
 
 // ==================== Users Tab ====================
 function UsersTab() {
@@ -1612,8 +2169,16 @@ export function AdminPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="users">
-        <TabsList className="w-full justify-start">
+      <Tabs defaultValue="overview">
+        <TabsList className="w-full justify-start flex-wrap gap-y-1">
+          <TabsTrigger value="overview" className="gap-1.5">
+            <BarChart3 className="w-4 h-4" />
+            Обзор
+          </TabsTrigger>
+          <TabsTrigger value="economics" className="gap-1.5">
+            <Bot className="w-4 h-4" />
+            Экономика токенов
+          </TabsTrigger>
           <TabsTrigger value="users" className="gap-1.5">
             <Users className="w-4 h-4" />
             Пользователи
@@ -1622,9 +2187,13 @@ export function AdminPage() {
             <FileText className="w-4 h-4" />
             Процессы
           </TabsTrigger>
+          <TabsTrigger value="payments" className="gap-1.5">
+            <CreditCard className="w-4 h-4" />
+            Платежи
+          </TabsTrigger>
           <TabsTrigger value="chats" className="gap-1.5">
             <MessageSquare className="w-4 h-4" />
-            Чаты поддержки
+            Чаты
           </TabsTrigger>
           <TabsTrigger value="faq" className="gap-1.5">
             <BookOpen className="w-4 h-4" />
@@ -1634,34 +2203,38 @@ export function AdminPage() {
             <Shield className="w-4 h-4" />
             Согласия
           </TabsTrigger>
-          <TabsTrigger value="payments" className="gap-1.5">
-            <CreditCard className="w-4 h-4" />
-            Платежи
-          </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="users">
+        <TabsContent value="overview" className="mt-4">
+          <OverviewTab />
+        </TabsContent>
+
+        <TabsContent value="economics" className="mt-4">
+          <TokenEconomicsTab />
+        </TabsContent>
+
+        <TabsContent value="users" className="mt-4">
           <UsersTab />
         </TabsContent>
 
-        <TabsContent value="processes">
+        <TabsContent value="processes" className="mt-4">
           <ProcessesTab />
         </TabsContent>
 
-        <TabsContent value="chats">
+        <TabsContent value="payments" className="mt-4">
+          <PaymentsTab />
+        </TabsContent>
+
+        <TabsContent value="chats" className="mt-4">
           <SupportChatsTab />
         </TabsContent>
 
-        <TabsContent value="faq">
+        <TabsContent value="faq" className="mt-4">
           <FaqTab />
         </TabsContent>
 
-        <TabsContent value="consents">
+        <TabsContent value="consents" className="mt-4">
           <ConsentStatsTab />
-        </TabsContent>
-
-        <TabsContent value="payments">
-          <PaymentsTab />
         </TabsContent>
       </Tabs>
     </div>
