@@ -39,7 +39,7 @@ async function run() {
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'support_chat_status') THEN CREATE TYPE support_chat_status AS ENUM ('open','closed'); END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'sender_role') THEN CREATE TYPE sender_role AS ENUM ('user','admin'); END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'token_operation_type') THEN CREATE TYPE token_operation_type AS ENUM ('generation','regeneration','change_request','recommendations','transcription','topup','file_upload'); END IF;
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'consent_type') THEN CREATE TYPE consent_type AS ENUM ('data_processing','marketing'); END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'consent_type') THEN CREATE TYPE consent_type AS ENUM ('privacy_policy','personal_data','cookie_policy','marketing'); END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'consent_action') THEN CREATE TYPE consent_action AS ENUM ('granted','revoked'); END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_status') THEN CREATE TYPE payment_status AS ENUM ('pending','confirmed','cancelled','failed'); END IF;
   END \$\$\`;
@@ -116,6 +116,16 @@ async function run() {
     try { await sql.unsafe(q); } catch(e) { /* table may not exist yet */ }
   }
   console.log('Orphaned rows cleaned');
+
+  // Normalize emails to lowercase (fix case-sensitivity login issues)
+  await sql\`UPDATE users SET email = lower(email) WHERE email != lower(email)\`;
+  console.log('Emails normalized to lowercase');
+
+  // Fix consent_type enum: add new values if missing (old DB had 'data_processing','marketing' only)
+  await sql\`ALTER TYPE consent_type ADD VALUE IF NOT EXISTS 'privacy_policy'\`;
+  await sql\`ALTER TYPE consent_type ADD VALUE IF NOT EXISTS 'personal_data'\`;
+  await sql\`ALTER TYPE consent_type ADD VALUE IF NOT EXISTS 'cookie_policy'\`;
+  console.log('consent_type enum values ensured');
 
   await sql.end();
 }

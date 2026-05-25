@@ -8,7 +8,7 @@ async function main() {
   const sql = postgres(process.env.DATABASE_URL!);
 
   try {
-    const [user] = await sql`SELECT id, email FROM users WHERE email = ${EMAIL}`;
+    const [user] = await sql`SELECT id, email FROM users WHERE lower(email) = lower(${EMAIL})`;
 
     if (!user) {
       console.error(`User with email "${EMAIL}" not found.`);

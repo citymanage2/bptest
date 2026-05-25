@@ -1,6 +1,6 @@
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { router, publicProcedure, protectedProcedure, signToken } from "../trpc";
 import { db } from "../db";
 import { users, userConsents } from "../db/schema";
@@ -27,8 +27,10 @@ export const authRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const email = input.email.toLowerCase().trim();
+
       const existing = await db.query.users.findFirst({
-        where: eq(users.email, input.email),
+        where: sql`lower(${users.email}) = ${email}`,
       });
 
       if (existing) {
@@ -40,7 +42,7 @@ export const authRouter = router({
       const [user] = await db
         .insert(users)
         .values({
-          email: input.email,
+          email,
           passwordHash,
           name: input.name,
           role: "user",
@@ -95,12 +97,13 @@ export const authRouter = router({
       })
     )
     .mutation(async ({ input }) => {
-      console.log("[LOGIN] Handler reached, email:", input.email);
+      const email = input.email.toLowerCase().trim();
+      console.log("[LOGIN] Handler reached, email:", email);
       try {
         let user;
         try {
           user = await db.query.users.findFirst({
-            where: eq(users.email, input.email),
+            where: sql`lower(${users.email}) = ${email}`,
           });
         } catch (dbErr) {
           console.error("[LOGIN] DB query failed:", dbErr);
@@ -108,7 +111,7 @@ export const authRouter = router({
         }
 
         if (!user) {
-          console.log("[LOGIN] User not found for email:", input.email);
+          console.log("[LOGIN] User not found for email:", email);
           throw new Error("Неверный email или пароль");
         }
 
