@@ -91,10 +91,30 @@ async function run() {
   }
   console.log('Column casts done');
 
-  // Clean up orphaned rows that would block FK constraint creation
-  await sql\`DELETE FROM interview_attachments WHERE interview_id NOT IN (SELECT id FROM interviews)\`;
-  await sql\`DELETE FROM interview_attachments WHERE company_id NOT IN (SELECT id FROM companies)\`;
-  await sql\`DELETE FROM interview_attachments WHERE user_id NOT IN (SELECT id FROM users)\`;
+  // Clean up orphaned rows that would block FK constraint creation/validation during table recreation
+  const cleanups = [
+    'DELETE FROM interview_attachments WHERE interview_id NOT IN (SELECT id FROM interviews)',
+    'DELETE FROM interview_attachments WHERE company_id NOT IN (SELECT id FROM companies)',
+    'DELETE FROM interview_attachments WHERE user_id NOT IN (SELECT id FROM users)',
+    'DELETE FROM legal_attachments WHERE legal_document_id NOT IN (SELECT id FROM legal_documents)',
+    'DELETE FROM payments WHERE user_id NOT IN (SELECT id FROM users)',
+    'DELETE FROM token_operations WHERE user_id NOT IN (SELECT id FROM users)',
+    'DELETE FROM user_consents WHERE user_id NOT IN (SELECT id FROM users)',
+    'DELETE FROM cookie_consents WHERE user_id NOT IN (SELECT id FROM users)',
+    'DELETE FROM business_models WHERE user_id NOT IN (SELECT id FROM users)',
+    'DELETE FROM kpi_plans WHERE user_id NOT IN (SELECT id FROM users)',
+    'DELETE FROM legal_documents WHERE user_id NOT IN (SELECT id FROM users)',
+    'DELETE FROM regulations WHERE user_id NOT IN (SELECT id FROM users)',
+    'DELETE FROM block_files WHERE user_id NOT IN (SELECT id FROM users)',
+    'DELETE FROM support_messages WHERE sender_id NOT IN (SELECT id FROM users)',
+    'DELETE FROM support_chats WHERE user_id NOT IN (SELECT id FROM users)',
+    'DELETE FROM companies WHERE user_id NOT IN (SELECT id FROM users)',
+    'DELETE FROM interviews WHERE company_id NOT IN (SELECT id FROM companies)',
+    'DELETE FROM processes WHERE company_id NOT IN (SELECT id FROM companies)',
+  ];
+  for (const q of cleanups) {
+    try { await sql.unsafe(q); } catch(e) { /* table may not exist yet */ }
+  }
   console.log('Orphaned rows cleaned');
 
   await sql.end();
