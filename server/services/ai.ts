@@ -3,71 +3,50 @@ import { SWIMLANE_COLORS } from "../../shared/types";
 import { logger } from "./logger";
 import { db } from "../db";
 import { apiCallLogs } from "../db/schema";
+import Anthropic from "@anthropic-ai/sdk";
 
-const YANDEX_API_KEY = process.env.YANDEX_API_KEY ?? "";
-const YANDEX_FOLDER_ID = process.env.YANDEX_FOLDER_ID ?? "";
-if (!YANDEX_API_KEY || !YANDEX_FOLDER_ID) {
-  throw new Error("YANDEX_API_KEY и YANDEX_FOLDER_ID обязательны");
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
+if (!ANTHROPIC_API_KEY) {
+  throw new Error("ANTHROPIC_API_KEY обязателен");
 }
-const YANDEX_MODEL_URI = `gpt://${YANDEX_FOLDER_ID}/yandexgpt-5.1/latest`;
-const YANDEX_ENDPOINT = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion";
 
-type YandexUsage = { inputTokens: number; outputTokens: number; totalTokens: number };
+const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+const CLAUDE_MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-6";
 
-// ─── callYandex helper ────────────────────────────────────────────────────────
-async function callYandex(
+// ─── callClaude helper ────────────────────────────────────────────────────────
+async function callClaude(
   messages: Array<{ role: "user" | "assistant" | "system"; text: string }>,
   maxTokens: number,
   meta?: { userId?: number; operationType?: string }
 ): Promise<string> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch(YANDEX_ENDPOINT, {
-      method: "POST",
-      signal: AbortSignal.timeout(110_000),
-      headers: {
-        "Authorization": `Api-Key ${YANDEX_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        modelUri: YANDEX_MODEL_URI,
-        completionOptions: { stream: false, temperature: 0.2, maxTokens },
-        messages,
-      }),
-    });
+  const systemMsg = messages.find(m => m.role === "system");
+  const chatMessages = messages
+    .filter(m => m.role !== "system")
+    .map(m => ({ role: m.role as "user" | "assistant", content: m.text }));
 
-    if (res.status === 429) {
-      await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 1000 + Math.random() * 500));
-      continue;
-    }
-    if (!res.ok) throw new Error(`YandexGPT ${res.status}: ${await res.text()}`);
+  const response = await anthropic.messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: Math.min(maxTokens, 8000),
+    system: systemMsg?.text,
+    messages: chatMessages,
+  });
 
-    const data = await res.json() as {
-      result?: {
-        alternatives?: Array<{ message?: { text?: string } }>;
-        usage?: { inputTextTokens?: string; completionTokens?: string; totalTokens?: string };
-      };
-    };
-    const text = data.result?.alternatives?.[0]?.message?.text;
-    if (!text) throw new Error(`YandexGPT: пустой ответ: ${JSON.stringify(data)}`);
+  const text = response.content.find(b => b.type === "text")?.text ?? "";
+  if (!text) throw new Error("Claude: пустой ответ");
 
-    // Log API token usage asynchronously (fire and forget)
-    const usage = data.result?.usage;
-    if (usage && meta?.operationType) {
-      const inputTokens = parseInt(usage.inputTextTokens ?? "0") || 0;
-      const outputTokens = parseInt(usage.completionTokens ?? "0") || 0;
-      const totalTokens = parseInt(usage.totalTokens ?? "0") || (inputTokens + outputTokens);
-      db.insert(apiCallLogs).values({
-        userId: meta.userId ?? null,
-        operationType: meta.operationType,
-        inputTokens,
-        outputTokens,
-        totalTokens,
-      }).catch((err) => logger.warn("AI", "Failed to log API usage", { err: String(err) }));
-    }
-
-    return text as string;
+  if (meta?.operationType) {
+    const inputTokens = response.usage.input_tokens;
+    const outputTokens = response.usage.output_tokens;
+    db.insert(apiCallLogs).values({
+      userId: meta.userId ?? null,
+      operationType: meta.operationType,
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+    }).catch((err) => logger.warn("AI", "Failed to log API usage", { err: String(err) }));
   }
-  throw new Error("YandexGPT: превышено число попыток (429)");
+
+  return text;
 }
 
 // ─── Шаг 3: extractJson helper ───────────────────────────────────────────────
@@ -262,7 +241,7 @@ ${answersText}
     logger.warn("AI", "generateProcess: prompt is large", { chars: fullPrompt.length });
   }
 
-  const text = await callYandex([{ role: "user", text: fullPrompt }], 16000, { userId, operationType: "generation" });
+  const text = await callClaude([{ role: "user", text: fullPrompt }], 16000, { userId, operationType: "generation" });
   const jsonStr = extractJson(text);
   if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа generateProcess");
 
@@ -303,7 +282,7 @@ ${changeDescription}
 Верни полный обновлённый JSON процесса.`;
 
   try {
-    const text = await callYandex([{ role: "user", text: prompt }], 16000, { userId, operationType: "change_request" });
+    const text = await callClaude([{ role: "user", text: prompt }], 16000, { userId, operationType: "change_request" });
     const jsonStr = extractJson(text);
     if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа");
     return JSON.parse(jsonStr) as ProcessData;
@@ -420,7 +399,7 @@ ${JSON.stringify(processData)}
 - Если метрик нет — делай выводы по структуре и указывай предположения
 - Backlog должен содержать минимум 10-12 конкретных пунктов`;
 
-    const text = await callYandex([{ role: "user", text: recPromptHeader }], 16000, { userId, operationType: "recommendations" });
+    const text = await callClaude([{ role: "user", text: recPromptHeader }], 16000, { userId, operationType: "recommendations" });
     logger.info("AI", "Recommendations response received", { length: text.length });
 
     const jsonStr = extractJson(text, "array");
@@ -504,7 +483,7 @@ ${blockList}
 Используй реальные blockId из процесса в relatedBlockIds. Только JSON, без пояснений.`;
 
   try {
-    const text = await callYandex([{ role: "user", text: prompt }], 8000, { userId, operationType: "crm_variants" });
+    const text = await callClaude([{ role: "user", text: prompt }], 8000, { userId, operationType: "crm_variants" });
     const jsonStr = extractJson(text, "array");
     if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа");
     const variants = JSON.parse(jsonStr) as CrmFunnel[];
@@ -540,7 +519,7 @@ ${changeDescription}
 [{"category":"...","title":"...","description":"...","priority":"high|medium|low","relatedSteps":["blockId"]}]`;
 
   try {
-    const text = await callYandex([{ role: "user", text: prompt }], 10000, { userId, operationType: "recommendations" });
+    const text = await callClaude([{ role: "user", text: prompt }], 10000, { userId, operationType: "recommendations" });
     const jsonStr = extractJson(text, "array");
     if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа");
     return JSON.parse(jsonStr);
@@ -1018,7 +997,7 @@ ${processContext ? `Данные о процессе и задачах:\n${proce
 Требования: строгий деловой язык, конкретные формулировки. Раздел 3 должен быть максимально подробным с чек-листами по каждому направлению.`;
 
   try {
-    return await callYandex([
+    return await callClaude([
       { role: "system", text: systemPrompt },
       { role: "user", text: userPrompt },
     ], 4000, { userId, operationType: "regulation" });
@@ -1136,7 +1115,7 @@ export async function generateLegalDocument(
     ? `\n\nПриложенные документы:\n${await extractFileTexts(attachedFiles)}`
     : "";
 
-  const raw = await callYandex([
+  const raw = await callClaude([
     { role: "system", text: LEGAL_SYSTEM_PROMPT },
     { role: "user", text: textPrompt + filesText },
   ], 8000, { userId, operationType: "legal_document" });
