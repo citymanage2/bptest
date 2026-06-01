@@ -7,10 +7,10 @@ import type { ProcessData } from "@shared/types";
 import { logger } from "../services/logger";
 import Anthropic from "@anthropic-ai/sdk";
 
-// YandexGPT 5.1 Pro pricing (RUB per 1000 tokens)
-const YANDEX_INPUT_PRICE_PER_1K = parseFloat(process.env.YANDEX_INPUT_PRICE_PER_1K ?? "1.2");
-const YANDEX_OUTPUT_PRICE_PER_1K = parseFloat(process.env.YANDEX_OUTPUT_PRICE_PER_1K ?? "4.8");
-const USD_RATE = parseFloat(process.env.USD_RATE ?? "90"); // RUB per 1 USD
+// Anthropic Claude pricing (USD per 1000 tokens, claude-sonnet-4-6 defaults)
+const ANTHROPIC_INPUT_PRICE_PER_1K = parseFloat(process.env.ANTHROPIC_INPUT_PRICE_PER_1K ?? "0.003");
+const ANTHROPIC_OUTPUT_PRICE_PER_1K = parseFloat(process.env.ANTHROPIC_OUTPUT_PRICE_PER_1K ?? "0.015");
+const USD_RATE = parseFloat(process.env.USD_RATE ?? "90"); // RUB per 1 USD (for margin vs ruble revenue)
 
 export const adminRouter = router({
   listUsers: adminProcedure.query(async () => {
@@ -375,7 +375,8 @@ export const adminRouter = router({
     const totalApiTokens = apiLogs.reduce((s, l) => s + l.totalTokens, 0);
     const apiInputTokens = apiLogs.reduce((s, l) => s + l.inputTokens, 0);
     const apiOutputTokens = apiLogs.reduce((s, l) => s + l.outputTokens, 0);
-    const apiCostRub = (apiInputTokens / 1000) * YANDEX_INPUT_PRICE_PER_1K + (apiOutputTokens / 1000) * YANDEX_OUTPUT_PRICE_PER_1K;
+    const apiCostUsd = (apiInputTokens / 1000) * ANTHROPIC_INPUT_PRICE_PER_1K + (apiOutputTokens / 1000) * ANTHROPIC_OUTPUT_PRICE_PER_1K;
+    const apiCostRub = apiCostUsd * USD_RATE;
 
     return {
       users: {
@@ -406,7 +407,7 @@ export const adminRouter = router({
         inputTokens: apiInputTokens,
         outputTokens: apiOutputTokens,
         costRub: Math.round(apiCostRub * 100) / 100,
-        costUsd: Math.round((apiCostRub / USD_RATE) * 10000) / 10000,
+        costUsd: Math.round(apiCostUsd * 10000) / 10000,
         trackedCalls: apiLogs.length,
       },
       support: {
@@ -450,7 +451,8 @@ export const adminRouter = router({
     // API cost
     const totalInput = apiLogs.reduce((s, l) => s + l.inputTokens, 0);
     const totalOutput = apiLogs.reduce((s, l) => s + l.outputTokens, 0);
-    const totalApiCostRub = (totalInput / 1000) * YANDEX_INPUT_PRICE_PER_1K + (totalOutput / 1000) * YANDEX_OUTPUT_PRICE_PER_1K;
+    const totalApiCostUsd = (totalInput / 1000) * ANTHROPIC_INPUT_PRICE_PER_1K + (totalOutput / 1000) * ANTHROPIC_OUTPUT_PRICE_PER_1K;
+    const totalApiCostRub = totalApiCostUsd * USD_RATE;
 
     // Revenue per site-token: how much RUB each sold token is worth
     const revenuePerToken = totalSold > 0 ? (totalRevenue / 100) / totalSold : 0; // in RUB
@@ -473,12 +475,12 @@ export const adminRouter = router({
         inputTokens: totalInput,
         outputTokens: totalOutput,
         totalCostRub: Math.round(totalApiCostRub * 100) / 100,
-        totalCostUsd: Math.round((totalApiCostRub / USD_RATE) * 10000) / 10000,
+        totalCostUsd: Math.round(totalApiCostUsd * 10000) / 10000,
         byType: apiByType,
         trackedCalls: apiLogs.length,
         pricingInfo: {
-          inputPer1k: YANDEX_INPUT_PRICE_PER_1K,
-          outputPer1k: YANDEX_OUTPUT_PRICE_PER_1K,
+          inputPer1kUsd: ANTHROPIC_INPUT_PRICE_PER_1K,
+          outputPer1kUsd: ANTHROPIC_OUTPUT_PRICE_PER_1K,
           usdRate: USD_RATE,
         },
       },

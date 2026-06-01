@@ -380,10 +380,10 @@ function TokenEconomicsTab() {
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
               <Bot className="w-4 h-4 text-rose-600" />
-              <p className="text-xs font-medium text-rose-700">Затраты YandexGPT</p>
+              <p className="text-xs font-medium text-rose-700">Затраты Anthropic API</p>
             </div>
-            <p className="text-2xl font-bold text-gray-900">{apiTokens.totalCostRub.toLocaleString("ru-RU")} ₽</p>
-            <p className="text-[11px] text-gray-400 mt-1">≈ ${apiTokens.totalCostUsd.toFixed(4)}</p>
+            <p className="text-2xl font-bold text-gray-900">${apiTokens.totalCostUsd.toFixed(4)}</p>
+            <p className="text-[11px] text-gray-400 mt-1">≈ {apiTokens.totalCostRub.toLocaleString("ru-RU")} ₽</p>
           </CardContent>
         </Card>
         <Card className={cn(
@@ -457,7 +457,7 @@ function TokenEconomicsTab() {
           <CardHeader className="pb-2 pt-4 px-4">
             <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
               <Bot className="w-4 h-4 text-rose-500" />
-              Токены YandexGPT API
+              Токены Anthropic API
             </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4 space-y-3">
@@ -465,30 +465,30 @@ function TokenEconomicsTab() {
               <div className="bg-gray-50 rounded-lg p-3">
                 <p className="text-xs text-gray-500">Входящие (input)</p>
                 <p className="text-lg font-bold text-gray-900">{apiTokens.inputTokens.toLocaleString("ru-RU")}</p>
-                <p className="text-[10px] text-gray-400">{apiTokens.pricingInfo.inputPer1k} ₽/1k</p>
+                <p className="text-[10px] text-gray-400">${apiTokens.pricingInfo.inputPer1kUsd}/1k</p>
               </div>
               <div className="bg-gray-50 rounded-lg p-3">
                 <p className="text-xs text-gray-500">Исходящие (output)</p>
                 <p className="text-lg font-bold text-gray-900">{apiTokens.outputTokens.toLocaleString("ru-RU")}</p>
-                <p className="text-[10px] text-gray-400">{apiTokens.pricingInfo.outputPer1k} ₽/1k</p>
+                <p className="text-[10px] text-gray-400">${apiTokens.pricingInfo.outputPer1kUsd}/1k</p>
               </div>
             </div>
             <div className="space-y-1.5 text-sm">
               <div className="flex justify-between">
                 <span className="text-gray-500">Стоимость input</span>
-                <span className="font-medium">{((apiTokens.inputTokens / 1000) * apiTokens.pricingInfo.inputPer1k).toFixed(2)} ₽</span>
+                <span className="font-medium">${((apiTokens.inputTokens / 1000) * apiTokens.pricingInfo.inputPer1kUsd).toFixed(4)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500">Стоимость output</span>
-                <span className="font-medium">{((apiTokens.outputTokens / 1000) * apiTokens.pricingInfo.outputPer1k).toFixed(2)} ₽</span>
+                <span className="font-medium">${((apiTokens.outputTokens / 1000) * apiTokens.pricingInfo.outputPer1kUsd).toFixed(4)}</span>
               </div>
               <div className="flex justify-between border-t border-gray-100 pt-1.5">
                 <span className="text-gray-700 font-medium">Итого</span>
-                <span className="font-bold text-rose-600">{apiTokens.totalCostRub.toFixed(2)} ₽ (≈${apiTokens.totalCostUsd.toFixed(4)})</span>
+                <span className="font-bold text-rose-600">${apiTokens.totalCostUsd.toFixed(4)} (≈{apiTokens.totalCostRub.toFixed(2)} ₽)</span>
               </div>
             </div>
             <p className="text-[10px] text-gray-400 bg-gray-50 rounded p-2">
-              Цены: input {apiTokens.pricingInfo.inputPer1k} ₽/1k · output {apiTokens.pricingInfo.outputPer1k} ₽/1k · курс {apiTokens.pricingInfo.usdRate} ₽/$ · {apiTokens.trackedCalls === 0 ? "данные появятся после первых AI-запросов" : `${apiTokens.trackedCalls} вызовов отслежено`}
+              Цены: input ${apiTokens.pricingInfo.inputPer1kUsd}/1k · output ${apiTokens.pricingInfo.outputPer1kUsd}/1k · курс {apiTokens.pricingInfo.usdRate} ₽/$ · {apiTokens.trackedCalls === 0 ? "данные появятся после первых AI-запросов" : `${apiTokens.trackedCalls} вызовов отслежено`}
             </p>
           </CardContent>
         </Card>
@@ -510,7 +510,7 @@ function TokenEconomicsTab() {
               <p className="text-[10px] text-gray-400">сколько ₽ приносит 1 токен</p>
             </div>
             <div className="text-center p-3 bg-rose-50 rounded-xl">
-              <p className="text-xs text-rose-600 font-medium mb-1">Затраты API / токен сайта</p>
+              <p className="text-xs text-rose-600 font-medium mb-1">Затраты Anthropic / токен</p>
               <p className="text-xl font-bold text-gray-900">
                 {apiTokens.trackedCalls > 0 ? `${economics.apiCostPerSiteToken.toFixed(5)} ₽` : "—"}
               </p>
@@ -566,14 +566,14 @@ function TokenEconomicsTab() {
           <CardHeader className="pb-2 pt-4 px-4">
             <CardTitle className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
               <Bot className="w-4 h-4 text-rose-500" />
-              API-токены YandexGPT по типу операции
+              API-токены Anthropic по типу операции
             </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-4 space-y-2">
             {apiEntries.map(([type, usage]) => {
               const total = usage.inputTokens + usage.outputTokens;
-              const cost = (usage.inputTokens / 1000) * apiTokens.pricingInfo.inputPer1k +
-                           (usage.outputTokens / 1000) * apiTokens.pricingInfo.outputPer1k;
+              const cost = (usage.inputTokens / 1000) * apiTokens.pricingInfo.inputPer1kUsd +
+                           (usage.outputTokens / 1000) * apiTokens.pricingInfo.outputPer1kUsd;
               return (
                 <div key={type}>
                   <div className="flex items-center justify-between text-sm mb-1">
@@ -584,7 +584,7 @@ function TokenEconomicsTab() {
                     </span>
                     <span className="font-semibold text-gray-900 text-right">
                       {total.toLocaleString("ru-RU")} токенов
-                      <span className="text-rose-500 ml-2">{cost.toFixed(2)} ₽</span>
+                      <span className="text-rose-500 ml-2">${cost.toFixed(4)}</span>
                     </span>
                   </div>
                   <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
