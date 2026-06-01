@@ -24,6 +24,7 @@ import { TOKEN_COSTS } from "../../shared/types";
 
 async function deductTokens(userId: number, amount: number, type: string, description: string) {
   const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  console.log(`[deductTokens] userId=${userId} balance=${user?.tokenBalance ?? "user not found"} required=${amount}`);
   if (!user || user.tokenBalance < amount) {
     throw new Error(`Недостаточно токенов. Необходимо: ${amount}, доступно: ${user?.tokenBalance ?? 0}`);
   }
@@ -40,6 +41,7 @@ export const processRouter = router({
   generate: protectedProcedure
     .input(z.object({ interviewId: z.number() }))
     .mutation(async ({ ctx, input }) => {
+      console.log(`[process.generate] userId=${ctx.userId} interviewId=${input.interviewId}`);
       const interview = await db.query.interviews.findFirst({
         where: eq(interviews.id, input.interviewId),
         with: { company: true },
@@ -49,6 +51,7 @@ export const processRouter = router({
 
       // Deduct tokens
       await deductTokens(ctx.userId, TOKEN_COSTS.generation, "generation", "Генерация бизнес-процесса");
+      console.log(`[process.generate] tokens deducted for userId=${ctx.userId}`);
 
       // Load interview attachments for AI context
       const UPLOADS_DIR = path.resolve(process.cwd(), "uploads");
@@ -63,6 +66,7 @@ export const processRouter = router({
       }));
 
       // Generate process via AI
+      console.log(`[process.generate] calling AI for userId=${ctx.userId} company="${interview.company.name}"`);
       const answers = interview.answers as Record<string, string>;
       const processData = await generateProcess(
         answers,
@@ -71,6 +75,7 @@ export const processRouter = router({
         attachedFiles,
         ctx.userId
       );
+      console.log(`[process.generate] AI done for userId=${ctx.userId}, saving process`);
 
       // Save process
       const [savedProcess] = await db
@@ -110,6 +115,7 @@ export const processRouter = router({
         );
       }
 
+      console.log(`[process.generate] SUCCESS processId=${savedProcess.id} userId=${ctx.userId}`);
       return {
         id: savedProcess.id,
         interviewId: savedProcess.interviewId,

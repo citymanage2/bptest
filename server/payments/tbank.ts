@@ -100,3 +100,31 @@ export async function initPayment(params: {
 
   return { paymentUrl: data.PaymentURL, paymentId: data.PaymentId };
 }
+
+export async function confirmPayment(paymentId: string): Promise<boolean> {
+  const reqBody: Record<string, string | number | boolean> = {
+    TerminalKey: TERMINAL_KEY,
+    PaymentId: paymentId,
+  };
+  reqBody.Token = buildSignature(reqBody);
+
+  console.log("[T-Bank] Confirm PaymentId:", paymentId);
+
+  try {
+    const response = await fetch(`${API_URL}/Confirm`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(reqBody),
+    });
+    const data = (await response.json()) as { Success: boolean; Message?: string };
+    if (!data.Success) {
+      console.error("[T-Bank] Confirm failed:", data.Message);
+      return false;
+    }
+    console.log("[T-Bank] Confirm success for PaymentId:", paymentId);
+    return true;
+  } catch (err) {
+    console.error("[T-Bank] Confirm error:", err);
+    return false;
+  }
+}

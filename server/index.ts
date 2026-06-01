@@ -13,7 +13,7 @@ import { createContext } from "./trpc";
 import { db } from "./db";
 import { blockFiles, users, processes, companies, companyRequisites, legalAttachments, interviewAttachments, interviews, documents, regulations, payments, tokenOperations } from "./db/schema";
 import { eq, and } from "drizzle-orm";
-import { verifyWebhookSignature } from "./payments/tbank";
+import { verifyWebhookSignature, confirmPayment } from "./payments/tbank";
 import { TOKEN_PACKAGES } from "./payments/packages";
 import { TOKEN_COSTS } from "../shared/types";
 
@@ -208,6 +208,9 @@ app.use(
   createExpressMiddleware({
     router: appRouter,
     createContext: ({ req, res }) => createContext(req, res),
+    onError: ({ path, error }) => {
+      console.error(`[tRPC] Error in ${path ?? "unknown"}:`, error.message, error.cause ?? "");
+    },
   })
 );
 
@@ -621,8 +624,16 @@ app.post("/api/payments/webhook", async (req, res) => {
         .where(eq(payments.id, payment.id));
     }
   } else if (status === "AUTHORIZED") {
-    // Two-step terminal mode: configure OneStage=true in T-Bank dashboard to avoid this
-    console.log("[webhook] AUTHORIZED received for orderId:", orderId, "— confirm manually or enable OneStage=true");
+    // Two-step terminal mode: automatically confirm the payment
+    const paymentId = body.PaymentId as string | undefined;
+    console.log("[webhook] AUTHORIZED received for orderId:", orderId, "paymentId:", paymentId, "— auto-confirming");
+    if (paymentId) {
+      confirmPayment(paymentId).catch((err) =>
+        console.error("[webhook] Auto-confirm error for orderId:", orderId, err)
+      );
+    } else {
+      console.warn("[webhook] AUTHORIZED but no PaymentId in body, cannot confirm orderId:", orderId);
+    }
   }
 
   res.json({ Success: true });

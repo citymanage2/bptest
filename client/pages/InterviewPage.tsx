@@ -27,6 +27,7 @@ import {
   X,
   FileText,
 } from "lucide-react";
+import { toast } from "@/components/ui/toaster";
 
 type ServerFile = { id: number; originalName: string; mimeType: string; fileSize: number };
 
@@ -317,6 +318,8 @@ export function InterviewPage() {
       navigate(`/process/${process.id}`);
     } catch (error) {
       console.error("Ошибка при генерации:", error);
+      const message = error instanceof Error ? error.message : "Неизвестная ошибка";
+      toast({ title: "Ошибка генерации", description: message, variant: "destructive" });
       setIsGenerating(false);
     }
   }, [interviewId, answers, saveAnswersMutation, completeMutation, generateMutation, navigate]);
