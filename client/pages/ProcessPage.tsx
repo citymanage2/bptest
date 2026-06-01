@@ -1041,6 +1041,9 @@ export function ProcessPage() {
       setPreviewType("regenerate");
       setPreviewOpen(true);
     },
+    onError: (err) => {
+      toast({ title: "Ошибка регенерации", description: err.message, variant: "destructive" });
+    },
   });
 
   const requestChangeMutation = trpc.process.requestChange.useMutation({
@@ -1052,6 +1055,9 @@ export function ProcessPage() {
       setPreviewType("change");
       setChangeDialogOpen(false);
       setPreviewOpen(true);
+    },
+    onError: (err) => {
+      toast({ title: "Ошибка запроса изменений", description: err.message, variant: "destructive" });
     },
   });
 
@@ -3106,6 +3112,9 @@ function CrmFunnelsTab({
       setSelectedVariant(0);
       setCrmChangeOpen(false);
     },
+    onError: (err) => {
+      toast({ title: "Ошибка генерации CRM-воронки", description: err.message, variant: "destructive" });
+    },
   });
 
   const updateDataMutation = trpc.process.updateData.useMutation({
@@ -3617,6 +3626,9 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
     onSuccess: () => {
       utils.process.getRecommendations.invalidate({ processId });
     },
+    onError: (err) => {
+      toast({ title: "Ошибка генерации рекомендаций", description: err.message, variant: "destructive" });
+    },
   });
 
   // ── Recommendations change request state ──
@@ -3629,6 +3641,9 @@ function RecommendationsTab({ processId, data }: { processId: number; data?: Pro
     onSuccess: (result) => {
       setRecPreview(result as { previous: RecPreview[]; updated: RecPreview[] });
       setRecChangeOpen(false);
+    },
+    onError: (err) => {
+      toast({ title: "Ошибка изменения рекомендаций", description: err.message, variant: "destructive" });
     },
   });
 
@@ -4995,8 +5010,10 @@ function RegulationsTab({
         setDocuments((prev) => ({ ...prev, [key]: result.text }));
         setExpandedDocs((prev) => ({ ...prev, [key]: true }));
         stopProgressTimer(key, true);
-      } catch {
+      } catch (err) {
         stopProgressTimer(key, false);
+        const message = err instanceof Error ? err.message : "Неизвестная ошибка";
+        toast({ title: "Ошибка генерации документа", description: message, variant: "destructive" });
       } finally {
         setGenerating((prev) => ({ ...prev, [key]: false }));
       }
@@ -5022,8 +5039,10 @@ function RegulationsTab({
           const result = await generateMutation.mutateAsync({ processId, roleName: role.name, docType: dt });
           setDocuments((prev) => ({ ...prev, [key]: result.text }));
           stopProgressTimer(key, true);
-        } catch {
+        } catch (err) {
           stopProgressTimer(key, false);
+          const message = err instanceof Error ? err.message : "Неизвестная ошибка";
+          toast({ title: `Ошибка: ${role.name}`, description: message, variant: "destructive" });
         } finally {
           setGenerating((prev) => ({ ...prev, [key]: false }));
           setAllGenProgress({ done: i + 1, total: pairs.length });

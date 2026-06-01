@@ -2160,7 +2160,10 @@ function PaymentsTab() {
 function DiagnosticsTab() {
   const [aiResult, setAiResult] = useState<{ ok: boolean; model?: string; reply?: string; inputTokens?: number; error?: string } | null>(null);
   const [userDetailId, setUserDetailId] = useState("");
-  const testAIMutation = trpc.admin.testAI.useMutation({ onSuccess: setAiResult });
+  const testAIMutation = trpc.admin.testAI.useMutation({
+    onSuccess: setAiResult,
+    onError: (err) => setAiResult({ ok: false, error: err.message }),
+  });
   const userDetailQuery = trpc.admin.getUserDetail.useQuery(
     { userId: Number(userDetailId) },
     { enabled: false }
