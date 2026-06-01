@@ -140,7 +140,13 @@ async function runMigrations() {
     await db.execute(sql`
       ALTER TABLE users ALTER COLUMN token_balance SET DEFAULT 8000
     `);
-    console.log("[migration] block_files + business_models + kpi_plans + legal + legal_attachments + companies.inn + regulations + interview_attachments + documents.source + users.token_balance default ready");
+    await db.execute(sql`
+      DO $$ BEGIN
+        ALTER TYPE token_operation_type ADD VALUE IF NOT EXISTS 'document';
+      EXCEPTION WHEN duplicate_object THEN null;
+      END $$;
+    `);
+    console.log("[migration] block_files + business_models + kpi_plans + legal + legal_attachments + companies.inn + regulations + interview_attachments + documents.source + users.token_balance default + document type ready");
   } catch (err) {
     console.error("[migration] failed:", err);
   }

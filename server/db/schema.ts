@@ -29,6 +29,7 @@ export const tokenOperationTypeEnum = pgEnum("token_operation_type", [
   "transcription",
   "topup",
   "file_upload",
+  "document",
 ]);
 
 // Users
