@@ -26,7 +26,7 @@ async function callClaude(
 
   const response = await anthropic.messages.create({
     model: CLAUDE_MODEL,
-    max_tokens: Math.min(maxTokens, 8000),
+    max_tokens: Math.min(maxTokens, 16000),
     system: systemMsg?.text,
     messages: chatMessages,
   });
