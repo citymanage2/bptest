@@ -2156,6 +2156,104 @@ function PaymentsTab() {
   );
 }
 
+// ==================== Diagnostics Tab ====================
+function DiagnosticsTab() {
+  const [aiResult, setAiResult] = useState<{ ok: boolean; model?: string; reply?: string; inputTokens?: number; error?: string } | null>(null);
+  const [userDetailId, setUserDetailId] = useState("");
+  const testAIMutation = trpc.admin.testAI.useMutation({ onSuccess: setAiResult });
+  const userDetailQuery = trpc.admin.getUserDetail.useQuery(
+    { userId: Number(userDetailId) },
+    { enabled: false }
+  );
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader><CardTitle className="text-base">Тест Claude API</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <Button
+            onClick={() => testAIMutation.mutate()}
+            disabled={testAIMutation.isPending}
+            size="sm"
+          >
+            {testAIMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+            Ping Claude API
+          </Button>
+          {aiResult && (
+            <div className={`rounded-md p-3 text-sm font-mono ${aiResult.ok ? "bg-green-50 text-green-800" : "bg-red-50 text-red-800"}`}>
+              {aiResult.ok
+                ? `✓ OK — model: ${aiResult.model}, reply: "${aiResult.reply}", input_tokens: ${aiResult.inputTokens}`
+                : `✗ Ошибка: ${aiResult.error}`}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Данные пользователя (компании / интервью / процессы)</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex gap-2">
+            <input
+              type="number"
+              placeholder="ID пользователя (напр. 14)"
+              value={userDetailId}
+              onChange={e => setUserDetailId(e.target.value)}
+              className="border rounded px-3 py-1.5 text-sm w-48"
+            />
+            <Button size="sm" variant="outline" onClick={() => userDetailQuery.refetch()} disabled={!userDetailId || userDetailQuery.isFetching}>
+              {userDetailQuery.isFetching ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
+              Показать
+            </Button>
+          </div>
+          {userDetailQuery.data && (
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="font-medium text-gray-700 mb-1">Компании ({userDetailQuery.data.companies.length})</p>
+                {userDetailQuery.data.companies.length === 0 ? <p className="text-gray-400 italic">Нет компаний</p> : (
+                  <ul className="space-y-1">
+                    {userDetailQuery.data.companies.map(c => (
+                      <li key={c.id} className="bg-gray-50 rounded px-2 py-1">
+                        #{c.id} {c.name} ({c.industry}) — {new Date(c.createdAt).toLocaleString("ru")}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <p className="font-medium text-gray-700 mb-1">Интервью ({userDetailQuery.data.interviews.length})</p>
+                {userDetailQuery.data.interviews.length === 0 ? <p className="text-gray-400 italic">Нет интервью</p> : (
+                  <ul className="space-y-1">
+                    {userDetailQuery.data.interviews.map(i => (
+                      <li key={i.id} className="bg-gray-50 rounded px-2 py-1">
+                        #{i.id} компания:{i.companyId} режим:{i.mode} статус:{i.status} заполнено:{i.completionPercent}%
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div>
+                <p className="font-medium text-gray-700 mb-1">Процессы ({userDetailQuery.data.processes.length})</p>
+                {userDetailQuery.data.processes.length === 0 ? <p className="text-gray-400 italic">Нет процессов</p> : (
+                  <ul className="space-y-1">
+                    {userDetailQuery.data.processes.map(p => (
+                      <li key={p.id} className="bg-gray-50 rounded px-2 py-1">
+                        #{p.id} компания:{p.companyId} статус:{p.status}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+          {userDetailQuery.error && (
+            <p className="text-red-600 text-sm">{userDetailQuery.error.message}</p>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ==================== Main Admin Page ====================
 export function AdminPage() {
   const { user } = useAuth();
@@ -2203,6 +2301,10 @@ export function AdminPage() {
             <Shield className="w-4 h-4" />
             Согласия
           </TabsTrigger>
+          <TabsTrigger value="diagnostics" className="gap-1.5">
+            <Bot className="w-4 h-4" />
+            Диагностика
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4">
@@ -2235,6 +2337,9 @@ export function AdminPage() {
 
         <TabsContent value="consents" className="mt-4">
           <ConsentStatsTab />
+        </TabsContent>
+        <TabsContent value="diagnostics" className="mt-4">
+          <DiagnosticsTab />
         </TabsContent>
       </Tabs>
     </div>

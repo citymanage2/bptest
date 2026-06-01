@@ -2,9 +2,10 @@ import { z } from "zod";
 import { eq, desc, like, or, sql, gte, and, sum, count } from "drizzle-orm";
 import { router, adminProcedure } from "../trpc";
 import { db } from "../db";
-import { users, supportChats, supportMessages, faqArticles, tokenOperations, processes, companies, payments, apiCallLogs } from "../db/schema";
+import { users, supportChats, supportMessages, faqArticles, tokenOperations, processes, companies, payments, apiCallLogs, interviews } from "../db/schema";
 import type { ProcessData } from "@shared/types";
 import { logger } from "../services/logger";
+import Anthropic from "@anthropic-ai/sdk";
 
 // YandexGPT 5.1 Pro pricing (RUB per 1000 tokens)
 const YANDEX_INPUT_PRICE_PER_1K = parseFloat(process.env.YANDEX_INPUT_PRICE_PER_1K ?? "1.2");
@@ -533,4 +534,51 @@ export const adminRouter = router({
 
     return { days };
   }),
+
+  // Test Claude API connectivity
+  testAI: adminProcedure.mutation(async () => {
+    const apiKey = process.env.CLAUDE_API_KEY ?? "";
+    if (!apiKey) return { ok: false, error: "CLAUDE_API_KEY не задан в env" };
+    try {
+      const client = new Anthropic({ apiKey });
+      const model = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-6";
+      const response = await client.messages.create({
+        model,
+        max_tokens: 10,
+        messages: [{ role: "user", content: "ping" }],
+      });
+      const text = response.content.find(b => b.type === "text")?.text ?? "";
+      return { ok: true, model, reply: text, inputTokens: response.usage.input_tokens };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  }),
+
+  // List companies and interviews for a specific user
+  getUserDetail: adminProcedure
+    .input(z.object({ userId: z.number() }))
+    .query(async ({ input }) => {
+      const userCompanies = await db.query.companies.findMany({
+        where: eq(companies.userId, input.userId),
+        orderBy: desc(companies.createdAt),
+      });
+      const companyIds = userCompanies.map(c => c.id);
+      const userInterviews = companyIds.length > 0
+        ? await db.query.interviews.findMany({
+            where: sql`${interviews.companyId} = ANY(${sql.raw("ARRAY[" + companyIds.join(",") + "]::int[]")})`,
+            orderBy: desc(interviews.createdAt),
+          })
+        : [];
+      const userProcesses = companyIds.length > 0
+        ? await db.query.processes.findMany({
+            where: sql`${processes.companyId} = ANY(${sql.raw("ARRAY[" + companyIds.join(",") + "]::int[]")})`,
+            orderBy: desc(processes.createdAt),
+          })
+        : [];
+      return {
+        companies: userCompanies.map(c => ({ id: c.id, name: c.name, industry: c.industry, createdAt: c.createdAt })),
+        interviews: userInterviews.map(i => ({ id: i.id, companyId: i.companyId, mode: i.mode, status: i.status, completionPercent: i.completionPercent, createdAt: i.createdAt })),
+        processes: userProcesses.map(p => ({ id: p.id, companyId: p.companyId, status: p.status, createdAt: p.createdAt })),
+      };
+    }),
 });
