@@ -487,7 +487,7 @@ function drawBlockShape(
 ) {
   const { block, x, y, w, h } = lb;
   const inactive = block.isActive === false;
-  const config = BLOCK_CONFIG[block.type];
+  const config = BLOCK_CONFIG[block.type] ?? BLOCK_CONFIG["action"];
   const fill = inactive ? "#f3f4f6" : isConnected ? "#f5f3ff" : getBlockFill(block.type);
   const border = inactive ? "#9ca3af" : isConnected ? CONNECTED_COLOR : config.borderColor;
   const lw = isHighlighted || isSelected || isConnected ? 3 : 2;

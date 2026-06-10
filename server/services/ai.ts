@@ -248,10 +248,19 @@ ${answersText}
   const data = JSON.parse(jsonStr) as ProcessData;
 
   // Assign colors to roles
-  data.roles = data.roles.map((role, i) => ({
+  data.roles = Array.isArray(data.roles) ? data.roles.map((role, i) => ({
     ...role,
     color: SWIMLANE_COLORS[i % SWIMLANE_COLORS.length],
-  }));
+  })) : [];
+
+  data.stages = Array.isArray(data.stages) ? data.stages : [];
+
+  const VALID_BLOCK_TYPES = new Set(["start", "action", "product", "decision", "split", "end"]);
+  data.blocks = Array.isArray(data.blocks) ? data.blocks.map((b) => ({
+    ...b,
+    type: VALID_BLOCK_TYPES.has(b.type) ? b.type : "action",
+    connections: Array.isArray(b.connections) ? b.connections : [],
+  })) : [];
 
   return data;
 }
@@ -290,9 +299,11 @@ ${changeDescription}
     parsed.blocks = Array.isArray(parsed.blocks) ? parsed.blocks : currentData.blocks;
     parsed.roles = Array.isArray(parsed.roles) ? parsed.roles : currentData.roles;
     parsed.stages = Array.isArray(parsed.stages) ? parsed.stages : currentData.stages;
-    // Ensure each block has connections as array
+    const VALID_BLOCK_TYPES = new Set(["start", "action", "product", "decision", "split", "end"]);
+    // Ensure each block has valid type and connections as array
     parsed.blocks = parsed.blocks.map((b) => ({
       ...b,
+      type: VALID_BLOCK_TYPES.has(b.type) ? b.type : "action",
       connections: Array.isArray(b.connections) ? b.connections : [],
     }));
     return parsed;

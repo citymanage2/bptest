@@ -132,7 +132,7 @@ function blockFill(type: BlockType): string {
 function renderShape(lb: SvgLayoutBlock): string {
   const { block, x, y, w, h } = lb;
   const inactive = block.isActive === false;
-  const config = BLOCK_CONFIG[block.type];
+  const config = BLOCK_CONFIG[block.type] ?? BLOCK_CONFIG["action"];
   const fill = inactive ? "#f3f4f6" : blockFill(block.type);
   const stroke = inactive ? "#9ca3af" : config.borderColor;
   const sw = 2;
