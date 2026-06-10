@@ -567,7 +567,7 @@ function drawBlockShape(
 
 function drawBlockContent(ctx: CanvasRenderingContext2D, lb: LayoutBlock) {
   const { block, x, y, w, h } = lb;
-  const config = BLOCK_CONFIG[block.type];
+  const config = BLOCK_CONFIG[block.type] ?? BLOCK_CONFIG["action"];
   const cx = x + w / 2;
 
   // Calculate text area constraints based on shape

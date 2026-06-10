@@ -1087,11 +1087,18 @@ export function ProcessPage() {
   // ---- Computed ----
   const process = processQuery.data;
   const rawData = process?.data as ProcessData | undefined;
-  // Normalize: AI can return null for array fields — guard against that
+  const VALID_BLOCK_TYPES_CLIENT = new Set<string>(["start", "action", "product", "decision", "split", "end"]);
+  // Normalize: AI can return null arrays or unknown block types — guard against both
   const data: ProcessData | undefined = rawData
     ? {
         ...rawData,
-        blocks: Array.isArray(rawData.blocks) ? rawData.blocks : [],
+        blocks: Array.isArray(rawData.blocks)
+          ? rawData.blocks.map((b) => ({
+              ...b,
+              type: VALID_BLOCK_TYPES_CLIENT.has(b.type) ? b.type : "action",
+              connections: Array.isArray(b.connections) ? b.connections : [],
+            })) as ProcessData["blocks"]
+          : [],
         roles: Array.isArray(rawData.roles) ? rawData.roles : [],
         stages: Array.isArray(rawData.stages) ? rawData.stages : [],
       }

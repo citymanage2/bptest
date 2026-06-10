@@ -169,7 +169,7 @@ function renderShape(lb: SvgLayoutBlock): string {
 // ── Render block text content ─────────────────────────────────────────────────
 function renderContent(lb: SvgLayoutBlock): string {
   const { block, x, y, w, h } = lb;
-  const config = BLOCK_CONFIG[block.type];
+  const config = BLOCK_CONFIG[block.type] ?? BLOCK_CONFIG["action"];
   const cx = x + w / 2;
   const parts: string[] = [];
 
