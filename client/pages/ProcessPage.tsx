@@ -1086,7 +1086,16 @@ export function ProcessPage() {
 
   // ---- Computed ----
   const process = processQuery.data;
-  const data = process?.data as ProcessData | undefined;
+  const rawData = process?.data as ProcessData | undefined;
+  // Normalize: AI can return null for array fields — guard against that
+  const data: ProcessData | undefined = rawData
+    ? {
+        ...rawData,
+        blocks: Array.isArray(rawData.blocks) ? rawData.blocks : [],
+        roles: Array.isArray(rawData.roles) ? rawData.roles : [],
+        stages: Array.isArray(rawData.stages) ? rawData.stages : [],
+      }
+    : undefined;
 
   // ---- Interview query for salary pre-fill ----
   const interviewQuery = trpc.interview.getById.useQuery(

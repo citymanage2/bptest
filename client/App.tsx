@@ -19,6 +19,7 @@ import { PricingPage } from "./pages/PricingPage";
 import { OfferPage } from "./pages/OfferPage";
 import { PaymentSuccessPage } from "./pages/PaymentSuccessPage";
 import { CookieConsentBanner } from "./components/CookieConsentBanner";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 
 function LoginOrRedirect({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -80,7 +81,7 @@ export default function App() {
           <Route path="/companies" element={<CompaniesPage />} />
           <Route path="/companies/:id" element={<CompanyPage />} />
           <Route path="/interview/:id" element={<InterviewPage />} />
-          <Route path="/process/:id" element={<ProcessPage />} />
+          <Route path="/process/:id" element={<ErrorBoundary><ProcessPage /></ErrorBoundary>} />
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/support" element={<SupportPage />} />
           <Route path="/payment/success" element={<PaymentSuccessPage />} />

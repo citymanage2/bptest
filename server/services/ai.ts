@@ -285,7 +285,17 @@ ${changeDescription}
     const text = await callClaude([{ role: "user", text: prompt }], 16000, { userId, operationType: "change_request" });
     const jsonStr = extractJson(text);
     if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа");
-    return JSON.parse(jsonStr) as ProcessData;
+    const parsed = JSON.parse(jsonStr) as ProcessData;
+    // Ensure array fields are never null/undefined
+    parsed.blocks = Array.isArray(parsed.blocks) ? parsed.blocks : currentData.blocks;
+    parsed.roles = Array.isArray(parsed.roles) ? parsed.roles : currentData.roles;
+    parsed.stages = Array.isArray(parsed.stages) ? parsed.stages : currentData.stages;
+    // Ensure each block has connections as array
+    parsed.blocks = parsed.blocks.map((b) => ({
+      ...b,
+      connections: Array.isArray(b.connections) ? b.connections : [],
+    }));
+    return parsed;
   } catch (error) {
     console.error("AI change error:", error);
     throw new Error("Не удалось применить изменения через ИИ");
