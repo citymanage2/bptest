@@ -12,9 +12,9 @@ if (!ANTHROPIC_API_KEY) {
 
 const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-6";
-// claude-sonnet-4-6 поддерживает до 64000 output-токенов. Поднимаем потолок,
-// чтобы крупные процессы при round-trip (applyChanges) не обрезались.
-const MAX_OUTPUT_TOKENS = Number(process.env.CLAUDE_MAX_TOKENS) || 32000;
+// claude-sonnet-4-6 поддерживает до 64000 output-токенов. Это потолок: крупные
+// процессы при round-trip (applyChanges) иначе обрезаются на 16000.
+const MAX_OUTPUT_TOKENS = Number(process.env.CLAUDE_MAX_TOKENS) || 64000;
 
 // ─── callClaude helper ────────────────────────────────────────────────────────
 async function callClaude(
@@ -28,12 +28,15 @@ async function callClaude(
     .map(m => ({ role: m.role as "user" | "assistant", content: m.text }));
 
   const cappedMaxTokens = Math.min(maxTokens, MAX_OUTPUT_TOKENS);
-  const response = await anthropic.messages.create({
+  // Стримим: при max_tokens > ~16000 SDK Anthropic иначе упирается в HTTP-таймаут.
+  // finalMessage() собирает полный ответ (нам события по токенам не нужны).
+  const stream = anthropic.messages.stream({
     model: CLAUDE_MODEL,
     max_tokens: cappedMaxTokens,
     system: systemMsg?.text,
     messages: chatMessages,
   });
+  const response = await stream.finalMessage();
 
   const text = response.content.find(b => b.type === "text")?.text ?? "";
   if (!text) throw new Error("Claude: пустой ответ");
@@ -309,7 +312,9 @@ ${changeDescription}
 Верни полный обновлённый JSON процесса.`;
 
   try {
-    const text = await callClaude([{ role: "user", text: prompt }], 16000, { userId, operationType: "change_request" });
+    // Round-trip всего процесса может превышать 16000 токенов на выходе —
+    // запрашиваем полный потолок (обработка асинхронная, таймаут шлюза не мешает).
+    const text = await callClaude([{ role: "user", text: prompt }], MAX_OUTPUT_TOKENS, { userId, operationType: "change_request" });
     const jsonStr = extractJson(text);
     if (!jsonStr) throw new Error("Не удалось извлечь JSON из ответа");
     const parsed = JSON.parse(jsonStr) as ProcessData;
