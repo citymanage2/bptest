@@ -12,6 +12,9 @@ if (!ANTHROPIC_API_KEY) {
 
 const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL ?? "claude-sonnet-4-6";
+// claude-sonnet-4-6 поддерживает до 64000 output-токенов. Поднимаем потолок,
+// чтобы крупные процессы при round-trip (applyChanges) не обрезались.
+const MAX_OUTPUT_TOKENS = Number(process.env.CLAUDE_MAX_TOKENS) || 32000;
 
 // ─── callClaude helper ────────────────────────────────────────────────────────
 async function callClaude(
@@ -24,15 +27,30 @@ async function callClaude(
     .filter(m => m.role !== "system")
     .map(m => ({ role: m.role as "user" | "assistant", content: m.text }));
 
+  const cappedMaxTokens = Math.min(maxTokens, MAX_OUTPUT_TOKENS);
   const response = await anthropic.messages.create({
     model: CLAUDE_MODEL,
-    max_tokens: Math.min(maxTokens, 16000),
+    max_tokens: cappedMaxTokens,
     system: systemMsg?.text,
     messages: chatMessages,
   });
 
   const text = response.content.find(b => b.type === "text")?.text ?? "";
   if (!text) throw new Error("Claude: пустой ответ");
+
+  // Обрезанный по лимиту токенов ответ даёт невалидный (неполный) JSON.
+  // Ловим это явно, чтобы причина была понятна, а не «Unexpected end of JSON input».
+  if (response.stop_reason === "max_tokens") {
+    logger.error("AI", "Claude response truncated (max_tokens)", {
+      operationType: meta?.operationType,
+      maxTokens: cappedMaxTokens,
+      outputTokens: response.usage.output_tokens,
+    });
+    throw new Error(
+      `Ответ ИИ обрезан по лимиту токенов (${cappedMaxTokens}). ` +
+      `Увеличьте CLAUDE_MAX_TOKENS или упростите запрос.`
+    );
+  }
 
   if (meta?.operationType) {
     const inputTokens = response.usage.input_tokens;
@@ -308,8 +326,10 @@ ${changeDescription}
     }));
     return parsed;
   } catch (error) {
-    console.error("AI change error:", error);
-    throw new Error("Не удалось применить изменения через ИИ");
+    // logger.error → попадает в админ-панель логов; детализируем причину для клиента.
+    logger.error("AI", "applyChanges failed", error);
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Не удалось применить изменения через ИИ: ${detail}`);
   }
 }
 
