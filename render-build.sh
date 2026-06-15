@@ -127,6 +127,13 @@ async function run() {
   await sql\`ALTER TYPE consent_type ADD VALUE IF NOT EXISTS 'cookie_policy'\`;
   console.log('consent_type enum values ensured');
 
+  // Async change requests: new statuses + nullable new_data + error message
+  await sql\`ALTER TYPE change_request_status ADD VALUE IF NOT EXISTS 'processing'\`;
+  await sql\`ALTER TYPE change_request_status ADD VALUE IF NOT EXISTS 'error'\`;
+  await sql\`ALTER TABLE change_requests ALTER COLUMN new_data DROP NOT NULL\`;
+  await sql\`ALTER TABLE change_requests ADD COLUMN IF NOT EXISTS error_message TEXT\`;
+  console.log('change_requests async columns ensured');
+
   await sql.end();
 }
 run().catch(e => { console.error('Pre-migration error:', e); process.exit(1); });

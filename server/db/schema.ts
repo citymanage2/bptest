@@ -16,7 +16,7 @@ export const userRoleEnum = pgEnum("user_role", ["user", "admin"]);
 export const interviewModeEnum = pgEnum("interview_mode", ["full", "express"]);
 export const interviewStatusEnum = pgEnum("interview_status", ["draft", "completed"]);
 export const processStatusEnum = pgEnum("process_status", ["draft", "active", "archived"]);
-export const changeRequestStatusEnum = pgEnum("change_request_status", ["pending", "applied", "rejected"]);
+export const changeRequestStatusEnum = pgEnum("change_request_status", ["pending", "applied", "rejected", "processing", "error"]);
 // Note: recommendation_category changed from enum to text to avoid migration issues
 export const recommendationPriorityEnum = pgEnum("recommendation_priority", ["high", "medium", "low"]);
 export const supportChatStatusEnum = pgEnum("support_chat_status", ["open", "closed"]);
@@ -140,7 +140,9 @@ export const changeRequests = pgTable("change_requests", {
   description: text("description").notNull(),
   status: changeRequestStatusEnum("status").notNull().default("pending"),
   previousData: jsonb("previous_data").notNull(),
-  newData: jsonb("new_data").notNull(),
+  // nullable: при асинхронной обработке newData появляется только после успеха ИИ
+  newData: jsonb("new_data"),
+  errorMessage: text("error_message"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

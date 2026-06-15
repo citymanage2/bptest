@@ -991,6 +991,8 @@ export function ProcessPage() {
   const [changeDialogOpen, setChangeDialogOpen] = useState(false);
   const [changeDescription, setChangeDescription] = useState("");
   const [pendingChangeRequest, setPendingChangeRequest] = useState<ChangeRequest | null>(null);
+  // id запроса изменений, который ИИ строит в фоне (опрашиваем статус)
+  const [processingChangeId, setProcessingChangeId] = useState<number | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [previewBefore, setPreviewBefore] = useState<ProcessData | null>(null);
   const [previewAfter, setPreviewAfter] = useState<ProcessData | null>(null);
@@ -1048,18 +1050,50 @@ export function ProcessPage() {
 
   const requestChangeMutation = trpc.process.requestChange.useMutation({
     onSuccess: (changeRequest) => {
-      const cr = changeRequest as ChangeRequest;
-      setPendingChangeRequest(cr);
-      setPreviewBefore(cr.previousData);
-      setPreviewAfter(cr.newData);
-      setPreviewType("change");
-      setChangeDialogOpen(false);
-      setPreviewOpen(true);
+      // Запрос принят, ИИ строит изменения в фоне — начинаем опрашивать статус.
+      setProcessingChangeId(changeRequest.id);
     },
     onError: (err) => {
       toast({ title: "Ошибка запроса изменений", description: err.message, variant: "destructive" });
     },
   });
+
+  // Опрос статуса фоновой обработки запроса изменений
+  const changeStatusQuery = trpc.process.getChangeRequest.useQuery(
+    { id: processingChangeId ?? 0 },
+    {
+      enabled: processingChangeId !== null,
+      refetchInterval: (query) => {
+        const s = query.state.data?.status;
+        return s === "processing" ? 3000 : false;
+      },
+    }
+  );
+
+  useEffect(() => {
+    const cr = changeStatusQuery.data;
+    if (!cr || processingChangeId === null) return;
+    if (cr.status === "pending" && cr.newData) {
+      // Готово — показываем предпросмотр
+      setProcessingChangeId(null);
+      setPendingChangeRequest(cr as ChangeRequest);
+      setPreviewBefore(cr.previousData);
+      setPreviewAfter(cr.newData);
+      setPreviewType("change");
+      setChangeDialogOpen(false);
+      setPreviewOpen(true);
+    } else if (cr.status === "error") {
+      setProcessingChangeId(null);
+      toast({
+        title: "Не удалось применить изменения",
+        description: cr.errorMessage || "ИИ не смог построить изменения. Попробуйте переформулировать запрос.",
+        variant: "destructive",
+      });
+    }
+  }, [changeStatusQuery.data, processingChangeId]);
+
+  // true пока запрос отправляется ИЛИ ИИ строит изменения в фоне
+  const isChangeProcessing = requestChangeMutation.isPending || processingChangeId !== null;
 
   const applyChangeMutation = trpc.process.applyChange.useMutation({
     onSuccess: () => {
@@ -1406,7 +1440,8 @@ export function ProcessPage() {
                 </DialogTitle>
                 <DialogDescription>
                   Изменения затронут только диаграмму (блоки, связи, роли).
-                  После генерации будет показан предпросмотр. Стоимость: {TOKEN_COSTS.change_request} токенов.
+                  ИИ строит их в фоне (обычно 1–2 минуты), затем будет показан предпросмотр.
+                  Можно не закрывать вкладку. Стоимость: {TOKEN_COSTS.change_request} токенов.
                 </DialogDescription>
               </DialogHeader>
 
@@ -1416,7 +1451,7 @@ export function ProcessPage() {
                   value={changeDescription}
                   onChange={(e) => setChangeDescription(e.target.value)}
                   rows={4}
-                  disabled={requestChangeMutation.isPending}
+                  disabled={isChangeProcessing}
                 />
                 <DialogFooter>
                   <Button
@@ -1425,18 +1460,18 @@ export function ProcessPage() {
                       setChangeDialogOpen(false);
                       setChangeDescription("");
                     }}
-                    disabled={requestChangeMutation.isPending}
+                    disabled={isChangeProcessing}
                   >
                     Отмена
                   </Button>
                   <Button
                     onClick={handleRequestChange}
-                    disabled={requestChangeMutation.isPending || !changeDescription.trim()}
+                    disabled={isChangeProcessing || !changeDescription.trim()}
                   >
-                    {requestChangeMutation.isPending ? (
+                    {isChangeProcessing ? (
                       <>
                         <Loader2 className="w-4 h-4 animate-spin" />
-                        Генерация...
+                        ИИ строит изменения…
                       </>
                     ) : (
                       <>

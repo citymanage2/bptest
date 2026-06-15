@@ -37,6 +37,44 @@ async function deductTokens(userId: number, amount: number, type: string, descri
   });
 }
 
+async function refundTokens(userId: number, amount: number, type: string, description: string) {
+  const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
+  if (!user) return;
+  await db.update(users).set({ tokenBalance: user.tokenBalance + amount }).where(eq(users.id, userId));
+  await db.insert(tokenOperations).values({ userId, amount, type: type as any, description });
+}
+
+// Асинхронная обработка запроса изменений: AI-вызов длится минуты и не должен
+// держать HTTP-соединение (его рвёт шлюз по таймауту). Запускается fire-and-forget,
+// результат пишется в строку change_requests, клиент опрашивает статус.
+async function processChangeRequestInBackground(
+  changeRequestId: number,
+  currentData: ProcessData,
+  description: string,
+  userId: number
+) {
+  try {
+    const newData = await applyChanges(currentData, description, userId);
+    await db
+      .update(changeRequests)
+      .set({ newData, status: "pending", errorMessage: null })
+      .where(eq(changeRequests.id, changeRequestId));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    await db
+      .update(changeRequests)
+      .set({ status: "error", errorMessage: detail })
+      .where(eq(changeRequests.id, changeRequestId));
+    // Возврат токенов: изменения так и не были построены
+    await refundTokens(
+      userId,
+      TOKEN_COSTS.change_request,
+      "change_request",
+      "Возврат за неудавшийся запрос изменений"
+    ).catch(() => {});
+  }
+}
+
 export const processRouter = router({
   generate: protectedProcedure
     .input(z.object({ interviewId: z.number() }))
@@ -239,21 +277,31 @@ export const processRouter = router({
       if (!process) throw new Error("Процесс не найден");
       if (process.company.userId !== ctx.userId) throw new Error("Доступ запрещён");
 
-      // Deduct tokens
+      // Deduct tokens (возвращаются в фоне, если ИИ упадёт)
       await deductTokens(ctx.userId, TOKEN_COSTS.change_request, "change_request", "Запрос изменений");
 
       const currentData = process.data as ProcessData;
-      const newData = await applyChanges(currentData, input.description, ctx.userId);
 
+      // Создаём запрос в статусе "processing" и сразу отвечаем — AI-вызов
+      // длится минуты и иначе упёрся бы в таймаут шлюза (nginx/Cloudflare).
       const [changeRequest] = await db
         .insert(changeRequests)
         .values({
           processId: process.id,
           description: input.description,
           previousData: currentData,
-          newData: newData,
+          newData: null,
+          status: "processing",
         })
         .returning();
+
+      // Фоновая обработка без await — результат заберётся опросом getChangeRequest.
+      processChangeRequestInBackground(
+        changeRequest.id,
+        currentData,
+        input.description,
+        ctx.userId
+      ).catch((err) => console.error("[requestChange] background worker crashed:", err));
 
       return {
         id: changeRequest.id,
@@ -261,8 +309,31 @@ export const processRouter = router({
         description: changeRequest.description,
         status: changeRequest.status,
         previousData: changeRequest.previousData as ProcessData,
-        newData: changeRequest.newData as ProcessData,
+        newData: null,
+        errorMessage: null,
         createdAt: changeRequest.createdAt.toISOString(),
+      };
+    }),
+
+  getChangeRequest: protectedProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const cr = await db.query.changeRequests.findFirst({
+        where: eq(changeRequests.id, input.id),
+        with: { process: { with: { company: true } } },
+      });
+      if (!cr) throw new Error("Запрос изменений не найден");
+      if ((cr.process as any).company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+
+      return {
+        id: cr.id,
+        processId: cr.processId,
+        description: cr.description,
+        status: cr.status,
+        previousData: cr.previousData as ProcessData,
+        newData: (cr.newData as ProcessData) ?? null,
+        errorMessage: cr.errorMessage ?? null,
+        createdAt: cr.createdAt.toISOString(),
       };
     }),
 
@@ -275,6 +346,7 @@ export const processRouter = router({
       });
       if (!cr) throw new Error("Запрос изменений не найден");
       if ((cr.process as any).company.userId !== ctx.userId) throw new Error("Доступ запрещён");
+      if (!cr.newData) throw new Error("Изменения ещё не готовы или завершились ошибкой");
 
       // Save current version
       await db.insert(processVersions).values({
@@ -387,7 +459,8 @@ export const processRouter = router({
         description: cr.description,
         status: cr.status,
         previousData: cr.previousData as ProcessData,
-        newData: cr.newData as ProcessData,
+        newData: (cr.newData as ProcessData) ?? null,
+        errorMessage: cr.errorMessage ?? null,
         createdAt: cr.createdAt.toISOString(),
       }));
     }),

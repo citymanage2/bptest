@@ -134,9 +134,11 @@ export interface ChangeRequest {
   id: number;
   processId: number;
   description: string;
-  status: "pending" | "applied" | "rejected";
+  // processing — ИИ ещё строит изменения (асинхронно); error — построение упало
+  status: "pending" | "applied" | "rejected" | "processing" | "error";
   previousData: ProcessData;
-  newData: ProcessData;
+  newData: ProcessData | null;
+  errorMessage?: string | null;
   createdAt: string;
 }
 
